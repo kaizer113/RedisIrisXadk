@@ -121,7 +121,7 @@ def seed_vertex(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Seed identical ValueHarbor facts into both managed memory providers."
+        description="Seed identical Value Wholesale facts into both managed memory providers."
     )
     parser.add_argument(
         "--data",

@@ -1,11 +1,11 @@
-# ValueHarbor architecture
+# Value Wholesale architecture
 
-ValueHarbor is a fictional membership-warehouse shopping agent built to demonstrate how
+Value Wholesale is a fictional membership-warehouse shopping agent built to demonstrate how
 Google Agent Development Kit (ADK) and Redis IRIS services can work together in an ecommerce
 journey. The application is a FastAPI service with a browser chat UI. The current public demo
 runs on GCP in `us-east4`.
 
-![ValueHarbor system architecture](docs/architecture.svg)
+![Value Wholesale system architecture](docs/architecture.svg)
 
 The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 

@@ -1,4 +1,4 @@
-"""Create or update the ValueHarbor Context Surface using ctxctl."""
+"""Create or update the existing shopping Context Surface using ctxctl."""
 
 from __future__ import annotations
 
@@ -101,7 +101,7 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "--name",
             SURFACE_NAME,
             "--description",
-            "Governed live ecommerce context for the ValueHarbor ADK shopping agent.",
+            "Governed live ecommerce context for the Value Wholesale ADK shopping agent.",
             "--models",
             str(MODELS_PATH),
             admin_key=admin_key,
@@ -115,7 +115,7 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "--name",
             SURFACE_NAME,
             "--description",
-            "Governed live ecommerce context for the ValueHarbor ADK shopping agent.",
+            "Governed live ecommerce context for the Value Wholesale ADK shopping agent.",
             "--models",
             str(MODELS_PATH),
             "--redis-addr",
@@ -141,7 +141,7 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "--name",
             "valueharbor-adk-shopping-agent",
             "--description",
-            "Public ValueHarbor workshop agent",
+            "Public Value Wholesale workshop agent",
             admin_key=admin_key,
         )
         agent_key = str(payload["key"])

@@ -1,6 +1,6 @@
-# ValueHarbor recommended demo flow
+# Value Wholesale recommended demo flow
 
-This is an 8–10 minute presenter flow for the ValueHarbor shopping agent. It starts with a
+This is an 8–10 minute presenter flow for the Value Wholesale shopping agent. It starts with a
 customer need, reveals the live agent trace as evidence, and finishes with the two independent
 memory paths and Gemini model selector.
 
@@ -160,7 +160,7 @@ Summarize the trace from top to bottom:
 - selected Gemini model;
 - `ADK Runner + Gemini` and total latency.
 
-The key message is that ValueHarbor does not merely produce an answer: it exposes where context
+The key message is that Value Wholesale does not merely produce an answer: it exposes where context
 came from, which actions ran, which memory system returned each fact, and how long each step took.
 
 ## Reliable fallback prompt

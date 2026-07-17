@@ -93,7 +93,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="ValueHarbor Shopping Agent",
+    title="Value Wholesale Shopping Agent",
     version="0.1.0",
     description="Google ADK + Redis IRIS ecommerce demonstration.",
     lifespan=lifespan,
@@ -297,7 +297,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     if routing.get("distance") is not None:
         route_details.append(f"Cosine distance: {routing['distance']}")
     if blocked:
-        route_summary = "Blocked · outside ValueHarbor ecommerce scope"
+        route_summary = "Blocked · outside Value Wholesale ecommerce scope"
     elif cache_read or cache_write:
         route_summary = (
             f"{routing.get('route') or 'cacheable ecommerce'} · LangCache read + write"
@@ -314,7 +314,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
     if blocked:
         answer = (
-            "I’m focused on ValueHarbor shopping, products, orders, inventory, "
+            "I’m focused on Value Wholesale shopping, products, orders, inventory, "
             "membership, and policies. Ask me something in that area and I’ll help."
         )
         yield trace_event(

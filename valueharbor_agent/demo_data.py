@@ -268,7 +268,7 @@ POLICIES = [
         "id": "pricing",
         "title": "Member pricing",
         "content": (
-            "Displayed member prices require an active ValueHarbor membership. Prices and "
+            "Displayed member prices require an active Value Wholesale membership. Prices and "
             "inventory can vary by warehouse and are confirmed when the order is submitted."
         ),
     },

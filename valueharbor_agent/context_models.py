@@ -1,4 +1,4 @@
-"""Context Retriever entity model for the ValueHarbor shopping demo."""
+"""Context Retriever entity model for the Value Wholesale shopping demo."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class Product(ContextModel):
     category: str = ContextField(description="Product category", index="tag")
     price: float = ContextField(description="Regular price", index="numeric", sortable=True)
     member_price: float = ContextField(
-        description="ValueHarbor member price", index="numeric", sortable=True
+        description="Value Wholesale member price", index="numeric", sortable=True
     )
     description: str = ContextField(description="Product description", index="text")
     tags: list[str] = ContextField(description="Product discovery tags", index="tag")

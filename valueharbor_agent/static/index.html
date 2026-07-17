@@ -3,37 +3,40 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>ValueHarbor · Shopping Agent</title>
+    <title>Value Wholesale · Shopping Agent</title>
     <style>
-      :root { color-scheme: dark; --ink:#f7f4ea; --muted:#aab7b0; --green:#46d19a; --sea:#0d6158; --navy:#071c22; --panel:#0d2930; --line:#20464a; --gold:#f0bb56; }
+      :root { color-scheme:light; --ink:#102a43; --muted:#60738b; --red:#d71920; --blue:#174a87; --navy:#071f3d; --panel:#fbfdff; --line:#c8d6e6; --soft-blue:#eaf3ff; --soft-red:#fff0f1; }
       * { box-sizing:border-box; }
-      body { margin:0; min-height:100vh; font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif; color:var(--ink); background:radial-gradient(circle at 10% 10%,#124d49 0,transparent 32%),radial-gradient(circle at 90% 5%,#473c1e 0,transparent 28%),var(--navy); }
-      header { display:flex; align-items:center; justify-content:space-between; padding:20px 5vw; border-bottom:1px solid #ffffff18; backdrop-filter:blur(12px); }
+      body { margin:0; min-height:100vh; font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif; color:var(--ink); background:radial-gradient(circle at 8% 4%,#d7192040 0,transparent 26%),radial-gradient(circle at 92% 0%,#2f6db540 0,transparent 30%),var(--navy); }
+      header { display:flex; align-items:center; justify-content:space-between; padding:20px 5vw; color:#fff; border-bottom:1px solid #ffffff2b; background:#071f3dcc; backdrop-filter:blur(12px); }
       .brand { display:flex; align-items:center; gap:13px; font-weight:800; letter-spacing:.02em; }
-      .mark { display:grid; place-items:center; width:42px; height:42px; border-radius:13px; color:#05251f; background:linear-gradient(145deg,var(--green),#b9f1c9); font-size:21px; }
-      .badge { padding:7px 11px; border:1px solid #ffffff24; border-radius:999px; color:var(--muted); font-size:12px; }
+      .brand small { color:#c9d6e7; }
+      .mark { display:grid; place-items:center; width:48px; height:44px; border:2px solid #fff; border-radius:10px; color:#fff; background:linear-gradient(180deg,var(--red) 0 58%,var(--blue) 58%); box-shadow:0 5px 18px #0004; font-size:15px; letter-spacing:-.04em; }
+      .badge { padding:7px 11px; border:1px solid #ffffff4a; border-radius:999px; color:#fff; background:#ffffff12; font-size:12px; }
       main { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(320px,.85fr); gap:18px; width:min(1280px,92vw); margin:26px auto; }
-      .panel { background:linear-gradient(180deg,#11343be8,#0b252ce8); border:1px solid var(--line); border-radius:22px; box-shadow:0 24px 70px #0006; overflow:hidden; }
-      .hero { padding:26px 28px 18px; }
+      .panel { background:var(--panel); border:1px solid #ffffff; border-top:4px solid var(--red); border-radius:18px; box-shadow:0 24px 70px #0007; overflow:hidden; }
+      .hero { padding:26px 28px 18px; background:linear-gradient(120deg,#fff 0%,#f2f7fd 72%,var(--soft-red)); }
       h1 { margin:0; font-size:clamp(28px,4vw,52px); line-height:1.04; max-width:740px; }
-      h1 span { color:var(--green); }
+      h1 span { color:var(--red); }
       .sub { color:var(--muted); max-width:680px; margin:12px 0 18px; }
       .chips { display:flex; flex-wrap:wrap; gap:8px; }
       button { border:0; cursor:pointer; color:var(--ink); font:inherit; }
-      .chip { padding:9px 12px; border-radius:999px; background:#ffffff0c; border:1px solid #ffffff1c; }
+      .chip { padding:9px 12px; border-radius:999px; background:#fff; border:1px solid var(--line); }
+      .chip:hover, .chip:focus-visible { color:var(--red); border-color:var(--red); }
       .chat { display:flex; flex-direction:column; height:510px; border-top:1px solid var(--line); }
       #messages { flex:1; overflow:auto; padding:22px 28px; display:flex; flex-direction:column; gap:12px; }
       .msg { max-width:82%; padding:12px 15px; border-radius:16px; white-space:pre-wrap; }
-      .assistant { align-self:flex-start; background:#153b40; border:1px solid #ffffff14; }
-      .user { align-self:flex-end; background:var(--sea); }
-      .chat-controls { display:flex; align-items:center; gap:12px; padding:10px 16px; border-top:1px solid var(--line); background:#071d2238; }
+      .assistant { align-self:flex-start; background:var(--soft-blue); border:1px solid #c8dcf4; }
+      .user { align-self:flex-end; color:#fff; background:var(--blue); }
+      .chat-controls { display:flex; align-items:center; gap:12px; padding:10px 16px; border-top:1px solid var(--line); background:#f1f6fc; }
       .chat-controls label { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:11px; white-space:nowrap; }
       .chat-controls select { max-width:210px; padding:8px 10px; border-radius:9px; font-size:12px; }
       .composer { display:flex; gap:10px; padding:12px 16px 16px; }
-      input, textarea, select { width:100%; background:#071d22; border:1px solid var(--line); color:var(--ink); border-radius:12px; padding:12px; font:inherit; outline:none; }
-      input:focus, textarea:focus, select:focus { border-color:var(--green); }
+      input, textarea, select { width:100%; background:#fff; border:1px solid var(--line); color:var(--ink); border-radius:12px; padding:12px; font:inherit; outline:none; }
+      input:focus, textarea:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #174a8718; }
       select { width:auto; max-width:190px; }
-      .send { padding:0 20px; border-radius:12px; background:var(--green); color:#06251f; font-weight:800; }
+      .send { padding:0 20px; border-radius:12px; background:var(--red); color:#fff; font-weight:800; }
+      .send:hover, .send:focus-visible { background:#b81018; }
       aside { display:flex; flex-direction:column; gap:18px; }
       .side { padding:20px; }
       h2 { margin:0 0 7px; font-size:18px; }
@@ -45,63 +48,63 @@
       .service-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
       .service { padding:10px; border:1px solid var(--line); border-radius:11px; font-size:12px; }
       .service-line { display:flex; align-items:center; }
-      .service-meta { display:block; margin:3px 0 0 14px; padding:0; color:#8dcdbb; background:transparent; text-align:left; font-size:10px; line-height:1.25; }
-      .service-meta:hover, .service-meta:focus-visible { color:var(--green); text-decoration:underline; }
-      .dot { display:inline-block; width:8px; height:8px; border-radius:99px; margin-right:6px; background:#64726f; }
-      .on .dot { background:var(--green); box-shadow:0 0 12px var(--green); }
+      .service-meta { display:block; margin:3px 0 0 14px; padding:0; color:var(--blue); background:transparent; text-align:left; font-size:10px; line-height:1.25; }
+      .service-meta:hover, .service-meta:focus-visible { color:var(--red); text-decoration:underline; }
+      .dot { display:inline-block; width:8px; height:8px; border-radius:99px; margin-right:6px; background:#94a3b8; }
+      .on .dot { background:var(--blue); box-shadow:0 0 10px #174a8766; }
       .trace-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
       .trace-live { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:11px; }
-      .trace-live .pulse { width:7px; height:7px; border-radius:99px; background:#64726f; }
-      .trace-live.active .pulse { background:var(--green); box-shadow:0 0 12px var(--green); animation:pulse 1s infinite; }
+      .trace-live .pulse { width:7px; height:7px; border-radius:99px; background:#94a3b8; }
+      .trace-live.active .pulse { background:var(--red); box-shadow:0 0 10px #d7192066; animation:pulse 1s infinite; }
       @keyframes pulse { 50% { opacity:.3; } }
       #trace { display:flex; flex-direction:column; gap:0; max-height:470px; overflow:auto; margin-top:8px; }
       .trace-empty { color:var(--muted); padding:22px 4px; text-align:center; font-size:13px; }
-      .trace-step { position:relative; padding:11px 0 12px 24px; border-bottom:1px solid #ffffff0d; }
-      .trace-step::before { content:""; position:absolute; left:4px; top:18px; width:8px; height:8px; border-radius:99px; background:#64726f; }
+      .trace-step { position:relative; padding:11px 0 12px 24px; border-bottom:1px solid #dce6f1; }
+      .trace-step::before { content:""; position:absolute; left:4px; top:18px; width:8px; height:8px; border-radius:99px; background:#94a3b8; }
       .trace-step::after { content:""; position:absolute; left:7.5px; top:28px; bottom:-7px; width:1px; background:var(--line); }
       .trace-step:last-child::after { display:none; }
-      .trace-step.running::before { background:var(--gold); box-shadow:0 0 10px #f0bb5688; animation:pulse 1s infinite; }
-      .trace-step.done::before { background:var(--green); }
+      .trace-step.running::before { background:var(--red); box-shadow:0 0 10px #d7192066; animation:pulse 1s infinite; }
+      .trace-step.done::before { background:var(--blue); }
       .trace-row { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
       .trace-label { font-size:13px; font-weight:700; }
-      .trace-time { flex:none; color:var(--gold); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .trace-time { flex:none; color:var(--red); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
       .trace-summary { color:var(--muted); font-size:12px; margin-top:2px; }
       .trace-details { margin-top:7px; }
-      .trace-details summary { cursor:pointer; color:#9fd9c7; font-size:11px; }
-      .trace-fact { margin-top:5px; padding:7px 9px; border-radius:8px; background:#071d2288; color:#c5d4cf; font-size:11px; overflow-wrap:anywhere; }
-      .modal { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:24px; background:#020c0fcc; backdrop-filter:blur(8px); }
+      .trace-details summary { cursor:pointer; color:var(--blue); font-size:11px; }
+      .trace-fact { margin-top:5px; padding:7px 9px; border-radius:8px; background:var(--soft-blue); color:#294866; font-size:11px; overflow-wrap:anywhere; }
+      .modal { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:24px; background:#04152bd9; backdrop-filter:blur(8px); }
       .modal[hidden] { display:none; }
-      .modal-card { width:min(860px,94vw); max-height:min(760px,88vh); display:flex; flex-direction:column; border:1px solid var(--line); border-radius:20px; background:#0b252c; box-shadow:0 30px 100px #000b; overflow:hidden; }
+      .modal-card { width:min(860px,94vw); max-height:min(760px,88vh); display:flex; flex-direction:column; border:1px solid var(--line); border-top:4px solid var(--red); border-radius:18px; background:#fff; box-shadow:0 30px 100px #000b; overflow:hidden; }
       .modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:20px 22px 14px; border-bottom:1px solid var(--line); }
       .modal-head .small { margin:0; }
-      .modal-close { width:30px; height:30px; border:1px solid #ffffff18; border-radius:9px; background:#ffffff08; font-size:18px; }
+      .modal-close { width:30px; height:30px; border:1px solid var(--line); border-radius:9px; background:var(--soft-blue); font-size:18px; }
       .tool-list { overflow:auto; padding:4px 22px 22px; }
-      .tool-group { padding:16px 0; border-bottom:1px solid #ffffff12; }
+      .tool-group { padding:16px 0; border-bottom:1px solid #dce6f1; }
       .tool-group:last-child { border-bottom:0; }
       .tool-group-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:9px; }
-      .tool-group-title { margin:0; color:#f3f7f5; font-size:14px; }
+      .tool-group-title { margin:0; color:var(--ink); font-size:14px; }
       .tool-group-count { color:var(--muted); font-size:10px; }
       .tool-items { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:6px 20px; }
-      .tool-item { min-width:0; padding:7px 9px; border-radius:8px; background:#071d225c; }
-      .tool-name { color:var(--green); font:12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
+      .tool-item { min-width:0; padding:7px 9px; border-radius:8px; background:var(--soft-blue); }
+      .tool-name { color:var(--blue); font:12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
       body.modal-open { overflow:hidden; }
       @media (max-width:900px) { main { grid-template-columns:1fr; } .chat { height:500px; } }
       @media (max-width:620px) { .chat-controls { align-items:stretch; flex-direction:column; } .chat-controls label { justify-content:space-between; } .chat-controls select { flex:1; } }
     </style>
   </head>
   <body>
-    <header><div class="brand"><div class="mark">V</div><div>VALUEHARBOR<br><small style="color:var(--muted);font-weight:500">Member shopping, intelligently</small></div></div><div class="badge">Google ADK × Redis IRIS</div></header>
+    <header><div class="brand"><div class="mark">VW</div><div>VALUE WHOLESALE<br><small style="font-weight:500">Member shopping, intelligently</small></div></div><div class="badge">Google ADK × Redis IRIS</div></header>
     <main>
       <section class="panel">
         <div class="hero"><h1>Stock the house.<br><span>Skip the guesswork.</span></h1><p class="sub">Meet Vale, a grounded shopping agent that understands the catalog, sees warehouse context, remembers preferences, and shows its work.</p><div class="chips"><button class="chip" data-prompt="Find family-size pantry staples under $30 and check Portland stock.">Plan a pantry run</button><button class="chip" data-prompt="Remember that I prefer fragrance-free household products and Portland pickup.">Save a preference</button><button class="chip" data-prompt="What is the electronics return policy?">Ask a policy</button></div></div>
-        <div class="chat"><div id="messages"><div class="msg assistant">Welcome to ValueHarbor. What are you shopping for today?</div></div><div class="chat-controls"><label>Shop as <select id="member" aria-label="Demo member"></select></label><label>Model <select id="model" aria-label="Gemini model"><option value="gemini-2.5-flash">Gemini 2.5 Flash</option><option value="gemini-2.5-pro">Gemini 2.5 Pro</option></select></label></div><form id="chat-form" class="composer"><input id="message" autocomplete="off" placeholder="Ask Vale about products, stock, orders, or preferences…" /><button class="send">Send</button></form></div>
+        <div class="chat"><div id="messages"><div class="msg assistant">Welcome to Value Wholesale. What are you shopping for today?</div></div><div class="chat-controls"><label>Shop as <select id="member" aria-label="Demo member"></select></label><label>Model <select id="model" aria-label="Gemini model"><option value="gemini-2.5-flash">Gemini 2.5 Flash</option><option value="gemini-2.5-pro">Gemini 2.5 Pro</option></select></label></div><form id="chat-form" class="composer"><input id="message" autocomplete="off" placeholder="Ask Vale about products, stock, orders, or preferences…" /><button class="send">Send</button></form></div>
       </section>
       <aside>
         <section class="panel side"><h2>IRIS service board</h2><p class="small">Live integration status for this environment.</p><div id="status" class="status"></div></section>
         <section class="panel side"><div class="trace-head"><div><h2>Live agent trace</h2><p class="small">Every retrieval, tool call, and generation step.</p></div><div id="trace-live" class="trace-live"><span class="pulse"></span><span>idle</span></div></div><div id="trace"><div class="trace-empty">Send a message to watch Vale work.</div></div></section>
       </aside>
     </main>
-    <div id="tools-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tools-title" hidden><section class="modal-card"><div class="modal-head"><div><h2 id="tools-title">Context Retriever tools</h2><p id="tools-summary" class="small">Governed tools generated from the ValueHarbor context surface.</p></div><button id="tools-close" class="modal-close" type="button" aria-label="Close tools">×</button></div><div id="tool-list" class="tool-list"></div></section></div>
+    <div id="tools-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tools-title" hidden><section class="modal-card"><div class="modal-head"><div><h2 id="tools-title">Context Retriever tools</h2><p id="tools-summary" class="small">Governed tools generated from the Value Wholesale context surface.</p></div><button id="tools-close" class="modal-close" type="button" aria-label="Close tools">×</button></div><div id="tool-list" class="tool-list"></div></section></div>
     <script>
       let memberId='member-1001',sessionId=`shopping-demo-${memberId}-${Date.now()}`;
       const messages=document.querySelector('#messages'),input=document.querySelector('#message'),modelSelect=document.querySelector('#model'),memberSelect=document.querySelector('#member');
@@ -114,7 +117,7 @@
       function renderStep(step){let el=document.getElementById('trace-'+step.id);if(!el){el=document.createElement('div');el.id='trace-'+step.id;trace.appendChild(el);}el.className='trace-step '+step.status;el.replaceChildren();const row=document.createElement('div');row.className='trace-row';const label=document.createElement('div');label.className='trace-label';label.textContent=step.label;const timing=document.createElement('div');timing.className='trace-time';timing.textContent=step.duration_ms==null?'…':`${step.duration_ms} ms`;row.append(label,timing);el.append(row);if(step.summary){const summary=document.createElement('div');summary.className='trace-summary';summary.textContent=step.summary;el.append(summary);}if(step.details?.length){const details=document.createElement('details');details.className='trace-details';const heading=document.createElement('summary');heading.textContent=`Show ${step.details.length} result${step.details.length===1?'':'s'}`;details.append(heading);step.details.forEach(value=>{const fact=document.createElement('div');fact.className='trace-fact';fact.textContent=value;details.append(fact);});el.append(details);}trace.scrollTop=trace.scrollHeight;}
       document.querySelector('#chat-form').onsubmit=async e=>{e.preventDefault();const text=input.value.trim();if(!text)return;add(text,'user');input.value='';const wait=add('Vale is checking…','assistant');trace.replaceChildren();setLive(true);try{const r=await fetch('/api/chat/stream',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:text,member_id:memberId,session_id:sessionId,model:modelSelect.value})});if(!r.ok)throw new Error(`HTTP ${r.status}`);const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});const lines=buffer.split('\n');buffer=lines.pop()||'';for(const line of lines){if(!line.trim())continue;const event=JSON.parse(line);if(event.type==='trace')renderStep(event.step);else if(event.type==='answer')wait.textContent=event.answer;else if(event.type==='error')wait.textContent=event.message;}if(done)break;}if(wait.textContent==='Vale is checking…')wait.textContent='No response received.';}catch(err){wait.textContent='Connection error: '+err.message;}finally{setLive(false);}};
       const toolsModal=document.querySelector('#tools-modal'),toolList=document.querySelector('#tool-list');let contextTools=[];
-      function setToolSummary(count,text=`${count} governed tools available`){const trigger=document.querySelector('#context-tools-trigger');if(trigger)trigger.textContent=text;document.querySelector('#tools-summary').textContent=count?`${count} governed tools generated from the ValueHarbor context surface.`:'No governed tools are currently available.';}
+      function setToolSummary(count,text=`${count} governed tools available`){const trigger=document.querySelector('#context-tools-trigger');if(trigger)trigger.textContent=text;document.querySelector('#tools-summary').textContent=count?`${count} governed tools generated from the Value Wholesale context surface.`:'No governed tools are currently available.';}
       const toolEntities=[['inventory','Inventory'],['member','Members'],['orderitem','Order items'],['order','Orders'],['policy','Policies'],['product','Products'],['warehouse','Warehouses']];
       function toolEntity(name){const normalized=String(name||'').toLowerCase().replaceAll('order_item','orderitem');const match=toolEntities.find(([key])=>new RegExp(`(^|_)${key}(_|$)`).test(normalized));return match?.[1]||'Other';}
       function renderTools(tools){toolList.replaceChildren();const grouped=new Map();tools.forEach(tool=>{const entity=toolEntity(tool.name);if(!grouped.has(entity))grouped.set(entity,[]);grouped.get(entity).push(tool);});const order=[...toolEntities.map(([,label])=>label),'Other'];order.forEach(entity=>{const entityTools=grouped.get(entity);if(!entityTools?.length)return;entityTools.sort((a,b)=>String(a.name).localeCompare(String(b.name)));const group=document.createElement('section');group.className='tool-group';const head=document.createElement('div');head.className='tool-group-head';const title=document.createElement('h3');title.className='tool-group-title';title.textContent=entity;const count=document.createElement('span');count.className='tool-group-count';count.textContent=`${entityTools.length} tool${entityTools.length===1?'':'s'}`;head.append(title,count);const items=document.createElement('div');items.className='tool-items';entityTools.forEach(tool=>{const item=document.createElement('div');item.className='tool-item';const name=document.createElement('div');name.className='tool-name';name.textContent=tool.name||'Unnamed tool';item.append(name);items.append(item);});group.append(head,items);toolList.append(group);});}

@@ -1,4 +1,4 @@
-# ValueHarbor demo dataset
+# Value Wholesale demo dataset
 
 This is a deterministic, fictional commerce dataset for the shopping-agent workshop. Run `make dataset` to regenerate `data/generated`.
 

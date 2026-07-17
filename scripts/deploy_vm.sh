@@ -50,7 +50,7 @@ if ! gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; th
     --rules tcp:80 \
     --source-ranges 0.0.0.0/0 \
     --target-tags "$NETWORK_TAG" \
-    --description "Public HTTP access for the ValueHarbor workshop demo"
+    --description "Public HTTP access for the Value Wholesale workshop demo"
 fi
 
 if gcloud compute instances describe "$VM_NAME" --zone "$ZONE" >/dev/null 2>&1; then

@@ -446,7 +446,7 @@ def generate(output_dir: Path) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate the ValueHarbor demo dataset.")
+    parser = argparse.ArgumentParser(description="Generate the Value Wholesale demo dataset.")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     args = parser.parse_args()
     manifest = generate(args.output)

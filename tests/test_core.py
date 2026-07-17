@@ -619,7 +619,7 @@ async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
             "threshold": 0.48,
             "distance": 0.12,
             "route": OUT_OF_DOMAIN_ROUTE,
-            "reason": "outside ValueHarbor ecommerce scope",
+            "reason": "outside Value Wholesale ecommerce scope",
         },
     )
     monkeypatch.setattr(services.langcache, "search", unexpected_async)
@@ -653,7 +653,7 @@ async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
         if event["type"] == "trace"
     }
     assert answer["blocked"] is True
-    assert "ValueHarbor shopping" in answer["answer"]
+    assert "Value Wholesale shopping" in answer["answer"]
     assert traces["semantic-router"]["summary"].startswith("Blocked")
     assert traces["langcache"]["summary"] == "Bypassed · request blocked"
     assert traces["generation"]["summary"] == "Skipped · blocked by Semantic Router"

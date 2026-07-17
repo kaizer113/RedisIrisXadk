@@ -48,7 +48,7 @@ def save_env_id(path: Path, memory_bank_id: str) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Create the ValueHarbor Vertex Memory Bank.")
+    parser = argparse.ArgumentParser(description="Create the Value Wholesale Vertex Memory Bank.")
     parser.add_argument("--project", default="central-beach-194106")
     parser.add_argument("--location", default="us-east4")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
@@ -67,7 +67,7 @@ def main() -> None:
         memory_bank = client.agent_engines.create(
             config={
                 "display_name": DISPLAY_NAME,
-                "description": "ADK memory for the ValueHarbor shopping agent.",
+                "description": "ADK memory for the Value Wholesale shopping agent.",
                 "labels": {"owner": "lionel_giavelli", "app": "valueharbor"},
                 **memory_bank_config(),
             }
@@ -77,7 +77,7 @@ def main() -> None:
             name=memory_bank.api_resource.name,
             config={
                 "display_name": DISPLAY_NAME,
-                "description": "ADK memory for the ValueHarbor shopping agent.",
+                "description": "ADK memory for the Value Wholesale shopping agent.",
                 "labels": {"owner": "lionel_giavelli", "app": "valueharbor"},
                 **memory_bank_config(),
             },

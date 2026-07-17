@@ -549,7 +549,7 @@ class SemanticRouterService:
                 if cacheable
                 else "ecommerce request"
                 if ecommerce
-                else "outside ValueHarbor ecommerce scope"
+                else "outside Value Wholesale ecommerce scope"
             )
             return {
                 "configured": True,

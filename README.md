@@ -1,6 +1,6 @@
-# ValueHarbor Shopping Agent
+# Value Wholesale Shopping Agent
 
-ValueHarbor is a fictional membership-warehouse ecommerce demo. It recreates the core ideas in the Redis IRIS workshop as one end-to-end shopping journey, implemented with Google Agent Development Kit (ADK) and deployable to Compute Engine or Cloud Run.
+Value Wholesale is a fictional membership-warehouse ecommerce demo. It recreates the core ideas in the Redis IRIS workshop as one end-to-end shopping journey, implemented with Google Agent Development Kit (ADK) and deployable to Compute Engine or Cloud Run.
 
 The agent can discover products, compare member pricing, check warehouse inventory, inspect recent orders, answer grounded policy questions, build a cart, and remember household shopping preferences.
 
@@ -74,7 +74,7 @@ Then seed the Redis catalog and inventory:
 make setup-iris
 ```
 
-`make setup-iris` is the repeatable Redis setup command. It regenerates the dataset, seeds the Redis database, creates or updates the `ValueHarbor Shopping` Context Surface through `ctxctl`, imports the entities, and creates a surface-scoped agent key when `.env` does not already contain one.
+`make setup-iris` is the repeatable Redis setup command. It regenerates the dataset, seeds the Redis database, creates or updates the existing `ValueHarbor Shopping` Context Surface through `ctxctl`, imports the Value Wholesale entities, and creates a surface-scoped agent key when `.env` does not already contain one. The Context Surface keeps its original resource name for compatibility.
 
 Once every managed-service ID is present in `.env` and GCP authentication is active, `make deploy-all` performs the Redis setup and deploys the public Cloud Run service in one command. This demo path uses the project's existing default Cloud Run identity and revision environment variables, so it does not create service accounts or change project IAM. Production deployments should use a dedicated least-privilege service identity and Secret Manager.
 

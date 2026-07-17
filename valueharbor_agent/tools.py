@@ -22,7 +22,7 @@ def search_catalog(
     category: str = "",
     limit: int = 5,
 ) -> dict[str, Any]:
-    """Find ValueHarbor products with RedisVL by meaning, keywords, and optional category.
+    """Find Value Wholesale products with RedisVL by meaning, keywords, and optional category.
 
     Args:
         query: What the member wants or the need the product should satisfy.
@@ -33,7 +33,7 @@ def search_catalog(
 
 
 def check_warehouse_inventory(sku: str, warehouse_id: str) -> dict[str, Any]:
-    """Check current quantity and availability for a SKU at a ValueHarbor warehouse.
+    """Check current quantity and availability for a SKU at a Value Wholesale warehouse.
 
     Args:
         sku: Product SKU such as VH-1001.
@@ -48,12 +48,12 @@ def get_member_profile(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def get_recent_orders(tool_context: ToolContext) -> dict[str, Any]:
-    """Get recent orders for the signed-in ValueHarbor member."""
+    """Get recent orders for the signed-in Value Wholesale member."""
     return {"orders": services.catalog.recent_orders(_member_id(tool_context))}
 
 
 def search_member_policies(query: str) -> dict[str, Any]:
-    """Search grounded ValueHarbor policies for returns, pickup, and member pricing.
+    """Search grounded Value Wholesale policies for returns, pickup, and member pricing.
 
     Args:
         query: The member's policy question.

@@ -19,8 +19,8 @@ async def promote_adk_session_to_memory(callback_context: CallbackContext) -> No
 
 
 INSTRUCTION = """
-You are Vale, the ValueHarbor shopping agent for a membership warehouse retailer.
-ValueHarbor is a fictional brand. Never mention or imitate any real warehouse retailer.
+You are Vale, the Value Wholesale shopping agent for a membership warehouse retailer.
+Value Wholesale is a fictional brand. Never mention or imitate any real warehouse retailer.
 
 Your job is to help members discover bulk products, compare member value, check a specific
 warehouse's live availability, understand policies, inspect orders, and build a cart.
@@ -68,7 +68,7 @@ def build_agent(model: str) -> Agent:
     return Agent(
         name="valueharbor_shopping_agent",
         model=model,
-        description="A grounded shopping agent for the fictional ValueHarbor warehouse club.",
+        description="A grounded shopping agent for the fictional Value Wholesale warehouse club.",
         instruction=INSTRUCTION,
         include_contents="none",
         tools=ALL_TOOLS,
@@ -77,7 +77,7 @@ def build_agent(model: str) -> Agent:
 
 
 GREETING_INSTRUCTION = """
-You are Vale, the ValueHarbor shopping agent for a fictional membership warehouse retailer.
+You are Vale, the Value Wholesale shopping agent for a fictional membership warehouse retailer.
 Generate a warm, concise greeting for the signed-in member.
 
 Decide whether Redis Agent Memory or Redis Context Retriever would make the greeting more
@@ -95,7 +95,7 @@ def build_greeting_agent(model: str) -> Agent:
     return Agent(
         name="valueharbor_greeting_agent",
         model=model,
-        description="Creates an optional, context-aware welcome for a ValueHarbor member.",
+        description="Creates an optional, context-aware welcome for a Value Wholesale member.",
         instruction=GREETING_INSTRUCTION,
         include_contents="none",
         tools=GREETING_TOOLS,

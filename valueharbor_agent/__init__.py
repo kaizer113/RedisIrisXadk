@@ -1,4 +1,4 @@
-"""ValueHarbor ADK application package."""
+"""Value Wholesale ADK application package."""
 
 from valueharbor_agent.agent import root_agent
 
