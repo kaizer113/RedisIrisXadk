@@ -591,11 +591,19 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     """Let a separate ADK agent choose whether retrieval would improve its greeting."""
     member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
     session_id = safe_id(f"{request.session_id}-greeting", "greeting-session")
-    started = time.perf_counter()
     tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
+    context_sources: list[str] = []
+    context_details: list[str] = []
     final_greeting = ""
 
     yield {"type": "start", "session_id": session_id}
+    yield trace_event(
+        "greeting-generation",
+        "ADK Greeting",
+        status="running",
+        summary="Selecting optional context and generating a greeting",
+    )
+    runner_started = time.perf_counter()
     try:
         async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
             async for event in greeting_runners[request.model].run_async(
@@ -642,6 +650,15 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                         (time.perf_counter(), str(response.name or "tool"), {}, True),
                     )
                     summary, details = _tool_summary(name, dict(response.response or {}))
+                    source = {
+                        "recall_redis_shopping_memory": "Redis Agent Memory",
+                        "list_context_retriever_tools": "Context Retriever catalog",
+                        "query_context_retriever": "Context Retriever",
+                    }.get(name)
+                    if source and source not in context_sources:
+                        context_sources.append(source)
+                    if source:
+                        context_details.append(f"{source}: {summary}")
                     if trace_visible:
                         yield trace_event(
                             f"greeting-tool-{call_id}",
@@ -669,11 +686,18 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
         yield {"type": "error", "message": "The agent returned no greeting."}
         return
 
+    context_summary = (
+        f"Context used: {' + '.join(context_sources)}"
+        if context_sources
+        else "No optional context tools used"
+    )
     yield trace_event(
         "greeting-generation",
-        f"ADK greeting generation · {request.model}",
-        duration_ms=round((time.perf_counter() - started) * 1000, 2),
-        summary="Personalized greeting generated",
+        "ADK Greeting",
+        duration_ms=round((time.perf_counter() - runner_started) * 1000, 2),
+        summary=f"Runner only · excludes page warm-up · {context_summary}",
+        details=context_details
+        or ["The agent chose not to call Redis Agent Memory or Context Retriever."],
     )
     yield {"type": "greeting", "greeting": final_greeting.strip()}
 

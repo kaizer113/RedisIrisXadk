@@ -402,6 +402,48 @@ def test_greeting_agent_can_choose_redis_memory_and_context_retriever() -> None:
 async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None:
     captured = {}
 
+    class FakeCallEvent:
+        content = None
+
+        @staticmethod
+        def get_function_calls():
+            return [
+                SimpleNamespace(
+                    name="recall_redis_shopping_memory",
+                    args={"query": "shopping preferences"},
+                    id="memory-call",
+                )
+            ]
+
+        @staticmethod
+        def get_function_responses():
+            return []
+
+        @staticmethod
+        def is_final_response():
+            return False
+
+    class FakeResponseEvent:
+        content = None
+
+        @staticmethod
+        def get_function_calls():
+            return []
+
+        @staticmethod
+        def get_function_responses():
+            return [
+                SimpleNamespace(
+                    name="recall_redis_shopping_memory",
+                    response={"memories": ["Prefers decaf coffee."]},
+                    id="memory-call",
+                )
+            ]
+
+        @staticmethod
+        def is_final_response():
+            return False
+
     class FakeEvent:
         content = types.Content(role="model", parts=[types.Part(text="Ready for a fresh find?")])
 
@@ -420,22 +462,41 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
     class FakeRunner:
         async def run_async(self, **kwargs):
             captured.update(kwargs)
+            yield FakeCallEvent()
+            yield FakeResponseEvent()
             yield FakeEvent()
 
     monkeypatch.setitem(api_module.greeting_runners, "gemini-2.5-flash", FakeRunner())
-    events = [
-        event
-        async for event in _greeting_events(
-            api_module.GreetingRequest(
-                member_id="member-1005",
-                session_id="shopping-session",
-                model="gemini-2.5-flash",
-            )
+    stream = _greeting_events(
+        api_module.GreetingRequest(
+            member_id="member-1005",
+            session_id="shopping-session",
+            model="gemini-2.5-flash",
         )
-    ]
+    )
+    events = [await anext(stream), await anext(stream)]
+    await asyncio.sleep(0.05)
+    events.extend([event async for event in stream])
 
     assert captured["user_id"] == "member-1005"
     assert captured["session_id"] == "shopping-session-greeting"
+    tool_events = [
+        event
+        for event in events
+        if event["type"] == "trace"
+        and event["step"]["id"] == "greeting-tool-memory-call"
+    ]
+    assert [event["step"]["status"] for event in tool_events] == ["running", "done"]
+    greeting_trace = next(
+        event["step"]
+        for event in reversed(events)
+        if event["type"] == "trace" and event["step"]["id"] == "greeting-generation"
+    )
+    assert greeting_trace["label"] == "ADK Greeting"
+    assert greeting_trace["duration_ms"] < 50
+    assert "excludes page warm-up" in greeting_trace["summary"]
+    assert "Context used: Redis Agent Memory" in greeting_trace["summary"]
+    assert greeting_trace["details"] == ["Redis Agent Memory: 1 relevant memories found"]
     assert events[-1] == {"type": "greeting", "greeting": "Ready for a fresh find?"}
 
 
@@ -444,6 +505,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
     assert "fetch('/api/greeting/stream'" in html
+    assert "await warmupOnLoad();await selectMember()" in html
     assert "What can I help you find?" not in html
 
 
