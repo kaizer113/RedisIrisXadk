@@ -11,7 +11,7 @@ memory paths and Gemini model selector.
    Redis database, Context Retriever, Semantic Router, LangCache, Agent Memory, ADK Memory Bank,
    and Agent Sessions.
 3. Select **Alex Rivera** in the **Shop as** dropdown.
-4. Leave **Gemini 2.5 Flash · Fast** selected.
+4. Leave **Gemini 2.5 Flash** selected.
 5. Use a fresh browser reload so the visible conversation starts clean and the governed Context
    Retriever tool catalog is refreshed.
 
@@ -140,7 +140,7 @@ stock truth.
 
 ## 6. Switch models without losing the session
 
-Keep the same conversation, change the composer dropdown to **Gemini 2.5 Pro · Heavy**, and ask:
+Keep the same conversation, change the composer dropdown to **Gemini 2.5 Pro**, and ask:
 
 > Plan the best pantry purchase under $40 using my preferences and explain the trade-off.
 
