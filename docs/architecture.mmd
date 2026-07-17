@@ -1,11 +1,10 @@
+%%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryTextColor":"#111827","lineColor":"#334155","clusterBkg":"#f8fafc","clusterBorder":"#94a3b8"},"flowchart":{"curve":"basis"}}}%%
 flowchart TB
     browser["Browser chat UI<br/>model selector · answer · live trace"]
 
     subgraph gcp["GCP · us-east4"]
         direction TB
-        build["Cloud Build + Artifact Registry"]
-
-        subgraph run["Public Compute Engine VM · FastAPI"]
+        subgraph run["Public application · FastAPI"]
             direction LR
             api["Chat API"] --> prefetch["Parallel read prefetch"]
             prefetch --> gate{"LangCache hit?"}
@@ -24,19 +23,16 @@ flowchart TB
 
     subgraph iris["Redis IRIS / Redis Cloud"]
         direction LR
+        rdi["Redis Data Integration<br/>continuous synchronization"]
         cache["LangCache<br/>public policy answers"]
         ram["Redis Agent Memory<br/>session events + long-term facts"]
         context["Context Retriever<br/>governed live-data tools"]
         database["Redis database + Query Engine<br/>catalog, policy, cart, commerce data"]
     end
 
-    subgraph reproducible["Reproducible setup"]
-        direction LR
-        dataset["Checked-in JSONL<br/>data/generated"] --> setup["Setup and seed scripts"]
-    end
+    lake[("Persistent enterprise data lake<br/>hypothetical · not part of demo")]
 
     browser -->|HTTP + streamed NDJSON| api
-    build -.->|deploys| api
 
     prefetch -->|eligible query| cache
     cache -->|hit or miss| gate
@@ -52,19 +48,21 @@ flowchart TB
     context --> database
     api -->|explicit user + assistant events| ram
 
-    setup --> database
-    setup --> context
-    setup --> ram
-    setup --> bank
+    cache --> database
+    ram --> database
+    lake -->|source records| rdi
+    rdi -->|continuous sync| database
 
     classDef client fill:#f2f7ff,stroke:#2864dc,color:#102a43
     classDef app fill:#fff4e8,stroke:#d97706,color:#4a2500
     classDef google fill:#eef6ff,stroke:#4285f4,color:#17365d
     classDef redis fill:#fff0f0,stroke:#dc382d,color:#4a1512
-    classDef data fill:#f2fbf3,stroke:#2f855a,color:#153d29
+    classDef external fill:#f2fbf3,stroke:#2f855a,color:#153d29,stroke-dasharray:5 3
 
     class browser client
     class api,prefetch,gate,cached,runners,tools app
-    class gemini,sessions,bank,build google
-    class cache,ram,context,database redis
-    class dataset,setup data
+    class gemini,sessions,bank google
+    class rdi,cache,ram,context,database redis
+    class lake external
+
+    linkStyle default stroke:#334155,stroke-width:2px

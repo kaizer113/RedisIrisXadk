@@ -3,7 +3,7 @@
 ValueHarbor is a fictional membership-warehouse shopping agent built to demonstrate how
 Google Agent Development Kit (ADK) and Redis IRIS services can work together in an ecommerce
 journey. The application is a FastAPI service with a browser chat UI. The current public demo
-runs on a Compute Engine VM in `us-east4-c`; Cloud Run remains an optional deployment target.
+runs on GCP in `us-east4`.
 
 ![ValueHarbor system architecture](docs/architecture.svg)
 
@@ -21,9 +21,9 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 | Governed context | Redis Context Retriever | Exposes live member, inventory, and order entities through a governed tool surface discovered and called by the agent. |
 | Semantic cache | Redis LangCache | Serves semantically similar public policy answers without invoking ADK or Gemini. Personalized requests are not cache eligible. |
 | Redis memory | Redis Agent Memory | Receives explicit user and assistant session events and stores/retrieves durable member preference memories. |
+| Data integration | Redis Data Integration (RDI) | Hypothetical production path that continuously synchronizes operational data from a persistent data lake into the Redis database. RDI is represented for context but is not part of this demo. |
 | Google sessions | Agent Platform Sessions | Persists ADK session events when `VertexAiSessionService` is configured. Sessions are visible under Agent Platform in the GCP console. |
 | Google memory | ADK Memory Bank | Retrieves long-term memories and generates new memories from the completed ADK session after a model-generated turn. |
-| Deployment | Compute Engine / Cloud Run | The current public demo runs on an `e2-standard-4` VM; Artifact Registry and Cloud Build build and store the image. |
 
 ## One chat request
 
@@ -89,42 +89,21 @@ The supplied evaluation cases in `data/generated` make the accuracy comparison r
 
 ## Data and retrieval
 
-The canonical demo dataset is checked into `data/generated` as deterministic JSONL. This makes
-the workshop reproducible even though the online services are managed and mutable.
+The demo's canonical data remains checked into `data/generated` as deterministic JSONL. In a
+hypothetical production architecture, a persistent enterprise data lake would be the system of
+record and Redis Data Integration (RDI) would continuously synchronize relevant operational
+records into the low-latency Redis database. That data-lake/RDI path is architectural context
+only and is not implemented or exercised by this demo.
 
-- `scripts/generate_dataset.py` regenerates the local fixtures.
-- `scripts/seed_redis.py` loads commerce entities and creates Redis search indexes.
-- `scripts/setup_context_retriever.py` imports governed entities and configures the Context
-  Retriever surface.
-- `scripts/create_memory_bank.py` creates or updates the regional ADK Memory Bank.
-- `scripts/seed_managed_memories.py` seeds equivalent facts in Redis Agent Memory and ADK
-  Memory Bank for comparison.
+LangCache and Redis Agent Memory are shown connected to the Redis database to make their
+Redis-backed data plane explicit. They remain distinct managed service capabilities with their
+own APIs and lifecycle rather than application code directly reading their records from the
+commerce keyspace.
 
 Product discovery uses Redis Query Engine. Lexical retrieval always works; optional semantic
 retrieval uses `text-embedding-005` embeddings with a 768-dimensional HNSW cosine index.
 Context Retriever is the required path for live member, warehouse inventory, and order data in
 the agent instructions. Redis fixtures remain available as a local-development fallback.
-
-## Deployment and configuration
-
-The deployment target is GCP project `central-beach-194106` (`redislabs-sales-project`) in
-`us-east4`. Resources that support labels receive:
-
-```text
-owner=lionel_giavelli,app=valueharbor,environment=demo
-```
-
-`scripts/deploy_vm.sh` enables the required APIs, builds the image with Cloud Build, stores it
-in Artifact Registry, and updates the public `valueharbor-demo` Compute Engine VM. The VM uses
-Premium Tier networking, gVNIC, and a dedicated firewall tag exposing only TCP port 80. The
-optional `scripts/deploy_gcp.sh` path deploys the same image to Cloud Run. Runtime configuration
-is supplied through environment variables. The local `.env` is ignored by Git; `.env.example`
-documents the supported names without credentials. Production deployments should bind secrets
-through Secret Manager and use a dedicated least-privilege service identity.
-
-The Redis endpoint is currently public and is expected to move to private connectivity later.
-That network change should reduce Redis round-trip latency without changing the application
-component boundaries or request flow shown here.
 
 ## Failure behavior
 
@@ -147,4 +126,3 @@ These fallbacks are for demo resilience, not a production consistency or availab
 | `valueharbor_agent/config.py` | Environment-driven service, model, project, and region configuration. |
 | `valueharbor_agent/static/` | Browser chat UI and live execution trace. |
 | `data/generated/` | Versioned, reproducible demo entities, memories, and retrieval evaluation cases. |
-| `scripts/` | Dataset, managed-service setup, GCP deployment, and secret configuration. |
