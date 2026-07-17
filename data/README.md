@@ -43,5 +43,10 @@ The keys are lowercase and colon-separated. Product, policy, member, order, and 
 - one member-scoped retrieval query;
 - expected terms used to calculate transparent precision@k and recall@k;
 - the IDs of the memories considered relevant.
+- optional IDs of deliberately irrelevant or weakly related memories used as distractors.
 
-For a fair comparison, seed both systems from the same file, wait for asynchronous indexing or promotion, warm each provider once, then report medians over multiple measured runs.
+The `member-1001` corpus includes durable preferences plus realistic but query-irrelevant
+episodic facts. Both providers receive the identical corpus. This makes it possible to show the
+precision cost of top-k-only retrieval when a provider cannot apply a similarity threshold.
+
+For a fair comparison, seed both systems from the same file, wait for asynchronous indexing or promotion, warm each provider once, then report medians over multiple measured runs. The corpus is identical, while each provider retains its native retrieval controls: Redis Agent Memory applies its configured similarity threshold and ADK Memory Bank returns its top-k matches.

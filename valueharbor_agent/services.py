@@ -56,6 +56,10 @@ class CatalogService:
                 health_check_interval=30,
             )
 
+    def ping(self) -> bool:
+        """Perform a real round trip to the configured Redis database."""
+        return bool(self.redis is not None and self.redis.ping())
+
     def _embed(self, text: str) -> bytes | None:
         if (
             not self.settings.valueharbor_vector_search_enabled
@@ -535,6 +539,24 @@ class LangCacheService:
             log.warning("LangCache search failed open: %s", exc)
             return None
 
+    async def warmup(self, prompt: str) -> bool:
+        """Warm LangCache embeddings with a read-only semantic lookup."""
+        if not self.base_url:
+            return False
+        body = {
+            "prompt": prompt,
+            "similarityThreshold": self.settings.langcache_similarity_threshold,
+            "searchStrategies": ["semantic"],
+        }
+        async with httpx.AsyncClient(timeout=8) as client:
+            response = await client.post(
+                f"{self.base_url}/entries/search",
+                headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
+                json=body,
+            )
+            response.raise_for_status()
+        return True
+
     async def store(self, prompt: str, answer: str, _scope: str) -> bool:
         if not self.base_url:
             return False
@@ -595,6 +617,13 @@ class MemoryService:
         except Exception as exc:
             log.warning("Agent Memory event write failed open: %s", exc)
             return False
+
+    async def ping(self) -> bool:
+        """Use the managed Agent Memory health endpoint without reading member data."""
+        if self.client is None:
+            return False
+        await self.client.health_async(timeout_ms=5_000)
+        return True
 
     def short_term(self, session_id: str, limit: int = 5) -> list[dict[str, Any]]:
         """Return the most recent Redis Agent Memory session events."""
@@ -705,6 +734,21 @@ class ContextRetrieverService:
         except Exception as exc:
             log.warning("Context Retriever call failed open: %s", exc)
             return {"ok": False, "error": str(exc)}
+
+    async def get_member_profile(self, member_id: str) -> dict[str, Any]:
+        """Discover and call the governed member lookup tool."""
+        tools = await self.list_tools()
+        lookup = next(
+            (tool for tool in tools if tool.get("name") == "get_member_by_id"),
+            None,
+        )
+        if lookup is None:
+            return {"ok": False, "error": "member_profile_tool_not_available"}
+        schema = lookup.get("inputSchema", {})
+        required = schema.get("required", []) if isinstance(schema, dict) else []
+        if "id" not in required:
+            return {"ok": False, "error": "member_profile_tool_schema_invalid"}
+        return await self.call(str(lookup["name"]), {"id": member_id})
 
 
 class VertexMemoryService:

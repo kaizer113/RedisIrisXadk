@@ -18,7 +18,7 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 | Agent runtime | Google ADK `Runner` | Runs the Vale agent, manages a session, invokes tools, calls Gemini, and triggers post-turn memory promotion. |
 | Models | Gemini 2.5 Flash / Gemini 2.5 Pro | Flash is the fast default; Pro is the slower, heavier reasoning option. The selected model chooses one of two prebuilt runners. |
 | Commerce data | Redis database + Query Engine | Stores the checked-in catalog, policies, inventory, member, order, and cart data; supports lexical and optional vector product retrieval. |
-| Governed context | Redis Context Retriever | Exposes live member, inventory, and order entities through a governed tool surface discovered and called by the agent. |
+| Governed context | Redis Context Retriever | Exposes live member, inventory, and order entities through a governed tool surface. FastAPI hydrates the signed-in profile on the first generated turn of a session. |
 | Semantic routing | RedisVL Semantic Router | Classifies stable public-policy prompts using a Redis vector index. Member-specific, live-data, and sensitive requests are deterministically bypassed first. |
 | Semantic cache | Redis LangCache | Serves semantically similar public policy answers without invoking ADK or Gemini. Personalized requests are not cache eligible. |
 | Redis memory | Redis Agent Memory | Receives explicit user and assistant session events and stores/retrieves durable member preference memories. |
@@ -34,7 +34,8 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 1. FastAPI normalizes the member and session IDs. Deterministic guardrails immediately bypass
    caching for member-specific, live-data, or sensitive requests.
 2. RedisVL classifies all remaining prompts against a `public_stable_policy` semantic route.
-   The routing call starts concurrently with three context reads:
+   The routing call starts concurrently with four context reads:
+   - the authoritative member profile from Context Retriever, or the copy already in ADK session state;
    - recent Redis Agent Memory session events;
    - Redis Agent Memory long-term memories;
    - ADK Memory Bank long-term memories.
@@ -45,8 +46,8 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 5. On a LangCache hit, the cached answer is returned immediately. The ADK runner, Gemini,
    Agent Platform Session update, tool calls, and Memory Bank promotion are skipped. Redis
    Agent Memory still receives both the user and cached assistant events.
-6. On a cache miss or bypass, the results from both memory systems are added to ADK state and
-   the runner corresponding to the selected model processes the turn.
+6. On a cache miss or bypass, the authoritative profile and results from both memory systems are
+   added to ADK state and the runner corresponding to the selected model processes the turn.
 7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Tool start,
    completion, result summary, and elapsed time are streamed to the UI.
 8. ADK stores the conversational turn through its shared session service. The agent's
@@ -68,6 +69,8 @@ The process creates one ADK `Runner` for each approved model:
 Both runners receive the same `session_service` object, `memory_service` object, ADK app name,
 member ID, and session ID. Switching the model in the chat therefore does **not** create a
 separate conversation: both models continue the same session and see the same session state.
+The member profile fetched from Context Retriever is stored in that shared session state, so it
+is fetched once per session and remains available after a model switch.
 
 With managed configuration, the shared services are `VertexAiSessionService` and
 `VertexAiMemoryBankService`. Without a configured Agent Engine ID, local development falls back
@@ -90,6 +93,9 @@ The comparison endpoint, `POST /api/memory/compare`, sends the same query and me
 Redis Agent Memory and ADK Memory Bank concurrently. It reports client-observed read latency,
 median latency over repeated runs, `precision@k`, and `recall@k` against optional expected terms.
 The supplied evaluation cases in `data/generated` make the accuracy comparison reproducible.
+The checked-in `member-1001` corpus includes both useful preferences and realistic distractors.
+For example, the laundry query currently returns only the relevant fact from Redis Agent Memory,
+while ADK Memory Bank's top-k retrieval also returns unrelated snack and receipt preferences.
 
 ## Data and retrieval
 

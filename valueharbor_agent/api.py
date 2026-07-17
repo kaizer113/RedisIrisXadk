@@ -184,6 +184,33 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
     return "Completed", [compact[:300]] if compact and compact != "{}" else []
 
 
+async def member_profile_for_session(member_id: str, session_id: str) -> dict[str, Any]:
+    """Load the authoritative member profile once, then reuse ADK session state."""
+    try:
+        session = await session_service.get_session(
+            app_name=APP_NAME,
+            user_id=member_id,
+            session_id=session_id,
+        )
+        existing = (getattr(session, "state", None) or {}).get("member_profile_context")
+        if existing:
+            return {"context": str(existing), "source": "adk_session_state"}
+    except Exception as exc:
+        log.warning("ADK session profile lookup failed open: %s", exc)
+
+    profile = await services.context.get_member_profile(member_id)
+    if profile.get("ok") is False:
+        return {
+            "context": json.dumps({"member_id": member_id}, sort_keys=True),
+            "source": "member_id_fallback",
+            "error": str(profile.get("error", "profile unavailable")),
+        }
+    return {
+        "context": json.dumps(profile, sort_keys=True, separators=(",", ":")),
+        "source": "redis_context_retriever",
+    }
+
+
 async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     """Run one shopping turn and emit observable steps as newline-delimited events."""
     total_started = time.perf_counter()
@@ -218,6 +245,9 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             "cache_duration_ms": cache_duration,
         }
 
+    async def fetch_member_profile() -> dict[str, Any]:
+        return await member_profile_for_session(member_id, session_id)
+
     async def timed(step_id: str, awaitable: Any) -> tuple[str, Any, float]:
         started = time.perf_counter()
         result = await awaitable
@@ -228,6 +258,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         asyncio.create_task(timed("redis-short-term", fetch_short_term())),
         asyncio.create_task(timed("redis-long-term", fetch_redis_long_term())),
         asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
+        asyncio.create_task(timed("member-profile", fetch_member_profile())),
     }
     results: dict[str, Any] = {}
     for task in asyncio.as_completed(tasks):
@@ -297,6 +328,20 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 summary=f"{len(result)} relevant memories found",
                 details=snippets,
             )
+        elif step_id == "member-profile":
+            source = result.get("source", "unavailable")
+            source_label = {
+                "redis_context_retriever": "Loaded from Redis Context Retriever",
+                "adk_session_state": "Reused from shared ADK session state",
+                "member_id_fallback": "Profile unavailable; using member ID only",
+            }.get(source, source)
+            yield trace_event(
+                step_id,
+                "Hydrating authoritative member profile",
+                duration_ms=duration,
+                summary=source_label,
+                details=[result["context"]],
+            )
 
     short_memories = results.get("redis-short-term", [])
     redis_memories = results.get("redis-long-term", [])
@@ -304,6 +349,10 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     routing = results.get("semantic-router", {"eligible": False})
     cache_allowed = bool(routing["eligible"])
     cached = results.get("langcache")
+    member_profile = results.get(
+        "member-profile",
+        {"context": json.dumps({"member_id": member_id}, sort_keys=True)},
+    )
 
     await asyncio.to_thread(
         services.memory.add_event, member_id, session_id, "USER", request.message
@@ -332,6 +381,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     state_delta = {
         "member_id": member_id,
         "user_id": member_id,
+        "member_profile_context": member_profile["context"],
         "redis_short_term_context": "\n".join(memory_snippets(short_memories))
         or "No prior session events.",
         "redis_long_term_context": "\n".join(memory_snippets(redis_memories))
@@ -426,6 +476,65 @@ async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
+async def warmup_redis_services() -> dict[str, Any]:
+    """Prime the five Redis integrations used on the shopping request path."""
+    started = time.perf_counter()
+
+    async def probe(name: str, operation: Any) -> tuple[str, dict[str, Any]]:
+        probe_started = time.perf_counter()
+        try:
+            ok, summary, details = await operation()
+        except Exception as exc:
+            log.warning("Warm-up probe failed for %s: %s", name, exc)
+            ok, summary, details = False, f"Unavailable ({type(exc).__name__})", {}
+        return name, {
+            "ok": ok,
+            "duration_ms": round((time.perf_counter() - probe_started) * 1000, 2),
+            "summary": summary,
+            **details,
+        }
+
+    async def database_probe() -> tuple[bool, str, dict[str, Any]]:
+        ok = await asyncio.to_thread(services.catalog.ping)
+        return ok, "Redis PING succeeded" if ok else "Database is not configured", {}
+
+    async def context_probe() -> tuple[bool, str, dict[str, Any]]:
+        tools = await services.context.list_tools()
+        count = len(tools)
+        return bool(count), f"{count} governed tools discovered", {"tools": tools}
+
+    async def router_probe() -> tuple[bool, str, dict[str, Any]]:
+        decision = await asyncio.to_thread(
+            services.semantic_router.route,
+            "What is the electronics return policy?",
+        )
+        ok = decision.get("decision_source") == "redisvl"
+        route = decision.get("route") or "no route"
+        return ok, f"Semantic route ready · {route}", {}
+
+    async def langcache_probe() -> tuple[bool, str, dict[str, Any]]:
+        ok = await services.langcache.warmup("What is the electronics return policy?")
+        return ok, "Semantic lookup completed" if ok else "LangCache is not configured", {}
+
+    async def memory_probe() -> tuple[bool, str, dict[str, Any]]:
+        ok = await services.memory.ping()
+        return ok, "Health check passed" if ok else "Agent Memory is not configured", {}
+
+    results = await asyncio.gather(
+        probe("redis_database", database_probe),
+        probe("context_retriever", context_probe),
+        probe("semantic_router", router_probe),
+        probe("langcache", langcache_probe),
+        probe("redis_agent_memory", memory_probe),
+    )
+    service_results = dict(results)
+    return {
+        "ok": all(result["ok"] for result in service_results.values()),
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        "services": service_results,
+    }
+
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     return {
@@ -445,6 +554,23 @@ async def health() -> dict[str, Any]:
             "agent_platform_sessions": isinstance(session_service, VertexAiSessionService),
         },
     }
+
+
+@app.get("/api/context/tools")
+async def context_tools() -> dict[str, Any]:
+    started = time.perf_counter()
+    tools = await services.context.list_tools()
+    return {
+        "ok": bool(tools),
+        "count": len(tools),
+        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+        "tools": tools,
+    }
+
+
+@app.post("/api/warmup")
+async def warmup() -> dict[str, Any]:
+    return await warmup_redis_services()
 
 
 @app.get("/api/catalog")

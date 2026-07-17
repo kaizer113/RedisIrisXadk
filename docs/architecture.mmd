@@ -6,7 +6,7 @@ flowchart TB
         direction TB
         subgraph run["Public application · FastAPI"]
             direction LR
-            api["Chat API"] --> prefetch["Concurrent cache + memory retrieval"]
+            api["Chat API"] --> prefetch["Concurrent profile + cache + memory retrieval"]
             prefetch --> route{"RedisVL semantic route?"}
             route -->|cache eligible| gate{"LangCache hit?"}
             gate -->|hit| cached["Cached response<br/>skip ADK + Gemini"]
@@ -42,6 +42,7 @@ flowchart TB
     cache -->|hit or miss| gate
     prefetch -->|recent events + recall| ram
     prefetch -->|long-term recall| bank
+    prefetch -->|first-turn member profile| context
 
     runners --> gemini
     runners -->|session read + append| sessions

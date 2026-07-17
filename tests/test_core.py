@@ -6,17 +6,25 @@ from fastapi.testclient import TestClient
 from redis_agent_memory import models
 
 from scripts.generate_dataset import records
-from valueharbor_agent.api import _tool_summary, app, trace_event
+from valueharbor_agent.api import (
+    _tool_summary,
+    app,
+    member_profile_for_session,
+    trace_event,
+    warmup_redis_services,
+)
 from valueharbor_agent.config import Settings
 from valueharbor_agent.services import (
     PUBLIC_POLICY_ROUTE,
     CatalogService,
+    ContextRetrieverService,
     LangCacheService,
     MemoryService,
     SemanticRouterService,
     _retrieval_quality,
     memory_snippets,
     safe_id,
+    services,
 )
 
 
@@ -159,8 +167,82 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
     )
 
     assert await cache.search("Return policy?", "public-policy") == {"response": "cached"}
+    assert await cache.warmup("Return policy?") is True
     assert await cache.store("Return policy?", "Thirty days.", "public-policy") is True
     assert all("attributes" not in body for _, body in calls)
+
+
+async def test_warmup_pings_five_redis_services(monkeypatch) -> None:
+    async def list_tools():
+        return [{"name": "get_inventory", "description": "Inventory lookup"}]
+
+    async def warm_langcache(_prompt):
+        return True
+
+    async def ping_memory():
+        return True
+
+    monkeypatch.setattr(services.catalog, "ping", lambda: True)
+    monkeypatch.setattr(services.context, "list_tools", list_tools)
+    monkeypatch.setattr(
+        services.semantic_router,
+        "route",
+        lambda _message: {"decision_source": "redisvl", "route": PUBLIC_POLICY_ROUTE},
+    )
+    monkeypatch.setattr(services.langcache, "warmup", warm_langcache)
+    monkeypatch.setattr(services.memory, "ping", ping_memory)
+
+    result = await warmup_redis_services()
+
+    assert result["ok"] is True
+    assert set(result["services"]) == {
+        "redis_database",
+        "context_retriever",
+        "semantic_router",
+        "langcache",
+        "redis_agent_memory",
+    }
+    assert result["services"]["context_retriever"]["tools"][0]["name"] == "get_inventory"
+
+
+async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> None:
+    context = ContextRetrieverService(Settings(_env_file=None, mcp_agent_key="test"))
+
+    async def list_tools():
+        return [
+            {
+                "name": "get_member_by_id",
+                "inputSchema": {"required": ["id"], "properties": {"id": {}}},
+            }
+        ]
+
+    async def call(name, arguments):
+        assert name == "get_member_by_id"
+        assert arguments == {"id": "member-1001"}
+        return {"member_id": "member-1001", "name": "Alex Rivera"}
+
+    monkeypatch.setattr(context, "list_tools", list_tools)
+    monkeypatch.setattr(context, "call", call)
+    profile = await context.get_member_profile("member-1001")
+    assert profile["name"] == "Alex Rivera"
+
+
+async def test_member_profile_reuses_shared_adk_session_state(monkeypatch) -> None:
+    profile_context = '{"member_id":"member-1001","name":"Alex Rivera"}'
+
+    class FakeSessionService:
+        async def get_session(self, **_kwargs):
+            return SimpleNamespace(state={"member_profile_context": profile_context})
+
+    async def unexpected_fetch(_member_id):
+        raise AssertionError("Context Retriever should not be called for a hydrated session")
+
+    monkeypatch.setattr("valueharbor_agent.api.session_service", FakeSessionService())
+    monkeypatch.setattr(services.context, "get_member_profile", unexpected_fetch)
+
+    result = await member_profile_for_session("member-1001", "session-1")
+
+    assert result == {"context": profile_context, "source": "adk_session_state"}
 
 
 def test_live_trace_formats_memory_and_mcp_results() -> None:
@@ -191,8 +273,8 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
         "orders": 6,
         "order_items": 12,
         "policies": 3,
-        "memory_seeds": 8,
-        "memory_evaluations": 5,
+        "memory_seeds": 16,
+        "memory_evaluations": 7,
     }
 
     product_ids = {item["sku"] for item in dataset["products"]}
@@ -209,6 +291,10 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
         assert all(
             memory_by_id[memory_id]["owner_id"] == case["member_id"]
             for memory_id in case["relevant_memory_ids"]
+        )
+        assert all(
+            memory_by_id[memory_id]["owner_id"] == case["member_id"]
+            for memory_id in case.get("distractor_memory_ids", [])
         )
 
     items_by_order: dict[str, list[dict]] = {}

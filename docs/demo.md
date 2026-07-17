@@ -16,6 +16,10 @@ memory paths and Gemini model selector.
 The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
 Portland Harbor location.
 
+On the first generated turn, the trace should show the authoritative member profile being loaded
+from Context Retriever. Later turns reuse the profile from shared ADK session state, including
+after changing Gemini models.
+
 ## 1. Grounded product discovery and live inventory
 
 Prompt:
@@ -91,6 +95,16 @@ Talk track:
 - Agent Platform Sessions hold the ADK conversation session.
 - Redis and ADK long-term memory remain separate retrieval systems, making their behavior visible
   in the same customer request.
+
+Then use the intentionally noisy evaluation prompt:
+
+> Which laundry detergent fits my preferences?
+
+The checked-in corpus contains the same ten Alex facts in both systems, including unrelated
+shopping and episodic memories. With the current managed services, Redis Agent Memory's
+similarity threshold returns only the fragrance-free laundry fact. ADK Memory Bank returns that
+fact plus top-k distractors such as snack and receipt preferences. Expand both trace steps to
+show the precision difference; this compares retrieval behavior, not answer quality.
 
 ## 5. Save and recall a new preference
 

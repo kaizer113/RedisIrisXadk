@@ -41,6 +41,9 @@
       .service-logo.redis { border-radius:9px; }
       .service-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
       .service { padding:10px; border:1px solid var(--line); border-radius:11px; font-size:12px; }
+      .service-line { display:flex; align-items:center; }
+      .service-meta { display:block; margin:3px 0 0 14px; padding:0; color:#8dcdbb; background:transparent; text-align:left; font-size:10px; line-height:1.25; }
+      .service-meta:hover, .service-meta:focus-visible { color:var(--green); text-decoration:underline; }
       .dot { display:inline-block; width:8px; height:8px; border-radius:99px; margin-right:6px; background:#64726f; }
       .on .dot { background:var(--green); box-shadow:0 0 12px var(--green); }
       .trace-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -63,6 +66,19 @@
       .trace-details { margin-top:7px; }
       .trace-details summary { cursor:pointer; color:#9fd9c7; font-size:11px; }
       .trace-fact { margin-top:5px; padding:7px 9px; border-radius:8px; background:#071d2288; color:#c5d4cf; font-size:11px; overflow-wrap:anywhere; }
+      .modal { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:24px; background:#020c0fcc; backdrop-filter:blur(8px); }
+      .modal[hidden] { display:none; }
+      .modal-card { width:min(760px,94vw); max-height:min(760px,88vh); display:flex; flex-direction:column; border:1px solid var(--line); border-radius:20px; background:#0b252c; box-shadow:0 30px 100px #000b; overflow:hidden; }
+      .modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:20px 22px 14px; border-bottom:1px solid var(--line); }
+      .modal-head .small { margin:0; }
+      .modal-close { width:30px; height:30px; border:1px solid #ffffff18; border-radius:9px; background:#ffffff08; font-size:18px; }
+      .tool-list { overflow:auto; padding:10px 22px 22px; }
+      .tool-item { padding:12px 0; border-bottom:1px solid #ffffff0d; }
+      .tool-item:last-child { border-bottom:0; }
+      .tool-name { color:var(--green); font:12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
+      .tool-description { margin-top:4px; color:#c5d4cf; font-size:12px; }
+      .tool-params { margin-top:5px; color:var(--muted); font-size:10px; }
+      body.modal-open { overflow:hidden; }
       @media (max-width:900px) { main { grid-template-columns:1fr; } .chat { height:480px; } }
     </style>
   </head>
@@ -78,6 +94,7 @@
         <section class="panel side"><div class="trace-head"><div><h2>Live agent trace</h2><p class="small">Every retrieval, tool call, and generation step.</p></div><div id="trace-live" class="trace-live"><span class="pulse"></span><span>idle</span></div></div><div id="trace"><div class="trace-empty">Send a message to watch Vale work.</div></div></section>
       </aside>
     </main>
+    <div id="tools-modal" class="modal" role="dialog" aria-modal="true" aria-labelledby="tools-title" hidden><section class="modal-card"><div class="modal-head"><div><h2 id="tools-title">Context Retriever tools</h2><p id="tools-summary" class="small">Governed tools generated from the ValueHarbor context surface.</p></div><button id="tools-close" class="modal-close" type="button" aria-label="Close tools">×</button></div><div id="tool-list" class="tool-list"></div></section></div>
     <script>
       const memberId='member-1001'; let sessionId='shopping-demo-'+Date.now();
       const messages=document.querySelector('#messages'), input=document.querySelector('#message'),modelSelect=document.querySelector('#model');
@@ -87,8 +104,15 @@
       function setLive(active){traceLive.classList.toggle('active',active);traceLive.querySelector('span:last-child').textContent=active?'running':'complete';}
       function renderStep(step){let el=document.getElementById('trace-'+step.id);if(!el){el=document.createElement('div');el.id='trace-'+step.id;trace.appendChild(el);}el.className='trace-step '+step.status;el.replaceChildren();const row=document.createElement('div');row.className='trace-row';const label=document.createElement('div');label.className='trace-label';label.textContent=step.label;const timing=document.createElement('div');timing.className='trace-time';timing.textContent=step.duration_ms==null?'…':`${step.duration_ms} ms`;row.append(label,timing);el.append(row);if(step.summary){const summary=document.createElement('div');summary.className='trace-summary';summary.textContent=step.summary;el.append(summary);}if(step.details?.length){const details=document.createElement('details');details.className='trace-details';const heading=document.createElement('summary');heading.textContent=`Show ${step.details.length} result${step.details.length===1?'':'s'}`;details.append(heading);step.details.forEach(value=>{const fact=document.createElement('div');fact.className='trace-fact';fact.textContent=value;details.append(fact);});el.append(details);}trace.scrollTop=trace.scrollHeight;}
       document.querySelector('#chat-form').onsubmit=async e=>{e.preventDefault();const text=input.value.trim();if(!text)return;add(text,'user');input.value='';const wait=add('Vale is checking…','assistant');trace.replaceChildren();setLive(true);try{const r=await fetch('/api/chat/stream',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:text,member_id:memberId,session_id:sessionId,model:modelSelect.value})});if(!r.ok)throw new Error(`HTTP ${r.status}`);const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='';while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});const lines=buffer.split('\n');buffer=lines.pop()||'';for(const line of lines){if(!line.trim())continue;const event=JSON.parse(line);if(event.type==='trace')renderStep(event.step);else if(event.type==='answer')wait.textContent=event.answer;else if(event.type==='error')wait.textContent=event.message;}if(done)break;}if(wait.textContent==='Vale is checking…')wait.textContent='No response received.';}catch(err){wait.textContent='Connection error: '+err.message;}finally{setLive(false);}};
-      async function loadStatus(){const data=await fetch('/api/health').then(r=>r.json());modelSelect.value=data.default_model;const labels={redis_database:'Database',context_retriever:'Context Retriever',semantic_router:'Semantic Router',langcache:'LangCache',redis_agent_memory:'Agent Memory',vertex_adk_memory_bank:'ADK Memory Bank',agent_platform_sessions:'ADK Agent Sessions'};const groups=[{name:'Redis',icon:'/static/assets/redis-r.png',className:'redis',services:['redis_database','context_retriever','semantic_router','langcache','redis_agent_memory']},{name:'Google ADK',icon:'/static/assets/google-adk.png',className:'adk',services:['vertex_adk_memory_bank','agent_platform_sessions']}];document.querySelector('#status').innerHTML=groups.map(group=>`<div class="service-group"><img class="service-logo ${group.className}" src="${group.icon}" alt="${group.name}"><div class="service-grid">${group.services.map(key=>`<div class="service ${data.services[key]?'on':''}"><span class="dot"></span>${labels[key]}</div>`).join('')}</div></div>`).join('');}
-      loadStatus();
+      const toolsModal=document.querySelector('#tools-modal'),toolList=document.querySelector('#tool-list');let contextTools=[];
+      function setToolSummary(count,text=`${count} governed tools available`){const trigger=document.querySelector('#context-tools-trigger');if(trigger)trigger.textContent=text;document.querySelector('#tools-summary').textContent=count?`${count} governed tools generated from the ValueHarbor context surface.`:'No governed tools are currently available.';}
+      function renderTools(tools){toolList.replaceChildren();tools.forEach(tool=>{const item=document.createElement('article');item.className='tool-item';const name=document.createElement('div');name.className='tool-name';name.textContent=tool.name||'Unnamed tool';const description=document.createElement('div');description.className='tool-description';description.textContent=tool.description||'No description provided.';const parameters=Object.keys(tool.inputSchema?.properties||{});const params=document.createElement('div');params.className='tool-params';params.textContent=parameters.length?`Parameters: ${parameters.join(', ')}`:'No parameters';item.append(name,description,params);toolList.append(item);});}
+      function openTools(){renderTools(contextTools);toolsModal.hidden=false;document.body.classList.add('modal-open');document.querySelector('#tools-close').focus();}
+      function closeTools(){toolsModal.hidden=true;document.body.classList.remove('modal-open');document.querySelector('#context-tools-trigger')?.focus();}
+      async function loadStatus(){const data=await fetch('/api/health').then(r=>r.json());modelSelect.value=data.default_model;const labels={redis_database:'Database',context_retriever:'Context Retriever',semantic_router:'Semantic Router',langcache:'LangCache',redis_agent_memory:'Agent Memory',vertex_adk_memory_bank:'ADK Memory Bank',agent_platform_sessions:'ADK Agent Sessions'};const groups=[{name:'Redis',icon:'/static/assets/redis-r.png',className:'redis',services:['redis_database','context_retriever','semantic_router','langcache','redis_agent_memory']},{name:'Google ADK',icon:'/static/assets/google-adk.png',className:'adk',services:['vertex_adk_memory_bank','agent_platform_sessions']}];document.querySelector('#status').innerHTML=groups.map(group=>`<div class="service-group"><img class="service-logo ${group.className}" src="${group.icon}" alt="${group.name}"><div class="service-grid">${group.services.map(key=>`<div class="service ${data.services[key]?'on':''}" data-service="${key}"><div class="service-line"><span class="dot"></span>${labels[key]}</div>${key==='context_retriever'?'<button id="context-tools-trigger" class="service-meta" type="button">Warming services…</button>':''}</div>`).join('')}</div></div>`).join('');document.querySelector('#context-tools-trigger').onclick=openTools;}
+      async function warmupOnLoad(){try{const data=await fetch('/api/warmup',{method:'POST'}).then(r=>{if(!r.ok)throw new Error(`HTTP ${r.status}`);return r.json();});Object.entries(data.services||{}).forEach(([key,result])=>{const card=document.querySelector(`[data-service="${key}"]`);if(card){card.classList.toggle('on',result.ok);card.title=`${result.summary} · ${result.duration_ms} ms`;}});const context=data.services?.context_retriever;contextTools=context?.tools||[];setToolSummary(contextTools.length);}catch(_){contextTools=[];setToolSummary(0,'Tools unavailable');}}
+      document.querySelector('#tools-close').onclick=closeTools;toolsModal.onclick=e=>{if(e.target===toolsModal)closeTools();};document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!toolsModal.hidden)closeTools();});
+      async function initialize(){await loadStatus();await warmupOnLoad();}initialize();
     </script>
   </body>
 </html>
