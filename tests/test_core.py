@@ -6,11 +6,14 @@ from fastapi.testclient import TestClient
 from redis_agent_memory import models
 
 from scripts.generate_dataset import records
-from valueharbor_agent.api import _tool_summary, app, cache_eligible, trace_event
+from valueharbor_agent.api import _tool_summary, app, trace_event
 from valueharbor_agent.config import Settings
 from valueharbor_agent.services import (
+    PUBLIC_POLICY_ROUTE,
     CatalogService,
+    LangCacheService,
     MemoryService,
+    SemanticRouterService,
     _retrieval_quality,
     memory_snippets,
     safe_id,
@@ -85,10 +88,79 @@ def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     assert request["filter_"]["memory_type"] == {"in_": ["semantic", "episodic"]}
 
 
-def test_only_public_answers_are_cacheable() -> None:
-    assert cache_eligible("What is the electronics return policy?")
-    assert not cache_eligible("Where is my pickup order?")
-    assert not cache_eligible("Remember my return preference")
+def test_semantic_router_applies_guardrails_and_positive_route() -> None:
+    settings = Settings(
+        _env_file=None,
+        redis_url="redis://configured",
+        google_cloud_project="example-project",
+    )
+    router = SemanticRouterService(settings)
+    router.configured = True
+    router._router = lambda _: SimpleNamespace(name=PUBLIC_POLICY_ROUTE, distance=0.31)
+
+    public = router.route("Could you explain the electronics returns rules?")
+    assert public["eligible"] is True
+    assert public["decision_source"] == "redisvl"
+    assert public["distance"] == 0.31
+
+    personalized = router.route("Where is my pickup order?")
+    assert personalized["eligible"] is False
+    assert personalized["decision_source"] == "guardrail"
+    assert personalized["reason"] == "member-specific request"
+
+    live = router.route("Is detergent in stock at the Portland warehouse?")
+    assert live["eligible"] is False
+    assert live["reason"] == "live or time-sensitive commerce data"
+
+
+def test_unconfigured_semantic_router_fails_safe() -> None:
+    router = SemanticRouterService(Settings(_env_file=None))
+    decision = router.route("What is the electronics return policy?")
+    assert decision["eligible"] is False
+    assert decision["decision_source"] == "fail-safe"
+
+
+async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkeypatch) -> None:
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, body):
+            self.body = body
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.body
+
+    class FakeAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            calls.append((url, kwargs["json"]))
+            body = {"data": [{"response": "cached"}]} if url.endswith("/search") else {}
+            return FakeResponse(body)
+
+    monkeypatch.setattr("valueharbor_agent.services.httpx.AsyncClient", FakeAsyncClient)
+    cache = LangCacheService(
+        Settings(
+            _env_file=None,
+            langcache_host="https://langcache.example",
+            langcache_cache_id="public-policy",
+            langcache_api_key="test-key",
+        )
+    )
+
+    assert await cache.search("Return policy?", "public-policy") == {"response": "cached"}
+    assert await cache.store("Return policy?", "Thirty days.", "public-policy") is True
+    assert all("attributes" not in body for _, body in calls)
 
 
 def test_live_trace_formats_memory_and_mcp_results() -> None:
@@ -156,6 +228,7 @@ def test_health_and_unconfigured_memory_comparison() -> None:
         assert health.json()["cloud_run_location"] == "us-east4"
         assert health.json()["default_model"] == "gemini-2.5-flash"
         assert health.json()["models"] == ["gemini-2.5-flash", "gemini-2.5-pro"]
+        assert "semantic_router" in health.json()["services"]
         response = client.post(
             "/api/memory/compare",
             json={"query": "pickup preference", "expected_terms": ["Portland"], "runs": 2},

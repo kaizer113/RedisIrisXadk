@@ -24,6 +24,10 @@ class Settings(BaseSettings):
     redis_url: str = ""
     mcp_agent_key: str = ""
 
+    valueharbor_semantic_router_threshold: float = Field(default=0.48, gt=0, le=2)
+    valueharbor_semantic_router_index: str = "valueharbor-cache-router-v1"
+    valueharbor_semantic_router_embedding_model: str = "text-embedding-005"
+
     langcache_host: str = ""
     langcache_cache_id: str = ""
     langcache_api_key: str = ""
@@ -47,6 +51,10 @@ class Settings(BaseSettings):
     @property
     def langcache_configured(self) -> bool:
         return bool(self.langcache_host and self.langcache_cache_id and self.langcache_api_key)
+
+    @property
+    def semantic_router_configured(self) -> bool:
+        return bool(self.redis_url and self.google_cloud_project)
 
     @property
     def memory_configured(self) -> bool:

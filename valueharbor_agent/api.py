@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 import statistics
 import time
 from collections.abc import AsyncIterator
@@ -109,15 +108,6 @@ class MemoryCompareRequest(BaseModel):
     runs: int = Field(default=1, ge=1, le=10)
 
 
-def cache_eligible(message: str) -> bool:
-    normalized = message.lower()
-    public_topic = bool(
-        re.search(r"return|policy|pickup window|member pricing|warranty", normalized)
-    )
-    personalized = bool(re.search(r"\b(my|me|i |remember|preference|cart|order)\b", normalized))
-    return public_topic and not personalized
-
-
 def event_text(event: Any) -> str:
     content = getattr(event, "content", None)
     if content is None:
@@ -199,7 +189,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     total_started = time.perf_counter()
     member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
     session_id = safe_id(request.session_id, settings.valueharbor_demo_session_id)
-    cache_allowed = cache_eligible(request.message)
 
     yield {"type": "start", "session_id": session_id}
 
@@ -212,10 +201,22 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     async def fetch_vertex_long_term() -> list[dict[str, Any]]:
         return await services.vertex_memory.recall(member_id, request.message)
 
-    async def fetch_cache() -> dict[str, Any] | None:
-        if not cache_allowed:
-            return None
-        return await services.langcache.search(request.message, "public-policy")
+    async def fetch_cache_path() -> dict[str, Any]:
+        route_started = time.perf_counter()
+        routing = await asyncio.to_thread(services.semantic_router.route, request.message)
+        route_duration = round((time.perf_counter() - route_started) * 1000, 2)
+        cached = None
+        cache_duration = 0.0
+        if routing["eligible"]:
+            cache_started = time.perf_counter()
+            cached = await services.langcache.search(request.message, "public-policy")
+            cache_duration = round((time.perf_counter() - cache_started) * 1000, 2)
+        return {
+            "routing": routing,
+            "route_duration_ms": route_duration,
+            "cached": cached,
+            "cache_duration_ms": cache_duration,
+        }
 
     async def timed(step_id: str, awaitable: Any) -> tuple[str, Any, float]:
         started = time.perf_counter()
@@ -223,7 +224,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         return step_id, result, round((time.perf_counter() - started) * 1000, 2)
 
     tasks = {
-        asyncio.create_task(timed("langcache", fetch_cache())),
+        asyncio.create_task(timed("cache-path", fetch_cache_path())),
         asyncio.create_task(timed("redis-short-term", fetch_short_term())),
         asyncio.create_task(timed("redis-long-term", fetch_redis_long_term())),
         asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
@@ -232,16 +233,42 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     for task in asyncio.as_completed(tasks):
         step_id, result, duration = await task
         results[step_id] = result
-        if step_id == "langcache":
-            hit = bool(result and result.get("response"))
-            summary = (
-                "Hit" if hit else "Miss" if cache_allowed else "Bypassed for personalized request"
+        if step_id == "cache-path":
+            routing = result["routing"]
+            results["semantic-router"] = routing
+            results["langcache"] = result["cached"]
+            route_details = [
+                f"Decision source: {routing['decision_source']}",
+                f"Threshold: {routing['threshold']}",
+            ]
+            if routing.get("distance") is not None:
+                route_details.append(f"Cosine distance: {routing['distance']}")
+            route_summary = (
+                f"{routing['route']} · LangCache eligible"
+                if routing["eligible"]
+                else f"Bypass · {routing['reason']}"
             )
             yield trace_event(
-                step_id,
+                "semantic-router",
+                "Routing with RedisVL Semantic Router",
+                duration_ms=result["route_duration_ms"],
+                summary=route_summary,
+                details=route_details,
+            )
+            cached = result["cached"]
+            hit = bool(cached and cached.get("response"))
+            cache_summary = (
+                "Hit"
+                if hit
+                else "Miss"
+                if routing["eligible"]
+                else f"Bypassed · {routing['reason']}"
+            )
+            yield trace_event(
+                "langcache",
                 "Checking Redis LangCache",
-                duration_ms=duration,
-                summary=summary,
+                duration_ms=result["cache_duration_ms"],
+                summary=cache_summary,
             )
         elif step_id == "redis-short-term":
             snippets = memory_snippets(result)
@@ -274,6 +301,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     short_memories = results.get("redis-short-term", [])
     redis_memories = results.get("redis-long-term", [])
     vertex_memories = results.get("vertex-long-term", [])
+    routing = results.get("semantic-router", {"eligible": False})
+    cache_allowed = bool(routing["eligible"])
     cached = results.get("langcache")
 
     await asyncio.to_thread(
@@ -409,6 +438,7 @@ async def health() -> dict[str, Any]:
         "services": {
             "redis_database": settings.redis_configured,
             "context_retriever": bool(settings.mcp_agent_key),
+            "semantic_router": services.semantic_router.configured,
             "langcache": settings.langcache_configured,
             "redis_agent_memory": services.memory.client is not None,
             "vertex_adk_memory_bank": services.vertex_memory.client is not None,

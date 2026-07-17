@@ -6,10 +6,12 @@ flowchart TB
         direction TB
         subgraph run["Public application · FastAPI"]
             direction LR
-            api["Chat API"] --> prefetch["Parallel read prefetch"]
-            prefetch --> gate{"LangCache hit?"}
+            api["Chat API"] --> prefetch["Concurrent cache + memory retrieval"]
+            prefetch --> route{"RedisVL semantic route?"}
+            route -->|cache eligible| gate{"LangCache hit?"}
             gate -->|hit| cached["Cached response<br/>skip ADK + Gemini"]
-            gate -->|miss or bypass| runners["Shared ADK services<br/>Flash Runner · Pro Runner"]
+            gate -->|miss| runners["Shared ADK services<br/>Flash Runner · Pro Runner"]
+            route -->|bypass| runners
             runners --> tools["Commerce, context,<br/>cart and memory tools"]
         end
 
@@ -21,20 +23,22 @@ flowchart TB
         end
     end
 
-    subgraph iris["Redis IRIS / Redis Cloud"]
-        direction LR
-        rdi["Redis Data Integration<br/>continuous synchronization"]
-        cache["LangCache<br/>public policy answers"]
-        ram["Redis Agent Memory<br/>session events + long-term facts"]
-        context["Context Retriever<br/>governed live-data tools"]
-        database["Redis database + Query Engine<br/>catalog, policy, cart, commerce data"]
-    end
+    commerce[("Persistent commerce database<br/>orders · carts · transactions")]
+    warehouse[("Persistent warehouse database<br/>inventory · fulfillment")]
+    master[("Persistent master-data database<br/>products · pricing · members")]
 
-    lake[("Persistent enterprise data lake<br/>hypothetical · not part of demo")]
+    rdi["Redis Cloud<br/>Redis Data Integration<br/>CDC capture + continuous sync"]
+    cache["Redis Cloud · LangCache<br/>public policy answers"]
+    ram["Redis Cloud · Agent Memory<br/>session events + long-term facts"]
+    context["Redis Cloud · Context Retriever<br/>governed live-data tools"]
+    semantic["Redis Cloud · RedisVL Semantic Router<br/>public-policy route index"]
+    database["Redis Cloud database + Query Engine<br/>catalog, policy, cart, commerce data"]
 
     browser -->|HTTP + streamed NDJSON| api
 
-    prefetch -->|eligible query| cache
+    route --> semantic
+    semantic --> database
+    route -->|eligible query| cache
     cache -->|hit or miss| gate
     prefetch -->|recent events + recall| ram
     prefetch -->|long-term recall| bank
@@ -50,19 +54,21 @@ flowchart TB
 
     cache --> database
     ram --> database
-    lake -->|source records| rdi
-    rdi -->|continuous sync| database
+    commerce -->|CDC change log| rdi
+    warehouse -->|CDC change log| rdi
+    master -->|CDC change log| rdi
+    rdi -->|materialized operational data| database
 
     classDef client fill:#f2f7ff,stroke:#2864dc,color:#102a43
     classDef app fill:#fff4e8,stroke:#d97706,color:#4a2500
     classDef google fill:#eef6ff,stroke:#4285f4,color:#17365d
     classDef redis fill:#fff0f0,stroke:#dc382d,color:#4a1512
-    classDef external fill:#f2fbf3,stroke:#2f855a,color:#153d29,stroke-dasharray:5 3
+    classDef source fill:#f2fbf3,stroke:#2f855a,color:#153d29
 
     class browser client
-    class api,prefetch,gate,cached,runners,tools app
+    class api,prefetch,route,gate,cached,runners,tools app
     class gemini,sessions,bank google
-    class rdi,cache,ram,context,database redis
-    class lake external
+    class rdi,cache,ram,context,semantic,database redis
+    class commerce,warehouse,master source
 
     linkStyle default stroke:#334155,stroke-width:2px

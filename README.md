@@ -21,6 +21,7 @@ session and long-term memory paths, deployment topology, and a rendered system d
 | Agent runtime | Google ADK + Gemini on Vertex AI | Tool selection and response generation |
 | Catalog and policies | Redis database + Query Engine/vector search | Low-latency grounded retrieval |
 | Live commerce context | Redis Context Retriever | Governed access to inventory/order entities |
+| Cache routing | RedisVL Semantic Router | Safe semantic classification of reusable public-policy prompts |
 | Response cache | Redis LangCache | Cache-aside for non-personalized policy answers |
 | Memory A | Redis Agent Memory | Session events and scoped semantic/episodic preferences |
 | Memory B | Vertex AI ADK Memory Bank | ADK-managed conversation memory |
@@ -34,10 +35,11 @@ reasoning.
 
 ## Live agent trace
 
-Every shopping request concurrently checks LangCache, Redis Agent Memory session history,
-Redis long-term memory, and Vertex ADK Memory Bank before ADK runs. The web UI streams those
-steps live, expands retrieved facts inline, times every ADK and Context Retriever tool call,
-and finishes with orchestration/generation and total request latency.
+Every shopping request runs RedisVL semantic routing alongside Redis Agent Memory session
+history, Redis long-term memory, and Vertex ADK Memory Bank retrieval. Safe public-policy route
+matches then check LangCache before ADK runs. The web UI streams those steps live, expands
+retrieved facts inline, times every ADK and Context Retriever tool call, and finishes with
+orchestration/generation and total request latency.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed

@@ -19,6 +19,22 @@ from valueharbor_agent.demo_data import INVENTORY, MEMBERS, ORDERS, POLICIES, PR
 
 log = logging.getLogger(__name__)
 
+PUBLIC_POLICY_ROUTE = "public_stable_policy"
+PUBLIC_POLICY_REFERENCES = [
+    "What is the return policy?",
+    "How long is the return window?",
+    "Can an electronics purchase be returned?",
+    "Explain the electronics returns rules.",
+    "What does the product warranty cover?",
+    "How does warranty coverage work?",
+    "What are the curbside pickup rules?",
+    "How long is the pickup window?",
+    "What happens if a pickup is not collected?",
+    "Explain the member pricing policy.",
+    "How does membership pricing work?",
+    "What are the general membership terms?",
+]
+
 
 def safe_id(value: str, fallback: str) -> str:
     cleaned = re.sub(r"[^A-Za-z0-9-]+", "-", value).strip("-")
@@ -340,6 +356,154 @@ class CartService:
         return dict(self._fallback.get(member_id, {}))
 
 
+class SemanticRouterService:
+    """RedisVL cache-eligibility router with conservative deterministic guardrails."""
+
+    _GUARDRAILS = (
+        (
+            "member-specific request",
+            re.compile(
+                r"\b(?:my|our)\s+(?:(?:pickup|recent|shopping|member)\s+)?"
+                r"(?:order|cart|account|reward|preference|membership|purchase|profile|address)"
+                r"\b|\bremember\b|\bi\s+prefer\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "live or time-sensitive commerce data",
+            re.compile(
+                r"\b(?:in stock|inventory|availability|available\s+(?:at|in)|current price|"
+                r"today'?s price|warehouse stock|near me)\b",
+                re.IGNORECASE,
+            ),
+        ),
+        (
+            "sensitive data",
+            re.compile(
+                r"\b(?:password|passcode|payment|credit card|debit card|card number|"
+                r"security code|phone number|email address)\b",
+                re.IGNORECASE,
+            ),
+        ),
+    )
+
+    def __init__(
+        self,
+        settings: Settings,
+        redis_client: redis.Redis | None = None,
+    ) -> None:
+        self.settings = settings
+        self.redis = redis_client
+        self.configured = bool(redis_client is not None and settings.semantic_router_configured)
+        self._router: Any | None = None
+        self._lock = threading.Lock()
+
+    @classmethod
+    def guardrail_reason(cls, message: str) -> str | None:
+        for reason, pattern in cls._GUARDRAILS:
+            if pattern.search(message):
+                return reason
+        return None
+
+    def _get_router(self) -> Any:
+        if self._router is not None:
+            return self._router
+        with self._lock:
+            if self._router is not None:
+                return self._router
+
+            from google import genai
+            from redisvl.extensions.router import Route, SemanticRouter
+            from redisvl.utils.vectorize import CustomVectorizer
+
+            embedding_client = genai.Client(
+                vertexai=True,
+                project=self.settings.google_cloud_project,
+                location=self.settings.google_cloud_location,
+            )
+
+            def embed(content: str) -> list[float]:
+                response = embedding_client.models.embed_content(
+                    model=self.settings.valueharbor_semantic_router_embedding_model,
+                    contents=content,
+                )
+                return list(response.embeddings[0].values)
+
+            def embed_many(contents: list[str]) -> list[list[float]]:
+                response = embedding_client.models.embed_content(
+                    model=self.settings.valueharbor_semantic_router_embedding_model,
+                    contents=contents,
+                )
+                return [list(item.values) for item in response.embeddings]
+
+            vectorizer = CustomVectorizer(embed=embed, embed_many=embed_many)
+            self._router = SemanticRouter(
+                name=self.settings.valueharbor_semantic_router_index,
+                routes=[
+                    Route(
+                        name=PUBLIC_POLICY_ROUTE,
+                        references=PUBLIC_POLICY_REFERENCES,
+                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        metadata={"cache": "public-policy", "safety": "public-only"},
+                    )
+                ],
+                vectorizer=vectorizer,
+                redis_client=self.redis,
+                overwrite=False,
+            )
+        return self._router
+
+    def route(self, message: str) -> dict[str, Any]:
+        threshold = self.settings.valueharbor_semantic_router_threshold
+        guardrail = self.guardrail_reason(message)
+        if guardrail:
+            return {
+                "configured": self.configured,
+                "eligible": False,
+                "route": None,
+                "distance": None,
+                "threshold": threshold,
+                "reason": guardrail,
+                "decision_source": "guardrail",
+            }
+        if not self.configured:
+            return {
+                "configured": False,
+                "eligible": False,
+                "route": None,
+                "distance": None,
+                "threshold": threshold,
+                "reason": "semantic router is not configured",
+                "decision_source": "fail-safe",
+            }
+
+        try:
+            match = self._get_router()(message)
+            route_name = getattr(match, "name", None)
+            distance = getattr(match, "distance", None)
+            eligible = route_name == PUBLIC_POLICY_ROUTE
+            return {
+                "configured": True,
+                "eligible": eligible,
+                "route": route_name,
+                "distance": round(float(distance), 4) if distance is not None else None,
+                "threshold": threshold,
+                "reason": "stable public policy route" if eligible else "no safe semantic route",
+                "decision_source": "redisvl",
+            }
+        except Exception as exc:
+            log.warning("RedisVL semantic routing failed closed: %s", exc)
+            return {
+                "configured": True,
+                "eligible": False,
+                "route": None,
+                "distance": None,
+                "threshold": threshold,
+                "reason": "semantic router unavailable",
+                "decision_source": "fail-safe",
+            }
+
+
 class LangCacheService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -349,14 +513,13 @@ class LangCacheService:
             else ""
         )
 
-    async def search(self, prompt: str, member_id: str) -> dict[str, Any] | None:
+    async def search(self, prompt: str, _scope: str) -> dict[str, Any] | None:
         if not self.base_url:
             return None
         body = {
             "prompt": prompt,
             "similarityThreshold": self.settings.langcache_similarity_threshold,
             "searchStrategies": ["semantic"],
-            "attributes": {"agent": "shopping", "memberScope": safe_id(member_id, "anonymous")},
         }
         try:
             async with httpx.AsyncClient(timeout=8) as client:
@@ -372,13 +535,12 @@ class LangCacheService:
             log.warning("LangCache search failed open: %s", exc)
             return None
 
-    async def store(self, prompt: str, answer: str, member_id: str) -> bool:
+    async def store(self, prompt: str, answer: str, _scope: str) -> bool:
         if not self.base_url:
             return False
         body = {
             "prompt": prompt,
             "response": answer,
-            "attributes": {"agent": "shopping", "memberScope": safe_id(member_id, "anonymous")},
         }
         try:
             async with httpx.AsyncClient(timeout=8) as client:
@@ -689,6 +851,7 @@ class Services:
         self.settings = settings or get_settings()
         self.catalog = CatalogService(self.settings)
         self.cart = CartService(self.settings)
+        self.semantic_router = SemanticRouterService(self.settings, self.catalog.redis)
         self.langcache = LangCacheService(self.settings)
         self.memory = MemoryService(self.settings)
         self.vertex_memory = VertexMemoryService(self.settings)
