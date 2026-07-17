@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "inventory": 30,
+    "members": 4,
+    "memory_evaluations": 5,
+    "memory_seeds": 8,
+    "order_items": 12,
+    "orders": 6,
+    "policies": 3,
+    "products": 10,
+    "warehouses": 3
+  },
+  "format": "jsonl",
+  "generated_at": "2026-07-16T16:00:00Z",
+  "name": "valueharbor-demo",
+  "relationships": [
+    "inventory.warehouse_id -> warehouses.warehouse_id",
+    "inventory.sku -> products.sku",
+    "orders.member_id -> members.member_id",
+    "orders.warehouse -> warehouses.warehouse_id",
+    "order_items.order_id -> orders.order_id",
+    "order_items.sku -> products.sku",
+    "memory_seeds.owner_id -> members.member_id"
+  ],
+  "version": "1.0.0"
+}

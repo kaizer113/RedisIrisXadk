@@ -1,0 +1,47 @@
+# ValueHarbor demo dataset
+
+This is a deterministic, fictional commerce dataset for the shopping-agent workshop. Run `make dataset` to regenerate `data/generated`.
+
+## Entities
+
+| File | Primary identifier | Purpose |
+|---|---|---|
+| `products.jsonl` | `sku` | Searchable product catalog and pricing |
+| `warehouses.jsonl` | `warehouse_id` | Warehouse locations |
+| `inventory.jsonl` | `inventory_id` | Per-warehouse product availability |
+| `members.jsonl` | `member_id` | Fictional signed-in customer profiles |
+| `orders.jsonl` | `order_id` | Order headers and fulfillment state |
+| `order_items.jsonl` | `order_item_id` | Normalized order lines |
+| `policies.jsonl` | `id` | Grounding documents for policy RAG |
+| `memory_seeds.jsonl` | `id` | Identical facts for seeding both memory systems |
+| `memory_evaluations.jsonl` | `case_id` | Queries and labeled relevance expectations |
+
+All names, orders, prices, and preferences are synthetic. No real customer data is included.
+
+## Redis model
+
+The seed loader uses flat Hashes for independently searchable entities and Strings for atomic inventory quantities:
+
+```text
+valueharbor:product:{sku}                         Hash
+valueharbor:warehouse:{warehouse_id}              Hash
+valueharbor:inventory:{warehouse_id}:{sku}        String integer
+valueharbor:member:{member_id}                    Hash
+valueharbor:order:{order_id}                      Hash
+valueharbor:order-item:{order_item_id}             Hash
+valueharbor:policy:{policy_id}                    Hash
+valueharbor:memory-seed:{memory_id}                Hash staging record
+valueharbor:memory-evaluation:{case_id}            Hash staging record
+```
+
+The keys are lowercase and colon-separated. Product, policy, member, order, and order-item prefixes are indexed by Redis Query Engine. Inventory remains a direct O(1) lookup because the agent normally knows both the warehouse and SKU after product discovery. Memory seed records in the database are the reproducible source corpus; they will also be copied into each managed memory service for comparison.
+
+## Memory comparison methodology
+
+`memory_seeds.jsonl` provides the same facts for Redis Agent Memory and Vertex ADK Memory Bank. Each evaluation case includes:
+
+- one member-scoped retrieval query;
+- expected terms used to calculate transparent precision@k and recall@k;
+- the IDs of the memories considered relevant.
+
+For a fair comparison, seed both systems from the same file, wait for asynchronous indexing or promotion, warm each provider once, then report medians over multiple measured runs.

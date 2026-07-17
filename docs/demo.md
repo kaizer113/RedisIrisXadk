@@ -1,0 +1,144 @@
+# ValueHarbor recommended demo flow
+
+This is an 8–10 minute presenter flow for the ValueHarbor shopping agent. It starts with a
+customer need, reveals the live agent trace as evidence, and finishes with the two independent
+memory paths and Gemini model selector.
+
+## Before the session
+
+1. Open [http://34.182.213.82](http://34.182.213.82).
+2. Confirm that all six service indicators are green:
+   Redis database, Context Retriever, LangCache, Agent Memory, ADK Memory Bank, and Agent
+   Sessions.
+3. Leave **Gemini 2.5 Flash · Fast** selected.
+4. Use a fresh browser reload so the visible conversation starts clean.
+
+The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
+Portland Harbor location.
+
+## 1. Grounded product discovery and live inventory
+
+Prompt:
+
+> Find family-size pantry staples under $30 and check Portland stock.
+
+Expected answer:
+
+- North Trail Organic Oats, 10 lb — member price `$15.99`, Portland quantity `31`.
+- Harbor Select Extra Virgin Olive Oil, 2 x 1L — member price `$21.99`, Portland quantity `42`.
+
+Point to the live trace while the request runs. It should show:
+
+1. LangCache eligibility.
+2. Redis short-term session retrieval.
+3. Redis long-term memory retrieval.
+4. ADK Memory Bank retrieval.
+5. Redis catalog search.
+6. Context Retriever MCP tool discovery.
+7. Two governed `get_inventory_by_id` calls, each with its own latency.
+8. Gemini generation and total request time.
+
+Talk track: the model reasons about the request, but product, price, and stock claims come from
+Redis-backed tools. Inventory is accessed through the governed Context Retriever surface rather
+than being invented by the model.
+
+## 2. Show operational context and order history
+
+Prompt:
+
+> Do I have a recent order ready for pickup, and where should I collect it?
+
+Expected result: the agent finds order `VH-ORD-1048`, which is ready for pickup at Portland.
+The trace should expose the Context Retriever order lookup rather than a hidden database call.
+
+Talk track: Context Retriever gives the agent a controlled tool contract over live commerce
+entities such as members, inventory, orders, and order lines.
+
+## 3. Demonstrate semantic response caching
+
+First prompt:
+
+> What is the electronics return policy?
+
+Expected grounded answer: electronics have a 90-day return window. The first request should show
+a LangCache miss and normal policy retrieval/generation.
+
+Then ask:
+
+> How long do I have to return a laptop?
+
+The second request should show a semantic LangCache hit and skip ADK/Gemini generation. Explain
+that personalized requests are deliberately excluded from the shared public-policy cache.
+
+## 4. Show both memory systems on every request
+
+Prompt:
+
+> What household products and pickup options do I prefer?
+
+Expected memories:
+
+- Alex prefers fragrance-free household and laundry products.
+- Alex prefers warehouse pickup at the Portland Harbor location.
+
+Expand both memory steps in the trace. The same query is sent concurrently to Redis Agent Memory
+long-term memory and ADK Memory Bank, and the retrieved facts and wall-clock latency are shown
+independently.
+
+Talk track:
+
+- Redis Agent Memory also holds the independent, append-only short-term event stream.
+- Agent Platform Sessions hold the ADK conversation session.
+- Redis and ADK long-term memory remain separate retrieval systems, making their behavior visible
+  in the same customer request.
+
+## 5. Save and recall a new preference
+
+Prompt:
+
+> Remember that I prefer fragrance-free household products and Portland pickup.
+
+The trace should show the explicit Redis Agent Memory write. ADK queues the completed session for
+Memory Bank generation after the turn. Redis promotion and Memory Bank generation are eventually
+consistent, so do not promise that newly generated long-term facts appear synchronously.
+
+Follow with:
+
+> Based on what you remember, what laundry option should I consider and can I pick it up in Portland?
+
+Expected behavior: the agent recalls the preference, finds Clear Tide Laundry Pods, and reports
+that Portland inventory is `0`. This is a useful proof that personalization does not override live
+stock truth.
+
+## 6. Switch models without losing the session
+
+Keep the same conversation, change the composer dropdown to **Gemini 2.5 Pro · Heavy**, and ask:
+
+> Plan the best pantry purchase under $40 using my preferences and explain the trade-off.
+
+Point out that the generation trace names `gemini-2.5-pro`. Both model-specific ADK runners share
+Agent Platform Sessions and ADK Memory Bank, while Redis continues to receive the same independent
+session events. Switching models therefore does not start a new customer conversation.
+
+## 7. Close on transparency
+
+Summarize the trace from top to bottom:
+
+- cache decision;
+- short-term context;
+- Redis long-term memories and facts;
+- ADK Memory Bank memories and facts;
+- governed MCP and commerce tool calls;
+- selected Gemini model;
+- generation and total latency.
+
+The key message is that ValueHarbor does not merely produce an answer: it exposes where context
+came from, which actions ran, which memory system returned each fact, and how long each step took.
+
+## Reliable fallback prompt
+
+If a live product flow is interrupted, use:
+
+> What is the electronics return policy?
+
+It is non-personalized, deterministic, and exercises the policy grounding plus LangCache path.

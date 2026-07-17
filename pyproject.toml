@@ -1,0 +1,37 @@
+[project]
+name = "valueharbor-shopping-agent"
+version = "0.1.0"
+description = "A Redis IRIS shopping-agent workshop built with Google ADK for GCP."
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "context-surfaces>=0.0.1",
+  "fastapi>=0.116.0",
+  "google-adk>=1.8.0",
+  "google-cloud-aiplatform[agent_engines,adk]>=1.112.0",
+  "google-genai>=1.30.0",
+  "httpx>=0.28.0",
+  "pydantic-settings>=2.10.0",
+  "redis>=6.2.0",
+  "redis-agent-memory>=0.1.0",
+  "uvicorn[standard]>=0.35.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.4.0",
+  "pytest-asyncio>=1.1.0",
+  "ruff>=0.12.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

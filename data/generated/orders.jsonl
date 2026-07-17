@@ -1,0 +1,6 @@
+{"fulfillment": "warehouse_pickup", "item_count": 3, "member_id": "member-1001", "order_id": "VH-ORD-1048", "placed_at": "2026-07-11", "status": "ready_for_pickup", "total": 65.47, "warehouse": "portland"}
+{"fulfillment": "delivery", "item_count": 2, "member_id": "member-1001", "order_id": "VH-ORD-1026", "placed_at": "2026-06-28", "status": "delivered", "total": 46.98, "warehouse": "portland"}
+{"fulfillment": "delivery", "item_count": 1, "member_id": "member-1002", "order_id": "VH-ORD-1051", "placed_at": "2026-07-13", "status": "processing", "total": 999.99, "warehouse": "seattle"}
+{"fulfillment": "delivery", "item_count": 3, "member_id": "member-1003", "order_id": "VH-ORD-1042", "placed_at": "2026-07-06", "status": "delivered", "total": 73.47, "warehouse": "sacramento"}
+{"fulfillment": "warehouse_pickup", "item_count": 1, "member_id": "member-1003", "order_id": "VH-ORD-0998", "placed_at": "2026-06-09", "status": "picked_up", "total": 849.99, "warehouse": "sacramento"}
+{"fulfillment": "warehouse_pickup", "item_count": 2, "member_id": "member-1004", "order_id": "VH-ORD-1037", "placed_at": "2026-07-03", "status": "picked_up", "total": 41.48, "warehouse": "portland"}
