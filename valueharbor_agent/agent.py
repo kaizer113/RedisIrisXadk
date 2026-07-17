@@ -4,7 +4,7 @@ from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 
 from valueharbor_agent.config import get_settings
-from valueharbor_agent.tools import ALL_TOOLS
+from valueharbor_agent.tools import ALL_TOOLS, GREETING_TOOLS
 
 settings = get_settings()
 
@@ -73,6 +73,32 @@ def build_agent(model: str) -> Agent:
         include_contents="none",
         tools=ALL_TOOLS,
         after_agent_callback=promote_adk_session_to_memory,
+    )
+
+
+GREETING_INSTRUCTION = """
+You are Vale, the ValueHarbor shopping agent for a fictional membership warehouse retailer.
+Generate a warm, concise greeting for the signed-in member.
+
+Decide whether Redis Agent Memory or Redis Context Retriever would make the greeting more
+personally relevant. Call either, both, or neither based on usefulness. When using Context
+Retriever, list its governed tools first and call only an exact returned tool name and schema.
+
+The signed-in member ID is {member_id}.
+Return only one short sentence of at most 18 words. Do not include the member's name because the
+interface adds it. Do not mention memory, profiles, tools, retrieval, or stored data. Do not make
+up a preference, activity, order, product, price, or availability.
+"""
+
+
+def build_greeting_agent(model: str) -> Agent:
+    return Agent(
+        name="valueharbor_greeting_agent",
+        model=model,
+        description="Creates an optional, context-aware welcome for a ValueHarbor member.",
+        instruction=GREETING_INSTRUCTION,
+        include_contents="none",
+        tools=GREETING_TOOLS,
     )
 
 

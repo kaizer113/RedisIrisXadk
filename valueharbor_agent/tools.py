@@ -6,7 +6,7 @@ from typing import Any
 
 from google.adk.tools import ToolContext
 
-from valueharbor_agent.services import compare_memory_retrieval, services
+from valueharbor_agent.services import compare_memory_retrieval, memory_snippets, services
 
 
 def _member_id(tool_context: ToolContext) -> str:
@@ -22,7 +22,7 @@ def search_catalog(
     category: str = "",
     limit: int = 5,
 ) -> dict[str, Any]:
-    """Find ValueHarbor products by meaning, keywords, and optional category.
+    """Find ValueHarbor products with RedisVL by meaning, keywords, and optional category.
 
     Args:
         query: What the member wants or the need the product should satisfy.
@@ -87,6 +87,25 @@ async def recall_shopping_memory(query: str, tool_context: ToolContext) -> dict[
     return await compare_memory_retrieval(query, _member_id(tool_context))
 
 
+async def recall_redis_shopping_memory(
+    query: str, tool_context: ToolContext
+) -> dict[str, Any]:
+    """Recall Redis Agent Memory facts that could make a member greeting relevant.
+
+    Call this only when remembered preferences or shopping activity would improve the greeting.
+
+    Args:
+        query: The kind of member preference or shopping context useful for the greeting.
+    """
+    memories = await asyncio.to_thread(
+        services.memory.recall,
+        _member_id(tool_context),
+        query,
+        5,
+    )
+    return {"memories": memory_snippets(memories)}
+
+
 async def compare_memory_systems(
     query: str,
     expected_terms_csv: str,
@@ -133,7 +152,8 @@ async def remember_shopping_preference(
 
 async def list_context_retriever_tools() -> dict[str, Any]:
     """List governed live-data tools exposed by Redis Context Retriever."""
-    return {"tools": await services.context.list_tools()}
+    tools, cached = await services.context.get_tools()
+    return {"tools": tools, "source": "server_cache" if cached else "context_retriever"}
 
 
 async def query_context_retriever(tool_name: str, arguments_json: str) -> dict[str, Any]:
@@ -160,6 +180,13 @@ ALL_TOOLS = [
     add_item_to_cart,
     view_cart,
     remember_shopping_preference,
+    list_context_retriever_tools,
+    query_context_retriever,
+]
+
+
+GREETING_TOOLS = [
+    recall_redis_shopping_memory,
     list_context_retriever_tools,
     query_context_retriever,
 ]

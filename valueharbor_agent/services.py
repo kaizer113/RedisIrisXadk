@@ -13,17 +13,22 @@ from typing import Any
 
 import httpx
 import redis
+from redisvl.index import SearchIndex
+from redisvl.query import TextQuery, VectorQuery
+from redisvl.query.filter import Tag
 
 from valueharbor_agent.config import Settings, get_settings
 from valueharbor_agent.demo_data import INVENTORY, MEMBERS, ORDERS, POLICIES, PRODUCTS, WAREHOUSES
 
 log = logging.getLogger(__name__)
 
-PUBLIC_POLICY_ROUTE = "public_stable_policy"
+PUBLIC_POLICY_ROUTE = "reusable_ecommerce"
 PUBLIC_POLICY_REFERENCES = [
     "What is the return policy?",
+    "What is the electronics return policy?",
     "How long is the return window?",
     "Can an electronics purchase be returned?",
+    "Can I return a television after buying it?",
     "Explain the electronics returns rules.",
     "What does the product warranty cover?",
     "How does warranty coverage work?",
@@ -33,6 +38,40 @@ PUBLIC_POLICY_REFERENCES = [
     "Explain the member pricing policy.",
     "How does membership pricing work?",
     "What are the general membership terms?",
+    "What payment methods can members use?",
+    "How does curbside pickup work?",
+    "Do products include a manufacturer warranty?",
+    "How do I care for and store bulk pantry products?",
+]
+ECOMMERCE_ROUTE = "ecommerce_request"
+ECOMMERCE_REFERENCES = [
+    "Find family-size pantry staples under thirty dollars.",
+    "Recommend products for my household.",
+    "Compare these products and prices.",
+    "Is this item available at my warehouse?",
+    "Check current inventory in Portland.",
+    "Add this product to my shopping cart.",
+    "Show my recent order and pickup status.",
+    "What products match my preferences?",
+    "Help me plan a warehouse shopping trip.",
+    "Which membership deal offers the best value?",
+    "Do you sell fragrance-free detergent?",
+    "What groceries should I buy for a large family?",
+]
+OUT_OF_DOMAIN_ROUTE = "blocked_out_of_domain"
+OUT_OF_DOMAIN_REFERENCES = [
+    "Where is Dagestan?",
+    "What is the capital of France?",
+    "Who won the football game?",
+    "Write Python code for me.",
+    "Explain quantum physics.",
+    "What is the weather today?",
+    "Tell me about world history.",
+    "Solve this mathematics problem.",
+    "Give me medical advice.",
+    "Who should I vote for?",
+    "Write a poem about the ocean.",
+    "Tell me a joke.",
 ]
 
 
@@ -47,6 +86,8 @@ class CatalogService:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
         self.redis: redis.Redis | None = None
+        self._product_index: SearchIndex | None = None
+        self._product_index_lock = threading.Lock()
         if settings.redis_url:
             self.redis = redis.Redis.from_url(
                 settings.redis_url,
@@ -59,6 +100,19 @@ class CatalogService:
     def ping(self) -> bool:
         """Perform a real round trip to the configured Redis database."""
         return bool(self.redis is not None and self.redis.ping())
+
+    def _get_product_index(self) -> SearchIndex:
+        """Lazily bind RedisVL to the checked-in product index."""
+        if self.redis is None:
+            raise RuntimeError("Redis is not configured")
+        if self._product_index is None:
+            with self._product_index_lock:
+                if self._product_index is None:
+                    self._product_index = SearchIndex.from_existing(
+                        "idx:valueharbor:products",
+                        redis_client=self.redis,
+                    )
+        return self._product_index
 
     def _embed(self, text: str) -> bytes | None:
         if (
@@ -118,57 +172,39 @@ class CatalogService:
         if self.redis is not None:
             try:
                 vector = self._embed(query)
-                category_filter = f"@category:{{{self._escape_tag(category)}}}" if category else "*"
+                category_filter = Tag("category") == category if category else None
+                return_fields = [
+                    "sku",
+                    "name",
+                    "category",
+                    "price",
+                    "member_price",
+                    "description",
+                ]
                 if vector:
-                    raw = self.redis.execute_command(
-                        "FT.SEARCH",
-                        "idx:valueharbor:products",
-                        f"({category_filter})=>[KNN {limit} @embedding $query_vector AS score]",
-                        "PARAMS",
-                        2,
-                        "query_vector",
-                        vector,
-                        "RETURN",
-                        7,
-                        "sku",
-                        "name",
-                        "category",
-                        "price",
-                        "member_price",
-                        "description",
-                        "score",
-                        "SORTBY",
-                        "score",
-                        "ASC",
-                        "DIALECT",
-                        2,
+                    redisvl_query = VectorQuery(
+                        vector=vector,
+                        vector_field_name="embedding",
+                        filter_expression=category_filter,
+                        return_fields=return_fields,
+                        num_results=limit,
+                        return_score=True,
                     )
                 else:
-                    escaped = re.sub(r"[^A-Za-z0-9 ]", " ", query).strip()
-                    terms = "|".join(escaped.split()) or "*"
-                    text_query = f"(@name:({terms})|@description:({terms}))"
-                    if category:
-                        text_query += f" @category:{{{self._escape_tag(category)}}}"
-                    raw = self.redis.execute_command(
-                        "FT.SEARCH",
-                        "idx:valueharbor:products",
-                        text_query,
-                        "RETURN",
-                        6,
-                        "sku",
-                        "name",
-                        "category",
-                        "price",
-                        "member_price",
-                        "description",
-                        "LIMIT",
-                        0,
-                        limit,
-                        "DIALECT",
-                        2,
+                    redisvl_query = TextQuery(
+                        text=query,
+                        text_field_name={"name": 2.0, "description": 1.0},
+                        filter_expression=category_filter,
+                        return_fields=return_fields,
+                        num_results=limit,
+                        return_score=False,
+                        stopwords=None,
                     )
                 docs = []
-                for mapped in self._search_result_maps(raw):
+                for mapped in self._get_product_index().query(redisvl_query):
+                    mapped.pop("id", None)
+                    if "vector_distance" in mapped:
+                        mapped["score"] = mapped.pop("vector_distance")
                     for field in ("price", "member_price", "score"):
                         if field in mapped:
                             mapped[field] = float(mapped[field])
@@ -361,7 +397,7 @@ class CartService:
 
 
 class SemanticRouterService:
-    """RedisVL cache-eligibility router with conservative deterministic guardrails."""
+    """RedisVL domain and cache-policy router with deterministic guardrails."""
 
     _GUARDRAILS = (
         (
@@ -448,12 +484,24 @@ class SemanticRouterService:
                         name=PUBLIC_POLICY_ROUTE,
                         references=PUBLIC_POLICY_REFERENCES,
                         distance_threshold=self.settings.valueharbor_semantic_router_threshold,
-                        metadata={"cache": "public-policy", "safety": "public-only"},
-                    )
+                        metadata={"action": "allow", "cache_read": True, "cache_write": True},
+                    ),
+                    Route(
+                        name=ECOMMERCE_ROUTE,
+                        references=ECOMMERCE_REFERENCES,
+                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        metadata={"action": "allow", "cache_read": False, "cache_write": False},
+                    ),
+                    Route(
+                        name=OUT_OF_DOMAIN_ROUTE,
+                        references=OUT_OF_DOMAIN_REFERENCES,
+                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        metadata={"action": "block", "cache_read": False, "cache_write": False},
+                    ),
                 ],
                 vectorizer=vectorizer,
                 redis_client=self.redis,
-                overwrite=False,
+                overwrite=True,
             )
         return self._router
 
@@ -464,6 +512,10 @@ class SemanticRouterService:
             return {
                 "configured": self.configured,
                 "eligible": False,
+                "cache_read": False,
+                "cache_write": False,
+                "blocked": False,
+                "action": "allow",
                 "route": None,
                 "distance": None,
                 "threshold": threshold,
@@ -474,6 +526,10 @@ class SemanticRouterService:
             return {
                 "configured": False,
                 "eligible": False,
+                "cache_read": False,
+                "cache_write": False,
+                "blocked": False,
+                "action": "allow",
                 "route": None,
                 "distance": None,
                 "threshold": threshold,
@@ -485,21 +541,38 @@ class SemanticRouterService:
             match = self._get_router()(message)
             route_name = getattr(match, "name", None)
             distance = getattr(match, "distance", None)
-            eligible = route_name == PUBLIC_POLICY_ROUTE
+            cacheable = route_name == PUBLIC_POLICY_ROUTE
+            ecommerce = route_name == ECOMMERCE_ROUTE
+            blocked = route_name == OUT_OF_DOMAIN_ROUTE or not (cacheable or ecommerce)
+            reason = (
+                "reusable ecommerce answer"
+                if cacheable
+                else "ecommerce request"
+                if ecommerce
+                else "outside ValueHarbor ecommerce scope"
+            )
             return {
                 "configured": True,
-                "eligible": eligible,
+                "eligible": cacheable,
+                "cache_read": cacheable,
+                "cache_write": cacheable,
+                "blocked": blocked,
+                "action": "block" if blocked else "allow",
                 "route": route_name,
                 "distance": round(float(distance), 4) if distance is not None else None,
                 "threshold": threshold,
-                "reason": "stable public policy route" if eligible else "no safe semantic route",
+                "reason": reason,
                 "decision_source": "redisvl",
             }
         except Exception as exc:
-            log.warning("RedisVL semantic routing failed closed: %s", exc)
+            log.warning("RedisVL semantic routing failed open without caching: %s", exc)
             return {
                 "configured": True,
                 "eligible": False,
+                "cache_read": False,
+                "cache_write": False,
+                "blocked": False,
+                "action": "allow",
                 "route": None,
                 "distance": None,
                 "threshold": threshold,
@@ -699,19 +772,44 @@ class MemoryService:
 class ContextRetrieverService:
     def __init__(self, settings: Settings) -> None:
         self.agent_key = settings.mcp_agent_key
+        self._tools_cache: list[dict[str, Any]] | None = None
+        self._tools_lock = asyncio.Lock()
 
-    async def list_tools(self) -> list[dict[str, Any]]:
+    @property
+    def tools_cached(self) -> bool:
+        return self._tools_cache is not None
+
+    async def get_tools(
+        self, *, force_refresh: bool = False
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Return the governed catalog and whether it came from the server cache."""
         if not self.agent_key:
-            return []
-        try:
-            from context_surfaces import UnifiedClient
+            return [], False
+        if self._tools_cache is not None and not force_refresh:
+            return self._tools_cache, True
 
-            async with UnifiedClient() as client:
-                tools = await client.list_tools(self.agent_key)
-            return [tool if isinstance(tool, dict) else tool.model_dump() for tool in tools]
-        except Exception as exc:
-            log.warning("Context Retriever tool listing failed open: %s", exc)
-            return []
+        async with self._tools_lock:
+            if self._tools_cache is not None and not force_refresh:
+                return self._tools_cache, True
+            try:
+                from context_surfaces import UnifiedClient
+
+                async with UnifiedClient() as client:
+                    tools = await client.list_tools(self.agent_key)
+                refreshed = [
+                    tool if isinstance(tool, dict) else tool.model_dump() for tool in tools
+                ]
+                self._tools_cache = refreshed
+                return refreshed, False
+            except Exception as exc:
+                log.warning("Context Retriever tool listing failed open: %s", exc)
+                if self._tools_cache is not None:
+                    return self._tools_cache, True
+                return [], False
+
+    async def list_tools(self, *, force_refresh: bool = False) -> list[dict[str, Any]]:
+        tools, _ = await self.get_tools(force_refresh=force_refresh)
+        return tools
 
     async def call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self.agent_key:

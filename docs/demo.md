@@ -7,12 +7,13 @@ memory paths and Gemini model selector.
 ## Before the session
 
 1. Open [http://34.182.213.82](http://34.182.213.82).
-2. Confirm that all six service indicators are green:
-   Redis database, Context Retriever, LangCache, Agent Memory, ADK Memory Bank, and Agent
-   Sessions.
-3. Select **Alex Rivera · member-1001** in the **Shop as** dropdown.
+2. Confirm that all seven service indicators are green:
+   Redis database, Context Retriever, Semantic Router, LangCache, Agent Memory, ADK Memory Bank,
+   and Agent Sessions.
+3. Select **Alex Rivera** in the **Shop as** dropdown.
 4. Leave **Gemini 2.5 Flash · Fast** selected.
-5. Use a fresh browser reload so the visible conversation starts clean.
+5. Use a fresh browser reload so the visible conversation starts clean and the governed Context
+   Retriever tool catalog is refreshed.
 
 The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
 Portland Harbor location.
@@ -20,9 +21,15 @@ Portland Harbor location.
 For the high-cardinality memory scenario, switch to `member-1005`, Taylor Morgan. Taylor has
 exactly 500 pre-seeded memories: 20 durable preferences and 480 episodic distractors.
 
-On the first generated turn, the trace should show the authoritative member profile being loaded
-from Context Retriever. Later turns reuse the application session cache. Changing the selected
-member clears the visible chat and creates a new session for that member.
+After the page warm-up, Vale generates a short member greeting. The greeting agent can choose to
+use Redis Agent Memory, Context Retriever, both, or neither. Wait for the greeting to finish before
+starting the scripted prompts. The first shopping turn should show the authoritative member profile
+being loaded from Context Retriever; later turns reuse the application session cache. Changing the
+selected member clears the visible chat and creates a new session for that member.
+
+The Context Retriever tool catalog is discovered once during page warm-up and cached by the
+application. Profile hydration and agent tool selection reuse it, so the trace intentionally hides
+the redundant `discover MCP tools` step. Reload the page when you want to refresh the catalog.
 
 ## 1. Grounded product discovery and live inventory
 
@@ -37,14 +44,14 @@ Expected answer:
 
 Point to the live trace while the request runs. It should show:
 
-1. LangCache eligibility.
-2. Redis short-term session retrieval.
-3. Redis long-term memory retrieval.
-4. ADK Memory Bank retrieval.
-5. Redis catalog search.
-6. Context Retriever MCP tool discovery.
+1. RedisVL Semantic Router allow/cache decision.
+2. LangCache eligibility.
+3. Redis short-term session retrieval.
+4. Redis long-term memory retrieval.
+5. ADK short-term session read and ADK Memory Bank search.
+6. RedisVL catalog search.
 7. Two governed `get_inventory_by_id` calls, each with its own latency.
-8. Gemini generation and total request time.
+8. `ADK Runner + Gemini` and total request time.
 
 Talk track: the model reasons about the request, but product, price, and stock claims come from
 Redis-backed tools. Inventory is accessed through the governed Context Retriever surface rather
@@ -75,8 +82,10 @@ Then ask:
 
 > How long do I have to return a laptop?
 
-The second request should show a semantic LangCache hit and skip ADK/Gemini generation. Explain
-that personalized requests are deliberately excluded from the shared public-policy cache.
+The second request should show a semantic LangCache hit and skip `ADK Runner + Gemini`. Explain
+that the RedisVL Semantic Router allows reusable ecommerce answers into LangCache while
+personalized and live-data requests bypass it. Out-of-domain requests are blocked before cache,
+memory, or model execution.
 
 ## 4. Show both memory systems on every request
 
@@ -143,13 +152,13 @@ to provide the conversation context sent to Gemini. ADK prior-session contents r
 
 Summarize the trace from top to bottom:
 
-- cache decision;
+- RedisVL Semantic Router allow/block and cache decision;
 - short-term context;
 - Redis long-term memories and facts;
 - ADK Memory Bank memories and facts;
 - governed MCP and commerce tool calls;
 - selected Gemini model;
-- generation and total latency.
+- `ADK Runner + Gemini` and total latency.
 
 The key message is that ValueHarbor does not merely produce an answer: it exposes where context
 came from, which actions ran, which memory system returned each fact, and how long each step took.

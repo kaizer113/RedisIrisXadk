@@ -1,18 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 from google.genai import types
 from redis_agent_memory import models
+from redisvl.query import TextQuery
 
 from scripts import seed_managed_memories as managed_seed
 from scripts.generate_dataset import records
 from valueharbor_agent import api as api_module
-from valueharbor_agent.agent import build_agent
+from valueharbor_agent.agent import build_agent, build_greeting_agent
 from valueharbor_agent.api import (
     _chat_events,
+    _greeting_events,
+    _tool_label,
     _tool_summary,
     app,
     member_profile_cache,
@@ -22,6 +26,8 @@ from valueharbor_agent.api import (
 )
 from valueharbor_agent.config import Settings
 from valueharbor_agent.services import (
+    ECOMMERCE_ROUTE,
+    OUT_OF_DOMAIN_ROUTE,
     PUBLIC_POLICY_ROUTE,
     CatalogService,
     ContextRetrieverService,
@@ -76,6 +82,37 @@ def test_redis_search_response_normalization() -> None:
     expected = [{"sku": "VH-1001", "price": "21.99"}]
     assert CatalogService._search_result_maps(redis_8_reply) == expected
     assert CatalogService._search_result_maps(legacy_reply) == expected
+
+
+def test_catalog_search_uses_redisvl_text_query() -> None:
+    captured = {}
+
+    class FakeIndex:
+        def query(self, query):
+            captured["query"] = query
+            return [
+                {
+                    "id": "valueharbor:product:VH-1001",
+                    "sku": "VH-1001",
+                    "name": "Olive Oil Twin Pack",
+                    "category": "pantry",
+                    "price": "24.99",
+                    "member_price": "21.99",
+                    "description": "Cold-pressed olive oil.",
+                }
+            ]
+
+    catalog = CatalogService(Settings(_env_file=None))
+    catalog.redis = SimpleNamespace()
+    catalog._product_index = FakeIndex()
+
+    products = catalog.search_products("olive oil", category="pantry", limit=3)
+
+    query = captured["query"]
+    assert isinstance(query, TextQuery)
+    assert "@category:{pantry}" in str(query.filter)
+    assert products[0]["member_price"] == 21.99
+    assert "id" not in products[0]
 
 
 def test_retrieval_quality_is_explicit_ground_truth() -> None:
@@ -150,23 +187,47 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
 
     public = router.route("Could you explain the electronics returns rules?")
     assert public["eligible"] is True
+    assert public["cache_read"] is True
+    assert public["cache_write"] is True
+    assert public["blocked"] is False
     assert public["decision_source"] == "redisvl"
     assert public["distance"] == 0.31
 
     personalized = router.route("Where is my pickup order?")
     assert personalized["eligible"] is False
+    assert personalized["blocked"] is False
     assert personalized["decision_source"] == "guardrail"
     assert personalized["reason"] == "member-specific request"
 
     live = router.route("Is detergent in stock at the Portland warehouse?")
     assert live["eligible"] is False
+    assert live["blocked"] is False
     assert live["reason"] == "live or time-sensitive commerce data"
+
+    router._router = lambda _: SimpleNamespace(name=ECOMMERCE_ROUTE, distance=0.24)
+    ecommerce = router.route("Find family-size pantry staples under thirty dollars.")
+    assert ecommerce["action"] == "allow"
+    assert ecommerce["cache_read"] is False
+    assert ecommerce["cache_write"] is False
+    assert ecommerce["blocked"] is False
+
+    router._router = lambda _: SimpleNamespace(name=OUT_OF_DOMAIN_ROUTE, distance=0.19)
+    out_of_domain = router.route("Where is Dagestan?")
+    assert out_of_domain["action"] == "block"
+    assert out_of_domain["blocked"] is True
+
+    router._router = lambda _: SimpleNamespace(name=None, distance=None)
+    no_match = router.route("Discuss an unrelated topic.")
+    assert no_match["action"] == "block"
+    assert no_match["blocked"] is True
 
 
 def test_unconfigured_semantic_router_fails_safe() -> None:
     router = SemanticRouterService(Settings(_env_file=None))
     decision = router.route("What is the electronics return policy?")
     assert decision["eligible"] is False
+    assert decision["blocked"] is False
+    assert decision["action"] == "allow"
     assert decision["decision_source"] == "fail-safe"
 
 
@@ -215,7 +276,8 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
 
 
 async def test_warmup_pings_five_redis_services(monkeypatch) -> None:
-    async def list_tools():
+    async def list_tools(*, force_refresh=False):
+        assert force_refresh is True
         return [{"name": "get_inventory", "description": "Inventory lookup"}]
 
     async def warm_langcache(_prompt):
@@ -245,6 +307,40 @@ async def test_warmup_pings_five_redis_services(monkeypatch) -> None:
         "redis_agent_memory",
     }
     assert result["services"]["context_retriever"]["tools"][0]["name"] == "get_inventory"
+
+
+async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) -> None:
+    calls = 0
+
+    class FakeUnifiedClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def list_tools(self, _agent_key):
+            nonlocal calls
+            calls += 1
+            return [{"name": f"tool_version_{calls}"}]
+
+    monkeypatch.setitem(
+        sys.modules,
+        "context_surfaces",
+        SimpleNamespace(UnifiedClient=FakeUnifiedClient),
+    )
+    context = ContextRetrieverService(Settings(_env_file=None, mcp_agent_key="test"))
+
+    first, first_cached = await context.get_tools()
+    second, second_cached = await context.get_tools()
+    refreshed, refreshed_cached = await context.get_tools(force_refresh=True)
+
+    assert first == second == [{"name": "tool_version_1"}]
+    assert first_cached is False
+    assert second_cached is True
+    assert refreshed == [{"name": "tool_version_2"}]
+    assert refreshed_cached is False
+    assert calls == 2
 
 
 async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> None:
@@ -290,6 +386,65 @@ def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
     assert "{redis_short_term_context}" in agent.instruction
     assert "{redis_long_term_context}" in agent.instruction
     assert "vertex_long_term_context" not in agent.instruction
+
+
+def test_greeting_agent_can_choose_redis_memory_and_context_retriever() -> None:
+    agent = build_greeting_agent("gemini-2.5-flash")
+    assert agent.include_contents == "none"
+    assert [tool.__name__ for tool in agent.tools] == [
+        "recall_redis_shopping_memory",
+        "list_context_retriever_tools",
+        "query_context_retriever",
+    ]
+    assert "at most 18 words" in agent.instruction
+
+
+async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None:
+    captured = {}
+
+    class FakeEvent:
+        content = types.Content(role="model", parts=[types.Part(text="Ready for a fresh find?")])
+
+        @staticmethod
+        def get_function_calls():
+            return []
+
+        @staticmethod
+        def get_function_responses():
+            return []
+
+        @staticmethod
+        def is_final_response():
+            return True
+
+    class FakeRunner:
+        async def run_async(self, **kwargs):
+            captured.update(kwargs)
+            yield FakeEvent()
+
+    monkeypatch.setitem(api_module.greeting_runners, "gemini-2.5-flash", FakeRunner())
+    events = [
+        event
+        async for event in _greeting_events(
+            api_module.GreetingRequest(
+                member_id="member-1005",
+                session_id="shopping-session",
+                model="gemini-2.5-flash",
+            )
+        )
+    ]
+
+    assert captured["user_id"] == "member-1005"
+    assert captured["session_id"] == "shopping-session-greeting"
+    assert events[-1] == {"type": "greeting", "greeting": "Ready for a fresh find?"}
+
+
+def test_member_selector_displays_names_and_requests_generated_greeting() -> None:
+    html = (api_module.STATIC_DIR / "index.html").read_text()
+    assert "option.textContent=member.name" in html
+    assert "${member.name} · ${member.member_id}" not in html
+    assert "fetch('/api/greeting/stream'" in html
+    assert "What can I help you find?" not in html
 
 
 async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> None:
@@ -372,6 +527,77 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
     assert "vertex_long_term_context" not in captured_state
 
 
+async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
+    monkeypatch,
+) -> None:
+    recorded_events = []
+
+    class UnexpectedRunner:
+        async def run_async(self, **_kwargs):
+            raise AssertionError("ADK must not run for a blocked request")
+            yield
+
+    async def unexpected_async(*_args, **_kwargs):
+        raise AssertionError("downstream retrieval must not run for a blocked request")
+
+    def unexpected_sync(*_args, **_kwargs):
+        raise AssertionError("downstream retrieval must not run for a blocked request")
+
+    monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", UnexpectedRunner())
+    monkeypatch.setattr(
+        services.semantic_router,
+        "route",
+        lambda _message: {
+            "eligible": False,
+            "cache_read": False,
+            "cache_write": False,
+            "blocked": True,
+            "action": "block",
+            "decision_source": "redisvl",
+            "threshold": 0.48,
+            "distance": 0.12,
+            "route": OUT_OF_DOMAIN_ROUTE,
+            "reason": "outside ValueHarbor ecommerce scope",
+        },
+    )
+    monkeypatch.setattr(services.langcache, "search", unexpected_async)
+    monkeypatch.setattr(services.langcache, "store", unexpected_async)
+    monkeypatch.setattr(services.memory, "short_term", unexpected_sync)
+    monkeypatch.setattr(services.memory, "recall", unexpected_sync)
+    monkeypatch.setattr(
+        services.memory,
+        "add_event",
+        lambda *args: recorded_events.append(args) or True,
+    )
+    monkeypatch.setattr(services.vertex_memory, "recall", unexpected_async)
+    monkeypatch.setattr(api_module, "member_profile_for_session", unexpected_async)
+
+    events = [
+        event
+        async for event in _chat_events(
+            api_module.ChatRequest(
+                message="Where is Dagestan?",
+                member_id="member-1001",
+                session_id="blocked-test",
+                model="gemini-2.5-flash",
+            )
+        )
+    ]
+
+    answer = next(event for event in events if event["type"] == "answer")
+    traces = {
+        event["step"]["id"]: event["step"]
+        for event in events
+        if event["type"] == "trace"
+    }
+    assert answer["blocked"] is True
+    assert "ValueHarbor shopping" in answer["answer"]
+    assert traces["semantic-router"]["summary"].startswith("Blocked")
+    assert traces["langcache"]["summary"] == "Bypassed · request blocked"
+    assert traces["generation"]["summary"] == "Skipped · blocked by Semantic Router"
+    assert recorded_events == []
+
+
 def test_live_trace_formats_memory_and_mcp_results() -> None:
     snippets = memory_snippets(
         [
@@ -386,6 +612,7 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
     )
     assert summary == "VH-1001 · quantity 42"
     assert details == []
+    assert _tool_label("search_catalog", {}) == "RedisVL Search Catalog"
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200
 

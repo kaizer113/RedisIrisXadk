@@ -19,7 +19,7 @@ from google.adk.sessions import InMemorySessionService, VertexAiSessionService
 from google.genai import types
 from pydantic import BaseModel, Field, field_validator
 
-from valueharbor_agent.agent import build_agent
+from valueharbor_agent.agent import build_agent, build_greeting_agent
 from valueharbor_agent.config import get_settings
 from valueharbor_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
 from valueharbor_agent.services import (
@@ -34,6 +34,7 @@ log = logging.getLogger(__name__)
 logging.basicConfig(level=settings.log_level)
 
 APP_NAME = "valueharbor-shopping-agent"
+GREETING_APP_NAME = "valueharbor-greeting-agent"
 STATIC_DIR = Path(__file__).with_name("static")
 
 
@@ -69,6 +70,16 @@ runners = {
     )
     for model in settings.available_google_models
 }
+greeting_runners = {
+    model: Runner(
+        app_name=GREETING_APP_NAME,
+        agent=build_greeting_agent(model),
+        session_service=session_service,
+        memory_service=memory_service,
+        auto_create_session=True,
+    )
+    for model in settings.available_google_models
+}
 member_profile_cache: dict[tuple[str, str], str] = {}
 
 
@@ -76,6 +87,8 @@ member_profile_cache: dict[tuple[str, str], str] = {}
 async def lifespan(_: FastAPI):
     yield
     for model_runner in runners.values():
+        await model_runner.close()
+    for model_runner in greeting_runners.values():
         await model_runner.close()
 
 
@@ -90,6 +103,19 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
+    member_id: str = Field(default=settings.valueharbor_demo_member_id, max_length=64)
+    session_id: str = Field(default=settings.valueharbor_demo_session_id, max_length=64)
+    model: str = Field(default=settings.google_model, max_length=100)
+
+    @field_validator("model")
+    @classmethod
+    def model_must_be_enabled(cls, model: str) -> str:
+        if model not in settings.available_google_models:
+            raise ValueError(f"model must be one of: {', '.join(settings.available_google_models)}")
+        return model
+
+
+class GreetingRequest(BaseModel):
     member_id: str = Field(default=settings.valueharbor_demo_member_id, max_length=64)
     session_id: str = Field(default=settings.valueharbor_demo_session_id, max_length=64)
     model: str = Field(default=settings.google_model, max_length=100)
@@ -141,6 +167,8 @@ def trace_event(
 
 
 def _tool_label(name: str, arguments: dict[str, Any]) -> str:
+    if name == "search_catalog":
+        return "RedisVL Search Catalog"
     if name == "list_context_retriever_tools":
         return "Context Retriever · discover MCP tools"
     if name == "query_context_retriever":
@@ -181,6 +209,9 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
             else False
         )
         return "Preference saved" if saved else "Preference write unavailable", []
+    if name == "recall_redis_shopping_memory" and isinstance(payload, dict):
+        memories = [str(item) for item in payload.get("memories", [])]
+        return f"{len(memories)} relevant memories found", memories[:5]
     compact = json.dumps(payload, default=str, separators=(",", ":"))
     return "Completed", [compact[:300]] if compact and compact != "{}" else []
 
@@ -242,23 +273,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             for event in (getattr(session, "events", None) or [])[-5:]
         ]
 
-    async def fetch_cache_path() -> dict[str, Any]:
-        route_started = time.perf_counter()
-        routing = await asyncio.to_thread(services.semantic_router.route, request.message)
-        route_duration = round((time.perf_counter() - route_started) * 1000, 2)
-        cached = None
-        cache_duration = 0.0
-        if routing["eligible"]:
-            cache_started = time.perf_counter()
-            cached = await services.langcache.search(request.message, "public-policy")
-            cache_duration = round((time.perf_counter() - cache_started) * 1000, 2)
-        return {
-            "routing": routing,
-            "route_duration_ms": route_duration,
-            "cached": cached,
-            "cache_duration_ms": cache_duration,
-        }
-
     async def fetch_member_profile() -> dict[str, Any]:
         return await member_profile_for_session(member_id, session_id)
 
@@ -267,25 +281,97 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         result = await awaitable
         return step_id, result, round((time.perf_counter() - started) * 1000, 2)
 
+    route_started = time.perf_counter()
+    routing = await asyncio.to_thread(services.semantic_router.route, request.message)
+    route_duration = round((time.perf_counter() - route_started) * 1000, 2)
+    cache_read = bool(routing.get("cache_read", routing.get("eligible", False)))
+    cache_write = bool(routing.get("cache_write", routing.get("eligible", False)))
+    blocked = bool(routing.get("blocked", False))
+    route_details = [
+        f"Decision source: {routing.get('decision_source', 'unknown')}",
+        f"Action: {'block' if blocked else 'allow'}",
+        f"LangCache read: {'yes' if cache_read else 'no'}",
+        f"LangCache write: {'yes' if cache_write else 'no'}",
+        f"Threshold: {routing.get('threshold', 'not set')}",
+    ]
+    if routing.get("distance") is not None:
+        route_details.append(f"Cosine distance: {routing['distance']}")
+    if blocked:
+        route_summary = "Blocked · outside ValueHarbor ecommerce scope"
+    elif cache_read or cache_write:
+        route_summary = (
+            f"{routing.get('route') or 'cacheable ecommerce'} · LangCache read + write"
+        )
+    else:
+        route_summary = f"{routing.get('route') or 'allowed'} · LangCache bypass"
+    yield trace_event(
+        "semantic-router",
+        "Routing with RedisVL Semantic Router",
+        duration_ms=route_duration,
+        summary=route_summary,
+        details=route_details,
+    )
+
+    if blocked:
+        answer = (
+            "I’m focused on ValueHarbor shopping, products, orders, inventory, "
+            "membership, and policies. Ask me something in that area and I’ll help."
+        )
+        yield trace_event(
+            "langcache",
+            "Checking Redis LangCache",
+            duration_ms=0,
+            summary="Bypassed · request blocked",
+        )
+        yield trace_event(
+            "generation",
+            "ADK Runner + Gemini",
+            duration_ms=0,
+            summary="Skipped · blocked by Semantic Router",
+        )
+        yield {"type": "answer", "answer": answer, "cache_hit": False, "blocked": True}
+        yield trace_event(
+            "total",
+            "Total request",
+            duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
+            summary="Blocked outside ecommerce scope",
+        )
+        return
+
     required_tasks = {
-        asyncio.create_task(timed("cache-path", fetch_cache_path())),
         asyncio.create_task(timed("redis-short-term", fetch_short_term())),
         asyncio.create_task(timed("redis-long-term", fetch_redis_long_term())),
         asyncio.create_task(timed("member-profile", fetch_member_profile())),
     }
+    if cache_read:
+        required_tasks.add(
+            asyncio.create_task(
+                timed(
+                    "langcache",
+                    services.langcache.search(request.message, "reusable-ecommerce"),
+                )
+            )
+        )
+    else:
+        yield trace_event(
+            "langcache",
+            "Checking Redis LangCache",
+            duration_ms=0,
+            summary=f"Bypassed · {routing.get('reason', 'router policy')}",
+        )
     adk_telemetry_tasks = {
         asyncio.create_task(timed("adk-short-term", fetch_adk_short_term())),
         asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
     }
     yield trace_event(
         "adk-short-term",
-        "Timing ADK short-term session read",
+        "ADK short-term session read",
         status="running",
         summary="Telemetry only · excluded from Gemini context",
     )
     yield trace_event(
         "vertex-long-term",
-        "Timing ADK Memory Bank search",
+        "ADK Memory Bank search",
         status="running",
         summary="Telemetry only · excluded from Gemini context",
     )
@@ -293,42 +379,13 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     for task in asyncio.as_completed(required_tasks):
         step_id, result, duration = await task
         results[step_id] = result
-        if step_id == "cache-path":
-            routing = result["routing"]
-            results["semantic-router"] = routing
-            results["langcache"] = result["cached"]
-            route_details = [
-                f"Decision source: {routing['decision_source']}",
-                f"Threshold: {routing['threshold']}",
-            ]
-            if routing.get("distance") is not None:
-                route_details.append(f"Cosine distance: {routing['distance']}")
-            route_summary = (
-                f"{routing['route']} · LangCache eligible"
-                if routing["eligible"]
-                else f"Bypass · {routing['reason']}"
-            )
-            yield trace_event(
-                "semantic-router",
-                "Routing with RedisVL Semantic Router",
-                duration_ms=result["route_duration_ms"],
-                summary=route_summary,
-                details=route_details,
-            )
-            cached = result["cached"]
-            hit = bool(cached and cached.get("response"))
-            cache_summary = (
-                "Hit"
-                if hit
-                else "Miss"
-                if routing["eligible"]
-                else f"Bypassed · {routing['reason']}"
-            )
+        if step_id == "langcache":
+            hit = bool(result and result.get("response"))
             yield trace_event(
                 "langcache",
                 "Checking Redis LangCache",
-                duration_ms=result["cache_duration_ms"],
-                summary=cache_summary,
+                duration_ms=duration,
+                summary="Hit" if hit else "Miss",
             )
         elif step_id == "redis-short-term":
             snippets = memory_snippets(result)
@@ -370,24 +427,22 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             if step_id == "adk-short-term":
                 yield trace_event(
                     step_id,
-                    "Timing ADK short-term session read",
+                    "ADK short-term session read",
                     duration_ms=duration,
-                    summary=f"{len(result)} prior events · not sent to Gemini",
+                    summary=f"{len(result)} prior events",
                     details=snippets,
                 )
             else:
                 yield trace_event(
                     step_id,
-                    "Timing ADK Memory Bank search",
+                    "ADK Memory Bank search",
                     duration_ms=duration,
-                    summary=f"{len(result)} memories · not sent to Gemini",
+                    summary=f"{len(result)} memories",
                     details=snippets,
                 )
 
     short_memories = results.get("redis-short-term", [])
     redis_memories = results.get("redis-long-term", [])
-    routing = results.get("semantic-router", {"eligible": False})
-    cache_allowed = bool(routing["eligible"])
     cached = results.get("langcache")
     member_profile = results.get(
         "member-profile",
@@ -405,7 +460,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         yield trace_event(
             "generation",
-            "ADK orchestration and Gemini generation",
+            "ADK Runner + Gemini",
             duration_ms=0,
             summary="Skipped · response served by LangCache",
         )
@@ -430,7 +485,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         or "No relevant Redis long-term memories.",
     }
     runner_started = time.perf_counter()
-    tool_starts: dict[str, tuple[float, str, dict[str, Any]]] = {}
+    tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
     final_answer = ""
     try:
         async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
@@ -444,28 +499,39 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     name = str(call.name or "tool")
                     arguments = dict(call.args or {})
                     call_id = str(call.id or name)
-                    tool_starts[call_id] = (time.perf_counter(), name, arguments)
-                    yield trace_event(
-                        f"tool-{call_id}",
-                        _tool_label(name, arguments),
-                        status="running",
-                        summary="Calling…",
+                    trace_visible = not (
+                        name == "list_context_retriever_tools"
+                        and services.context.tools_cached
                     )
+                    tool_starts[call_id] = (
+                        time.perf_counter(),
+                        name,
+                        arguments,
+                        trace_visible,
+                    )
+                    if trace_visible:
+                        yield trace_event(
+                            f"tool-{call_id}",
+                            _tool_label(name, arguments),
+                            status="running",
+                            summary="Calling…",
+                        )
                 for response in event.get_function_responses():
                     call_id = str(response.id or response.name or "tool")
-                    started, name, arguments = tool_starts.pop(
+                    started, name, arguments, trace_visible = tool_starts.pop(
                         call_id,
-                        (time.perf_counter(), str(response.name or "tool"), {}),
+                        (time.perf_counter(), str(response.name or "tool"), {}, True),
                     )
                     duration = round((time.perf_counter() - started) * 1000, 2)
                     summary, details = _tool_summary(name, dict(response.response or {}))
-                    yield trace_event(
-                        f"tool-{call_id}",
-                        _tool_label(name, arguments),
-                        duration_ms=duration,
-                        summary=summary,
-                        details=details,
-                    )
+                    if trace_visible:
+                        yield trace_event(
+                            f"tool-{call_id}",
+                            _tool_label(name, arguments),
+                            duration_ms=duration,
+                            summary=summary,
+                            details=details,
+                        )
                 if event.is_final_response():
                     final_answer = event_text(event)
     except TimeoutError:
@@ -474,7 +540,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         elapsed = round((time.perf_counter() - runner_started) * 1000, 2)
         yield trace_event(
             "generation",
-            "ADK orchestration and Gemini generation",
+            "ADK Runner + Gemini",
             status="error",
             duration_ms=elapsed,
             summary="Timed out; retry the request",
@@ -497,7 +563,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     runner_duration = round((time.perf_counter() - runner_started) * 1000, 2)
     yield trace_event(
         "generation",
-        f"ADK orchestration · {request.model}",
+        f"ADK Runner + Gemini · {request.model}",
         duration_ms=runner_duration,
         summary="Response generated and session queued for Memory Bank",
     )
@@ -505,8 +571,10 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     await asyncio.to_thread(
         services.memory.add_event, member_id, session_id, "ASSISTANT", final_answer
     )
-    if cache_allowed:
-        await services.langcache.store(request.message, final_answer, "public-policy")
+    if cache_write:
+        await services.langcache.store(
+            request.message, final_answer, "reusable-ecommerce"
+        )
 
     yield {"type": "answer", "answer": final_answer, "cache_hit": False}
     async for telemetry_event in drain_adk_telemetry():
@@ -517,6 +585,97 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
         summary="Completed with generation",
     )
+
+
+async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, Any]]:
+    """Let a separate ADK agent choose whether retrieval would improve its greeting."""
+    member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
+    session_id = safe_id(f"{request.session_id}-greeting", "greeting-session")
+    started = time.perf_counter()
+    tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
+    final_greeting = ""
+
+    yield {"type": "start", "session_id": session_id}
+    try:
+        async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
+            async for event in greeting_runners[request.model].run_async(
+                user_id=member_id,
+                session_id=session_id,
+                new_message=types.Content(
+                    role="user",
+                    parts=[
+                        types.Part(
+                            text=(
+                                "Create my brief welcome greeting. Decide whether personal "
+                                "memory or live member context would make it more relevant."
+                            )
+                        )
+                    ],
+                ),
+                state_delta={"member_id": member_id, "user_id": member_id},
+            ):
+                for call in event.get_function_calls():
+                    name = str(call.name or "tool")
+                    arguments = dict(call.args or {})
+                    call_id = str(call.id or name)
+                    trace_visible = not (
+                        name == "list_context_retriever_tools"
+                        and services.context.tools_cached
+                    )
+                    tool_starts[call_id] = (
+                        time.perf_counter(),
+                        name,
+                        arguments,
+                        trace_visible,
+                    )
+                    if trace_visible:
+                        yield trace_event(
+                            f"greeting-tool-{call_id}",
+                            _tool_label(name, arguments),
+                            status="running",
+                            summary="Greeting agent chose to call this service",
+                        )
+                for response in event.get_function_responses():
+                    call_id = str(response.id or response.name or "tool")
+                    call_started, name, arguments, trace_visible = tool_starts.pop(
+                        call_id,
+                        (time.perf_counter(), str(response.name or "tool"), {}, True),
+                    )
+                    summary, details = _tool_summary(name, dict(response.response or {}))
+                    if trace_visible:
+                        yield trace_event(
+                            f"greeting-tool-{call_id}",
+                            _tool_label(name, arguments),
+                            duration_ms=round(
+                                (time.perf_counter() - call_started) * 1000, 2
+                            ),
+                            summary=summary,
+                            details=details,
+                        )
+                if event.is_final_response():
+                    final_greeting = event_text(event)
+    except TimeoutError:
+        yield {
+            "type": "error",
+            "message": "The greeting timed out. Please select the member again.",
+        }
+        return
+    except Exception as exc:
+        log.exception("ADK greeting request failed")
+        yield {"type": "error", "message": f"Greeting request failed: {exc}"}
+        return
+
+    if not final_greeting:
+        yield {"type": "error", "message": "The agent returned no greeting."}
+        return
+
+    yield trace_event(
+        "greeting-generation",
+        f"ADK greeting generation · {request.model}",
+        duration_ms=round((time.perf_counter() - started) * 1000, 2),
+        summary="Personalized greeting generated",
+    )
+    yield {"type": "greeting", "greeting": final_greeting.strip()}
 
 
 @app.get("/")
@@ -547,7 +706,7 @@ async def warmup_redis_services() -> dict[str, Any]:
         return ok, "Redis PING succeeded" if ok else "Database is not configured", {}
 
     async def context_probe() -> tuple[bool, str, dict[str, Any]]:
-        tools = await services.context.list_tools()
+        tools = await services.context.list_tools(force_refresh=True)
         count = len(tools)
         return bool(count), f"{count} governed tools discovered", {"tools": tools}
 
@@ -668,6 +827,19 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
 async def chat_stream(request: ChatRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         async for event in _chat_events(request):
+            yield json.dumps(event, default=str, separators=(",", ":")) + "\n"
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/greeting/stream")
+async def greeting_stream(request: GreetingRequest) -> StreamingResponse:
+    async def stream() -> AsyncIterator[str]:
+        async for event in _greeting_events(request):
             yield json.dumps(event, default=str, separators=(",", ":")) + "\n"
 
     return StreamingResponse(
