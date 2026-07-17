@@ -27,8 +27,13 @@ warehouse's live availability, understand policies, inspect orders, and build a 
 
 Operating rules:
 - Ground product, price, inventory, order, membership, and policy claims in tool results.
-- Redis session memory and both long-term memory providers are prefetched on every request.
-  Use the supplied memory context when it is relevant, but never invent a preference.
+- Redis Agent Memory short-term events and long-term facts are prefetched on every request and
+  included in your model context. Use them when relevant, but never invent a preference.
+- Google ADK session and Memory Bank reads run as telemetry only. Their results are visible in
+  the trace but are never included in your model context.
+- Prior ADK session messages are deliberately excluded from model context. Treat each generation
+  as a single turn grounded only in the current request, authoritative profile, Redis memory,
+  and tool results.
 - The supplied member profile comes from Redis Context Retriever and is authoritative for the
   signed-in member. Use it immediately; do not wait for memory retrieval to identify the member.
 - Do not re-fetch the member profile when the supplied profile contains the requested fields.
@@ -52,11 +57,10 @@ Operating rules:
   not fabricate remembered preferences.
 - Keep answers concise, friendly, and useful. Use short lists for product comparisons.
 
-Prefetched memory context for this request:
+Authoritative context for this request:
 - Authoritative member profile: {member_profile_context}
 - Redis short-term session events: {redis_short_term_context}
 - Redis Agent Memory long-term facts: {redis_long_term_context}
-- Vertex ADK Memory Bank long-term facts: {vertex_long_term_context}
 """
 
 
@@ -66,6 +70,7 @@ def build_agent(model: str) -> Agent:
         model=model,
         description="A grounded shopping agent for the fictional ValueHarbor warehouse club.",
         instruction=INSTRUCTION,
+        include_contents="none",
         tools=ALL_TOOLS,
         after_agent_callback=promote_adk_session_to_memory,
     )

@@ -171,6 +171,14 @@ MEMBERS = {
         "reward_balance": 9.15,
         "joined_at": "2025-05-14",
     },
+    "member-1005": {
+        "member_id": "member-1005",
+        "name": "Taylor Morgan",
+        "tier": "Harbor Plus",
+        "home_warehouse": "seattle",
+        "reward_balance": 64.31,
+        "joined_at": "2020-08-22",
+    },
 }
 
 ORDERS = {

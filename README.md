@@ -36,10 +36,10 @@ reasoning.
 ## Live agent trace
 
 Every shopping request runs RedisVL semantic routing alongside Redis Agent Memory session
-history, Redis long-term memory, and Vertex ADK Memory Bank retrieval. Safe public-policy route
-matches then check LangCache before ADK runs. The web UI streams those steps live, expands
-retrieved facts inline, times every ADK and Context Retriever tool call, and finishes with
-orchestration/generation and total request latency.
+history, Redis long-term memory, Agent Platform session timing, and Vertex ADK Memory Bank
+retrieval. Redis short- and long-term results are sent to Gemini. Google session history and
+Memory Bank results are telemetry-only, excluded from Gemini context, and do not delay the model
+call. The web UI streams those steps live and offers demo-member and Gemini-model selectors.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed

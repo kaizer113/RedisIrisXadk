@@ -49,4 +49,8 @@ The `member-1001` corpus includes durable preferences plus realistic but query-i
 episodic facts. Both providers receive the identical corpus. This makes it possible to show the
 precision cost of top-k-only retrieval when a provider cannot apply a similarity threshold.
 
+`member-1005` (Taylor Morgan) is the high-cardinality test user with exactly 500 memories:
+20 durable semantic shopping preferences and 480 dated episodic browsing interactions. This
+corpus exercises owner-scoped retrieval latency and relevance under a much noisier history.
+
 For a fair comparison, seed both systems from the same file, wait for asynchronous indexing or promotion, warm each provider once, then report medians over multiple measured runs. The corpus is identical, while each provider retains its native retrieval controls: Redis Agent Memory applies its configured similarity threshold and ADK Memory Bank returns its top-k matches.

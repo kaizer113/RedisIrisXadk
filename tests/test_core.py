@@ -1,14 +1,21 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from google.genai import types
 from redis_agent_memory import models
 
+from scripts import seed_managed_memories as managed_seed
 from scripts.generate_dataset import records
+from valueharbor_agent import api as api_module
+from valueharbor_agent.agent import build_agent
 from valueharbor_agent.api import (
+    _chat_events,
     _tool_summary,
     app,
+    member_profile_cache,
     member_profile_for_session,
     trace_event,
     warmup_redis_services,
@@ -94,6 +101,41 @@ def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     request = captured["request"]
     assert request["filter_"]["owner_id"] == {"eq": "member-1001"}
     assert request["filter_"]["memory_type"] == {"in_": ["semantic", "episodic"]}
+
+
+def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
+    batch_sizes = []
+
+    class FakeAgentMemory:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def bulk_create_long_term_memories(self, *, memories, **_kwargs):
+            batch_sizes.append(len(memories))
+            return SimpleNamespace(
+                created=[memory["id"] for memory in memories],
+                errors=[],
+            )
+
+    monkeypatch.setattr(managed_seed, "AgentMemory", FakeAgentMemory)
+    settings = Settings(
+        _env_file=None,
+        agent_memory_base_url="https://memory.example",
+        agent_memory_store_id="store-id",
+        agent_memory_api_key="api-key",
+    )
+    memories = [{"id": f"memory-{index}"} for index in range(205)]
+
+    created, errors = managed_seed.seed_redis(settings, memories)
+
+    assert (created, errors) == (205, 0)
+    assert batch_sizes == [50, 50, 50, 50, 5]
 
 
 def test_semantic_router_applies_guardrails_and_positive_route() -> None:
@@ -227,22 +269,107 @@ async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> N
     assert profile["name"] == "Alex Rivera"
 
 
-async def test_member_profile_reuses_shared_adk_session_state(monkeypatch) -> None:
+async def test_member_profile_reuses_application_session_cache(monkeypatch) -> None:
     profile_context = '{"member_id":"member-1001","name":"Alex Rivera"}'
-
-    class FakeSessionService:
-        async def get_session(self, **_kwargs):
-            return SimpleNamespace(state={"member_profile_context": profile_context})
 
     async def unexpected_fetch(_member_id):
         raise AssertionError("Context Retriever should not be called for a hydrated session")
 
-    monkeypatch.setattr("valueharbor_agent.api.session_service", FakeSessionService())
+    member_profile_cache[("member-1001", "session-1")] = profile_context
     monkeypatch.setattr(services.context, "get_member_profile", unexpected_fetch)
 
     result = await member_profile_for_session("member-1001", "session-1")
 
-    assert result == {"context": profile_context, "source": "adk_session_state"}
+    assert result == {"context": profile_context, "source": "application_session_cache"}
+    member_profile_cache.clear()
+
+
+def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
+    agent = build_agent("gemini-2.5-flash")
+    assert agent.include_contents == "none"
+    assert "{redis_short_term_context}" in agent.instruction
+    assert "{redis_long_term_context}" in agent.instruction
+    assert "vertex_long_term_context" not in agent.instruction
+
+
+async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> None:
+    captured_state = {}
+
+    class FakeEvent:
+        content = types.Content(role="model", parts=[types.Part(text="Generated first")])
+
+        @staticmethod
+        def get_function_calls():
+            return []
+
+        @staticmethod
+        def get_function_responses():
+            return []
+
+        @staticmethod
+        def is_final_response():
+            return True
+
+    class FakeRunner:
+        async def run_async(self, **kwargs):
+            captured_state.update(kwargs["state_delta"])
+            yield FakeEvent()
+
+    class SlowSessionService:
+        async def get_session(self, **_kwargs):
+            await asyncio.sleep(0.05)
+            return None
+
+    async def slow_vertex_recall(_member_id, _query):
+        await asyncio.sleep(0.05)
+        return [{"text": "ADK-only fact"}]
+
+    async def profile(_member_id, _session_id):
+        return {"context": '{"name":"Alex Rivera"}', "source": "test"}
+
+    monkeypatch.setattr(api_module, "session_service", SlowSessionService())
+    monkeypatch.setattr(api_module, "member_profile_for_session", profile)
+    monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", FakeRunner())
+    monkeypatch.setattr(services.memory, "short_term", lambda *_args: [{"text": "Redis turn"}])
+    monkeypatch.setattr(services.memory, "recall", lambda *_args: [{"text": "Redis fact"}])
+    monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
+    monkeypatch.setattr(services.vertex_memory, "recall", slow_vertex_recall)
+    monkeypatch.setattr(
+        services.semantic_router,
+        "route",
+        lambda _message: {
+            "eligible": False,
+            "decision_source": "guardrail",
+            "threshold": 0.48,
+            "route": None,
+            "reason": "personalized request",
+        },
+    )
+
+    events = [
+        event
+        async for event in _chat_events(
+            api_module.ChatRequest(
+                message="What do I prefer?",
+                member_id="member-1001",
+                session_id="nonblocking-test",
+                model="gemini-2.5-flash",
+            )
+        )
+    ]
+
+    answer_index = next(index for index, event in enumerate(events) if event["type"] == "answer")
+    adk_done_indexes = [
+        index
+        for index, event in enumerate(events)
+        if event["type"] == "trace"
+        and event["step"]["id"] in {"adk-short-term", "vertex-long-term"}
+        and event["step"]["status"] == "done"
+    ]
+    assert adk_done_indexes and all(answer_index < index for index in adk_done_indexes)
+    assert captured_state["redis_short_term_context"] == "Redis turn"
+    assert captured_state["redis_long_term_context"] == "Redis fact"
+    assert "vertex_long_term_context" not in captured_state
 
 
 def test_live_trace_formats_memory_and_mcp_results() -> None:
@@ -269,12 +396,12 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
         "products": 10,
         "warehouses": 3,
         "inventory": 30,
-        "members": 4,
+        "members": 5,
         "orders": 6,
         "order_items": 12,
         "policies": 3,
-        "memory_seeds": 16,
-        "memory_evaluations": 7,
+        "memory_seeds": 516,
+        "memory_evaluations": 9,
     }
 
     product_ids = {item["sku"] for item in dataset["products"]}
@@ -282,6 +409,16 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
     member_ids = {item["member_id"] for item in dataset["members"]}
     order_ids = {item["order_id"] for item in dataset["orders"]}
     memory_by_id = {item["id"]: item for item in dataset["memory_seeds"]}
+    large_member_memories = [
+        memory
+        for memory in dataset["memory_seeds"]
+        if memory["owner_id"] == "member-1005"
+    ]
+
+    assert len(memory_by_id) == len(dataset["memory_seeds"])
+    assert len(large_member_memories) == 500
+    assert sum(memory["memory_type"] == "semantic" for memory in large_member_memories) == 20
+    assert sum(memory["memory_type"] == "episodic" for memory in large_member_memories) == 480
 
     assert all(item["sku"] in product_ids for item in dataset["inventory"])
     assert all(item["warehouse_id"] in warehouse_ids for item in dataset["inventory"])
@@ -315,6 +452,15 @@ def test_health_and_unconfigured_memory_comparison() -> None:
         assert health.json()["default_model"] == "gemini-2.5-flash"
         assert health.json()["models"] == ["gemini-2.5-flash", "gemini-2.5-pro"]
         assert "semantic_router" in health.json()["services"]
+        members = client.get("/api/members")
+        assert members.status_code == 200
+        assert [member["member_id"] for member in members.json()["members"]] == [
+            "member-1001",
+            "member-1002",
+            "member-1003",
+            "member-1004",
+            "member-1005",
+        ]
         response = client.post(
             "/api/memory/compare",
             json={"query": "pickup preference", "expected_terms": ["Portland"], "runs": 2},

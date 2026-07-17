@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from valueharbor_agent.agent import build_agent
 from valueharbor_agent.config import get_settings
-from valueharbor_agent.demo_data import PRODUCTS, WAREHOUSES
+from valueharbor_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
 from valueharbor_agent.services import (
     compare_memory_retrieval,
     memory_snippets,
@@ -69,6 +69,7 @@ runners = {
     )
     for model in settings.available_google_models
 }
+member_profile_cache: dict[tuple[str, str], str] = {}
 
 
 @asynccontextmanager
@@ -185,18 +186,10 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
 
 
 async def member_profile_for_session(member_id: str, session_id: str) -> dict[str, Any]:
-    """Load the authoritative member profile once, then reuse ADK session state."""
-    try:
-        session = await session_service.get_session(
-            app_name=APP_NAME,
-            user_id=member_id,
-            session_id=session_id,
-        )
-        existing = (getattr(session, "state", None) or {}).get("member_profile_context")
-        if existing:
-            return {"context": str(existing), "source": "adk_session_state"}
-    except Exception as exc:
-        log.warning("ADK session profile lookup failed open: %s", exc)
+    """Load the authoritative member profile without depending on ADK session reads."""
+    cache_key = (member_id, session_id)
+    if existing := member_profile_cache.get(cache_key):
+        return {"context": existing, "source": "application_session_cache"}
 
     profile = await services.context.get_member_profile(member_id)
     if profile.get("ok") is False:
@@ -205,10 +198,11 @@ async def member_profile_for_session(member_id: str, session_id: str) -> dict[st
             "source": "member_id_fallback",
             "error": str(profile.get("error", "profile unavailable")),
         }
-    return {
-        "context": json.dumps(profile, sort_keys=True, separators=(",", ":")),
-        "source": "redis_context_retriever",
-    }
+    context = json.dumps(profile, sort_keys=True, separators=(",", ":"))
+    if len(member_profile_cache) >= 1_000:
+        member_profile_cache.pop(next(iter(member_profile_cache)))
+    member_profile_cache[cache_key] = context
+    return {"context": context, "source": "redis_context_retriever"}
 
 
 async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
@@ -227,6 +221,26 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
     async def fetch_vertex_long_term() -> list[dict[str, Any]]:
         return await services.vertex_memory.recall(member_id, request.message)
+
+    async def fetch_adk_short_term() -> list[dict[str, Any]]:
+        try:
+            session = await session_service.get_session(
+                app_name=APP_NAME,
+                user_id=member_id,
+                session_id=session_id,
+            )
+        except Exception as exc:
+            log.warning("ADK session telemetry read failed open: %s", exc)
+            return []
+        if session is None:
+            return []
+        return [
+            {
+                "text": event_text(event),
+                "author": str(getattr(event, "author", "")),
+            }
+            for event in (getattr(session, "events", None) or [])[-5:]
+        ]
 
     async def fetch_cache_path() -> dict[str, Any]:
         route_started = time.perf_counter()
@@ -253,15 +267,30 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         result = await awaitable
         return step_id, result, round((time.perf_counter() - started) * 1000, 2)
 
-    tasks = {
+    required_tasks = {
         asyncio.create_task(timed("cache-path", fetch_cache_path())),
         asyncio.create_task(timed("redis-short-term", fetch_short_term())),
         asyncio.create_task(timed("redis-long-term", fetch_redis_long_term())),
-        asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
         asyncio.create_task(timed("member-profile", fetch_member_profile())),
     }
+    adk_telemetry_tasks = {
+        asyncio.create_task(timed("adk-short-term", fetch_adk_short_term())),
+        asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
+    }
+    yield trace_event(
+        "adk-short-term",
+        "Timing ADK short-term session read",
+        status="running",
+        summary="Telemetry only · excluded from Gemini context",
+    )
+    yield trace_event(
+        "vertex-long-term",
+        "Timing ADK Memory Bank search",
+        status="running",
+        summary="Telemetry only · excluded from Gemini context",
+    )
     results: dict[str, Any] = {}
-    for task in asyncio.as_completed(tasks):
+    for task in asyncio.as_completed(required_tasks):
         step_id, result, duration = await task
         results[step_id] = result
         if step_id == "cache-path":
@@ -319,20 +348,11 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 summary=f"{len(result)} relevant memories found",
                 details=snippets,
             )
-        elif step_id == "vertex-long-term":
-            snippets = memory_snippets(result)
-            yield trace_event(
-                step_id,
-                "Searching ADK Memory Bank",
-                duration_ms=duration,
-                summary=f"{len(result)} relevant memories found",
-                details=snippets,
-            )
         elif step_id == "member-profile":
             source = result.get("source", "unavailable")
             source_label = {
                 "redis_context_retriever": "Loaded from Redis Context Retriever",
-                "adk_session_state": "Reused from shared ADK session state",
+                "application_session_cache": "Reused from application session cache",
                 "member_id_fallback": "Profile unavailable; using member ID only",
             }.get(source, source)
             yield trace_event(
@@ -343,9 +363,29 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 details=[result["context"]],
             )
 
+    async def drain_adk_telemetry() -> AsyncIterator[dict[str, Any]]:
+        for task in asyncio.as_completed(adk_telemetry_tasks):
+            step_id, result, duration = await task
+            snippets = memory_snippets(result)
+            if step_id == "adk-short-term":
+                yield trace_event(
+                    step_id,
+                    "Timing ADK short-term session read",
+                    duration_ms=duration,
+                    summary=f"{len(result)} prior events · not sent to Gemini",
+                    details=snippets,
+                )
+            else:
+                yield trace_event(
+                    step_id,
+                    "Timing ADK Memory Bank search",
+                    duration_ms=duration,
+                    summary=f"{len(result)} memories · not sent to Gemini",
+                    details=snippets,
+                )
+
     short_memories = results.get("redis-short-term", [])
     redis_memories = results.get("redis-long-term", [])
-    vertex_memories = results.get("vertex-long-term", [])
     routing = results.get("semantic-router", {"eligible": False})
     cache_allowed = bool(routing["eligible"])
     cached = results.get("langcache")
@@ -370,6 +410,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             summary="Skipped · response served by LangCache",
         )
         yield {"type": "answer", "answer": answer, "cache_hit": True}
+        async for telemetry_event in drain_adk_telemetry():
+            yield telemetry_event
         yield trace_event(
             "total",
             "Total request",
@@ -386,8 +428,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         or "No prior session events.",
         "redis_long_term_context": "\n".join(memory_snippets(redis_memories))
         or "No relevant Redis long-term memories.",
-        "vertex_long_term_context": "\n".join(memory_snippets(vertex_memories))
-        or "No relevant Vertex Memory Bank memories.",
     }
     runner_started = time.perf_counter()
     tool_starts: dict[str, tuple[float, str, dict[str, Any]]] = {}
@@ -429,6 +469,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 if event.is_final_response():
                     final_answer = event_text(event)
     except TimeoutError:
+        for task in adk_telemetry_tasks:
+            task.cancel()
         elapsed = round((time.perf_counter() - runner_started) * 1000, 2)
         yield trace_event(
             "generation",
@@ -440,11 +482,15 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         yield {"type": "error", "message": "The model timed out. Please retry."}
         return
     except Exception as exc:
+        for task in adk_telemetry_tasks:
+            task.cancel()
         log.exception("ADK request failed")
         yield {"type": "error", "message": f"Agent request failed: {exc}"}
         return
 
     if not final_answer:
+        for task in adk_telemetry_tasks:
+            task.cancel()
         yield {"type": "error", "message": "Agent returned no final response"}
         return
 
@@ -463,6 +509,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         await services.langcache.store(request.message, final_answer, "public-policy")
 
     yield {"type": "answer", "answer": final_answer, "cache_hit": False}
+    async for telemetry_event in drain_adk_telemetry():
+        yield telemetry_event
     yield trace_event(
         "total",
         "Total request",
@@ -576,6 +624,21 @@ async def warmup() -> dict[str, Any]:
 @app.get("/api/catalog")
 async def catalog() -> dict[str, Any]:
     return {"products": PRODUCTS, "warehouses": WAREHOUSES}
+
+
+@app.get("/api/members")
+async def members() -> dict[str, Any]:
+    return {
+        "members": [
+            {
+                "member_id": member["member_id"],
+                "name": member["name"],
+                "tier": member["tier"],
+                "home_warehouse": member["home_warehouse"],
+            }
+            for member in MEMBERS.values()
+        ]
+    }
 
 
 @app.post("/api/chat")

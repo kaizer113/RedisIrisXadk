@@ -10,15 +10,19 @@ memory paths and Gemini model selector.
 2. Confirm that all six service indicators are green:
    Redis database, Context Retriever, LangCache, Agent Memory, ADK Memory Bank, and Agent
    Sessions.
-3. Leave **Gemini 2.5 Flash · Fast** selected.
-4. Use a fresh browser reload so the visible conversation starts clean.
+3. Select **Alex Rivera · member-1001** in the **Shop as** dropdown.
+4. Leave **Gemini 2.5 Flash · Fast** selected.
+5. Use a fresh browser reload so the visible conversation starts clean.
 
 The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
 Portland Harbor location.
 
+For the high-cardinality memory scenario, switch to `member-1005`, Taylor Morgan. Taylor has
+exactly 500 pre-seeded memories: 20 durable preferences and 480 episodic distractors.
+
 On the first generated turn, the trace should show the authoritative member profile being loaded
-from Context Retriever. Later turns reuse the profile from shared ADK session state, including
-after changing Gemini models.
+from Context Retriever. Later turns reuse the application session cache. Changing the selected
+member clears the visible chat and creates a new session for that member.
 
 ## 1. Grounded product discovery and live inventory
 
@@ -85,9 +89,10 @@ Expected memories:
 - Alex prefers fragrance-free household and laundry products.
 - Alex prefers warehouse pickup at the Portland Harbor location.
 
-Expand both memory steps in the trace. The same query is sent concurrently to Redis Agent Memory
-long-term memory and ADK Memory Bank, and the retrieved facts and wall-clock latency are shown
-independently.
+Expand both memory steps in the trace. The same query is sent to Redis Agent Memory long-term
+memory and ADK Memory Bank, and the retrieved facts and wall-clock latency are shown independently.
+Only Redis results are included in Gemini's context. ADK session and Memory Bank reads are marked
+telemetry-only and can finish after the answer because they do not block generation.
 
 Talk track:
 
@@ -131,8 +136,8 @@ Keep the same conversation, change the composer dropdown to **Gemini 2.5 Pro · 
 > Plan the best pantry purchase under $40 using my preferences and explain the trade-off.
 
 Point out that the generation trace names `gemini-2.5-pro`. Both model-specific ADK runners share
-Agent Platform Sessions and ADK Memory Bank, while Redis continues to receive the same independent
-session events. Switching models therefore does not start a new customer conversation.
+Agent Platform Sessions and ADK Memory Bank for persistence and measurement, while Redis continues
+to provide the conversation context sent to Gemini. ADK prior-session contents remain excluded.
 
 ## 7. Close on transparency
 

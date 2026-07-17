@@ -17,6 +17,132 @@ from valueharbor_agent.demo_data import (
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT = ROOT / "data" / "generated"
 
+
+def large_member_memory_corpus() -> list[dict[str, Any]]:
+    """Build 500 deterministic memories for the high-cardinality demo member."""
+    preferences = [
+        ("Taylor prefers decaffeinated medium-roast whole-bean coffee.", ["beverages", "coffee"]),
+        (
+            "Taylor prefers warehouse pickup at the Seattle South location.",
+            ["fulfillment", "pickup"],
+        ),
+        ("Taylor avoids products made with artificial sweeteners.", ["food", "ingredients"]),
+        ("Taylor usually buys jasmine rice in bags of at least 20 pounds.", ["food", "pantry"]),
+        (
+            "Taylor keeps household restocking purchases under 50 dollars per item.",
+            ["household", "budget"],
+        ),
+        (
+            "Taylor prefers paper goods made with recycled material.",
+            ["household", "sustainability"],
+        ),
+        ("Taylor chooses unscented cleaning products when available.", ["household", "preference"]),
+        ("Taylor regularly shops for low-dust clumping cat litter.", ["pets", "preference"]),
+        (
+            "Taylor schedules refrigerated deliveries for Saturday mornings.",
+            ["fulfillment", "schedule"],
+        ),
+        (
+            "Taylor normally declines extended warranties on electronics.",
+            ["electronics", "warranty"],
+        ),
+        (
+            "Taylor prefers organic berries when the unit-price premium is under 15 percent.",
+            ["food", "organic"],
+        ),
+        ("Taylor favors vegetarian frozen appetizers for parties.", ["food", "vegetarian"]),
+        (
+            "Taylor prefers products with reusable or refillable packaging.",
+            ["sustainability", "packaging"],
+        ),
+        ("Taylor restocks HVAC filters every three months.", ["home", "maintenance"]),
+        (
+            "Taylor shops for camping supplies before the first week of June.",
+            ["outdoors", "schedule"],
+        ),
+        (
+            "Taylor buys printer paper and shipping labels for a small business.",
+            ["office", "business"],
+        ),
+        ("Taylor prefers sparkling water in mixed-flavor cases.", ["beverages", "preference"]),
+        (
+            "Taylor prefers digital receipts instead of printed receipts.",
+            ["receipts", "preference"],
+        ),
+        ("Taylor usually visits the warehouse before 9 AM.", ["warehouse", "schedule"]),
+        (
+            "Taylor compares unit price before choosing between package sizes.",
+            ["shopping", "value"],
+        ),
+    ]
+    memories = [
+        {
+            "id": f"mem-1005-pref-{index:03d}",
+            "owner_id": "member-1005",
+            "namespace": "valueharbor-shopping",
+            "memory_type": "semantic",
+            "text": text,
+            "topics": ["shopping", "preference", *topics],
+        }
+        for index, (text, topics) in enumerate(preferences, start=1)
+    ]
+
+    product_themes = [
+        ("espresso machines", "appliances"),
+        ("standing desks", "office"),
+        ("patio heaters", "outdoors"),
+        ("robot vacuums", "appliances"),
+        ("kayaks", "outdoors"),
+        ("wireless speakers", "electronics"),
+        ("area rugs", "home"),
+        ("air fryers", "appliances"),
+        ("garden hoses", "outdoors"),
+        ("photo printers", "electronics"),
+        ("storage bins", "home"),
+        ("portable projectors", "electronics"),
+        ("tool chests", "hardware"),
+        ("luggage sets", "travel"),
+        ("fitness trackers", "fitness"),
+        ("ceramic cookware", "kitchen"),
+        ("solar lanterns", "outdoors"),
+        ("folding tables", "furniture"),
+        ("electric bicycles", "fitness"),
+        ("water filters", "home"),
+        ("shredders", "office"),
+        ("cooler bags", "outdoors"),
+        ("security cameras", "electronics"),
+        ("mattress toppers", "home"),
+    ]
+    outcomes = [
+        "saved the item for later",
+        "did not complete a purchase",
+        "compared the member price",
+        "checked availability in Seattle",
+        "reviewed the package dimensions",
+        "asked about the return policy",
+    ]
+    for offset in range(480):
+        sequence = offset + 1
+        product, topic = product_themes[offset % len(product_themes)]
+        outcome = outcomes[(offset // len(product_themes)) % len(outcomes)]
+        year = 2023 + (offset // 168)
+        month = (offset % 12) + 1
+        day = (offset % 27) + 1
+        memories.append(
+            {
+                "id": f"mem-1005-event-{sequence:03d}",
+                "owner_id": "member-1005",
+                "namespace": "valueharbor-shopping",
+                "memory_type": "episodic",
+                "text": (
+                    f"Taylor browsed {product} on {year}-{month:02d}-{day:02d} and {outcome}."
+                ),
+                "topics": ["shopping", "interaction", topic],
+            }
+        )
+    return memories
+
+
 MEMORY_SEEDS = [
     {
         "id": "mem-1001-household",
@@ -146,7 +272,7 @@ MEMORY_SEEDS = [
         "text": "Sam prefers vegetarian party food and avoids seafood recommendations.",
         "topics": ["shopping", "food", "preference"],
     },
-]
+] + large_member_memory_corpus()
 
 MEMORY_EVALUATIONS = [
     {
@@ -210,6 +336,20 @@ MEMORY_EVALUATIONS = [
             "mem-1001-snacks",
             "mem-1001-book-club",
         ],
+    },
+    {
+        "case_id": "memory-eval-008",
+        "member_id": "member-1005",
+        "query": "What kind of coffee does Taylor prefer?",
+        "expected_terms": ["decaffeinated", "medium-roast", "whole-bean"],
+        "relevant_memory_ids": ["mem-1005-pref-001"],
+    },
+    {
+        "case_id": "memory-eval-009",
+        "member_id": "member-1005",
+        "query": "Where does Taylor prefer to pick up an order?",
+        "expected_terms": ["warehouse pickup", "Seattle South"],
+        "relevant_memory_ids": ["mem-1005-pref-002"],
     },
 ]
 

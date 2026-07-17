@@ -1,12 +1,12 @@
 %%{init: {"theme":"base","themeVariables":{"background":"#ffffff","primaryTextColor":"#111827","lineColor":"#334155","clusterBkg":"#f8fafc","clusterBorder":"#94a3b8"},"flowchart":{"curve":"basis"}}}%%
 flowchart TB
-    browser["Browser chat UI<br/>model selector · answer · live trace"]
+    browser["Browser chat UI<br/>member + model selectors · answer · live trace"]
 
     subgraph gcp["GCP · us-east4"]
         direction TB
         subgraph run["Public application · FastAPI"]
             direction LR
-            api["Chat API"] --> prefetch["Concurrent profile + cache + memory retrieval"]
+            api["Chat API"] --> prefetch["Required Redis context<br/>+ parallel ADK timing"]
             prefetch --> route{"Semantic Router match?"}
             route -->|cache eligible| gate{"LangCache hit?"}
             gate -->|hit| cached["Cached response<br/>skip ADK + Gemini"]
@@ -43,12 +43,13 @@ flowchart TB
     semantic --> database
     route -->|eligible query| cache
     cache -->|hit or miss| gate
-    prefetch -->|recent events + recall| ram
-    prefetch -->|long-term recall| bank
+    prefetch -->|required recent events + recall| ram
+    prefetch -.->|timed only · excluded| bank
+    prefetch -.->|timed only · excluded| sessions
     prefetch -->|first-turn member profile| context
 
     runners --> gemini
-    runners -->|session read + append| sessions
+    runners -->|persist · history excluded| sessions
     runners -->|post-turn promotion| bank
     tools --> context
     tools --> database

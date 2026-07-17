@@ -1,9 +1,9 @@
 {
   "entities": {
     "inventory": 30,
-    "members": 4,
-    "memory_evaluations": 7,
-    "memory_seeds": 16,
+    "members": 5,
+    "memory_evaluations": 9,
+    "memory_seeds": 516,
     "order_items": 12,
     "orders": 6,
     "policies": 3,

@@ -13,7 +13,7 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 
 | Layer | Component | Responsibility |
 |---|---|---|
-| Client | Browser chat UI | Sends a member message, selected model, member ID, and session ID; renders the streamed answer and live trace. |
+| Client | Browser chat UI | Selects one of five demo members and a Gemini model, sends the member/session IDs, and renders the streamed answer and live trace. Changing members starts a fresh session. |
 | Application | FastAPI | Exposes the public UI and API, validates requests, coordinates concurrent cache and memory retrieval, and streams newline-delimited JSON events. |
 | Agent runtime | Google ADK `Runner` | Runs the Vale agent, manages a session, invokes tools, calls Gemini, and triggers post-turn memory promotion. |
 | Models | Gemini 2.5 Flash / Gemini 2.5 Pro | Flash is the fast default; Pro is the slower, heavier reasoning option. The selected model chooses one of two prebuilt runners. |
@@ -34,20 +34,20 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 1. FastAPI normalizes the member and session IDs. Deterministic guardrails immediately bypass
    caching for member-specific, live-data, or sensitive requests.
 2. RedisVL classifies all remaining prompts against a `public_stable_policy` semantic route.
-   The routing call starts concurrently with four context reads:
-   - the authoritative member profile from Context Retriever, or the copy already in ADK session state;
-   - recent Redis Agent Memory session events;
-   - Redis Agent Memory long-term memories;
-   - ADK Memory Bank long-term memories.
+   The routing call starts concurrently with the authoritative member profile, required Redis
+   Agent Memory short- and long-term reads, and two telemetry-only Google reads: Agent Platform
+   session history and ADK Memory Bank search.
 3. When RedisVL matches the safe route within its configured cosine-distance threshold,
    FastAPI searches LangCache. No route or any routing error fails closed and bypasses the cache.
 4. Each completed read is emitted to the UI as a trace step with client-observed latency and
    retrieved snippets. Redis receives the user event independently of the ADK session backend.
+   ADK reads are explicitly marked telemetry-only.
 5. On a LangCache hit, the cached answer is returned immediately. The ADK runner, Gemini,
    Agent Platform Session update, tool calls, and Memory Bank promotion are skipped. Redis
    Agent Memory still receives both the user and cached assistant events.
-6. On a cache miss or bypass, the authoritative profile and results from both memory systems are
-   added to ADK state and the runner corresponding to the selected model processes the turn.
+6. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
+   are added to ADK state. The runner starts without waiting for either Google telemetry read.
+   ADK session history and Memory Bank results are never added to Gemini's context.
 7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Tool start,
    completion, result summary, and elapsed time are streamed to the UI.
 8. ADK stores the conversational turn through its shared session service. The agent's
@@ -67,10 +67,10 @@ The process creates one ADK `Runner` for each approved model:
 - `gemini-2.5-pro` — heavier reasoning.
 
 Both runners receive the same `session_service` object, `memory_service` object, ADK app name,
-member ID, and session ID. Switching the model in the chat therefore does **not** create a
-separate conversation: both models continue the same session and see the same session state.
-The member profile fetched from Context Retriever is stored in that shared session state, so it
-is fetched once per session and remains available after a model switch.
+member ID, and session ID. Switching models does not create a separate persisted session.
+However, both agents use ADK's `include_contents="none"`, so prior Agent Platform events are not
+sent to Gemini. Conversational context comes from Redis Agent Memory instead. The authoritative
+profile is cached by the application for the selected browser session.
 
 With managed configuration, the shared services are `VertexAiSessionService` and
 `VertexAiMemoryBankService`. Without a configured Agent Engine ID, local development falls back
@@ -84,8 +84,8 @@ The systems overlap deliberately but are not interchangeable.
 
 | Concern | Redis path | Google ADK path |
 |---|---|---|
-| Short-term conversation | FastAPI explicitly writes user and assistant events to Redis Agent Memory. Each request explicitly reads recent events. | The selected runner reads and appends the ADK session through `VertexAiSessionService`, or through the local in-memory fallback. |
-| Long-term memory | Explicit preferences are written to Redis Agent Memory; semantic recall runs before each generated turn. | After a generated turn, the callback promotes the ADK session to Memory Bank; semantic recall runs before the next generated turn. |
+| Short-term conversation | FastAPI writes user and assistant events, then sends retrieved recent events to Gemini on the next turn. | The selected runner persists events through `VertexAiSessionService`. A parallel session read is timed, but prior ADK events are excluded from Gemini context. |
+| Long-term memory | Explicit preferences are written to Redis Agent Memory; semantic recall is required and sent to Gemini before each generated turn. | The callback promotes the ADK session to Memory Bank. Search is timed in parallel, never sent to Gemini, and never blocks generation. |
 | Independence | Redis event writes continue regardless of which ADK session service is selected. | Replacing `InMemorySessionService` with `VertexAiSessionService` changes ADK persistence, not Redis writes. |
 | Console visibility | Inspect with Redis Cloud/Redis Insight and the Agent Memory service. | Managed sessions and memories appear under Agent Platform for the configured Agent Engine and region. In-memory fallbacks do not. |
 
