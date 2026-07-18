@@ -650,8 +650,10 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     agent = build_agent("gemini-2.5-flash")
     assert "{cache_safety_context}" in agent.instruction
     assert "omit prices, availability" in agent.instruction
-    assert "consult the signed-in member's recent order history" in agent.instruction
-    assert "reuse it and do not call Context Retriever again" in agent.instruction
+    assert "REQUIRED WORKFLOW for personalized purchase planning" in agent.instruction
+    assert "you MUST list the governed Context Retriever" in agent.instruction
+    assert "before calling search_catalog" in agent.instruction
+    assert "Do not answer a personalized planning request" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
 
