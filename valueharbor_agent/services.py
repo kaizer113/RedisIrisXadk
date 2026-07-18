@@ -536,7 +536,7 @@ class SemanticRouterService:
             "member-specific request",
             re.compile(
                 r"\b(?:my|our)\s+(?:(?:pickup|recent|shopping|member)\s+)?"
-                r"(?:order|cart|account|reward|preference|membership|purchase|profile|address)"
+                r"(?:orders?|cart|account|rewards?|preferences?|membership|purchases?|profile|address)"
                 r"\b|\bwho\s+am\s+i\b|"
                 r"\bwhat\s+do\s+you\s+(?:know|remember)\s+about\s+me\b|"
                 r"\bdo\s+i\s+have\s+(?:(?:a|any)\s+)?"

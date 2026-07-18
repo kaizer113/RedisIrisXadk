@@ -334,6 +334,7 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
         "Who am I?",
         "What do you know about me?",
         "Do I have a recent order ready for pickup, and where should I collect it?",
+        "Plan the best pantry purchase under $40 using my preferences and explain the trade-off.",
     ):
         decision = router.route(prompt)
         assert decision["action"] == "allow"
@@ -760,6 +761,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     html = (api_module.STATIC_DIR / "index.html").read_text()
     assert '>Google ADK × Redis Iris</a>' in html
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
+    assert "RedisIrisXadk/blob/main/docs/demo.md" in html
+    assert 'id="reset-demo"' in html
+    assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert '<details class="panel side service-panel" open>' in html
     assert '<summary><h2>Redis Iris services</h2></summary>' in html
@@ -772,6 +776,22 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "fetch('/api/greeting/stream'" in html
     assert "await warmupOnLoad();await selectMember()" in html
     assert "What can I help you find?" not in html
+
+
+def test_demo_reset_flushes_langcache(monkeypatch) -> None:
+    cleared = []
+
+    async def clear():
+        cleared.append(True)
+        return True
+
+    monkeypatch.setattr(services.langcache, "clear", clear)
+    with TestClient(app) as client:
+        response = client.post("/api/reset-demo")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": "LangCache flushed"}
+    assert cleared == [True]
 
 
 async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> None:

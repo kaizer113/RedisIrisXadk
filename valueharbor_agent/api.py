@@ -904,6 +904,19 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.post("/api/reset-demo")
+async def reset_demo() -> dict[str, Any]:
+    """Flush shared LangCache state so the scripted demo starts cold."""
+    if not settings.langcache_configured:
+        raise HTTPException(status_code=503, detail="LangCache is not configured")
+    try:
+        await services.langcache.clear()
+    except Exception as exc:
+        log.warning("Demo reset failed: %s", exc)
+        raise HTTPException(status_code=502, detail="LangCache reset failed") from exc
+    return {"ok": True, "message": "LangCache flushed"}
+
+
 @app.get("/api/context/tools")
 async def context_tools() -> dict[str, Any]:
     started = time.perf_counter()

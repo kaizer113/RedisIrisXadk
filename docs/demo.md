@@ -6,10 +6,12 @@ memory paths and Gemini model selector.
 
 ## Before the session
 
-1. From the project directory, run `make reset-demo`. This flushes the managed LangCache so each
-   scripted pair starts with a miss followed by a semantic hit. It does not delete seeded or
-   learned long-term memories.
-2. Open [http://34.182.213.82](http://34.182.213.82), or reload it if it is already open.
+1. Open [http://34.182.213.82](http://34.182.213.82), scroll to **Presenter controls** at the
+   bottom of the page, and click **Reset demo cache**. Confirm the reset and wait for the ready
+   message. This flushes the managed LangCache so each scripted pair starts with a miss followed
+   by a semantic hit. It does not delete seeded or learned long-term memories. The Value Wholesale
+   brand at the top-left opens this guide in a new tab.
+2. Scroll back to the top of the page.
 3. Confirm that all eight service indicators are blue:
    Redis database, Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory,
    ADK Memory Bank, and ADK Agent Sessions.
