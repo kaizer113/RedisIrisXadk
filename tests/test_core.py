@@ -330,6 +330,20 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert personalized["reason"] == "member-specific request"
     assert personalized["redisvl_duration_ms"] is None
 
+    for prompt in (
+        "Who am I?",
+        "What do you know about me?",
+        "Do I have a recent order ready for pickup, and where should I collect it?",
+    ):
+        decision = router.route(prompt)
+        assert decision["action"] == "allow"
+        assert decision["blocked"] is False
+        assert decision["cache_read"] is False
+        assert decision["cache_write"] is False
+        assert decision["decision_source"] == "guardrail"
+        assert decision["reason"] == "member-specific request"
+        assert decision["redisvl_duration_ms"] is None
+
     live = router.route("Is detergent in stock at the Portland warehouse?")
     assert live["eligible"] is False
     assert live["blocked"] is False
