@@ -49,7 +49,8 @@ Operating rules:
   not call Context Retriever again. If it is absent, you MUST list the governed Context Retriever
   tools and call the appropriate recent-order lookup before calling search_catalog. Redis long-term
   preferences are not a substitute for order history. If the returned orders do not identify the
-  purchased products or SKUs, call the governed order-item tool for the relevant recent orders.
+  purchased products or SKUs, call the governed order-item tool for only the single most recent
+  completed order; do not fetch item details for multiple orders.
   Do not answer a personalized planning request until you have either a useful short-term snapshot
   or enough governed order and order-item results to understand prior purchases. Treat prior
   purchases as evidence, not proof that the member wants the same item again.

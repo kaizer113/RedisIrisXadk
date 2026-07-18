@@ -655,6 +655,7 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     assert "before calling search_catalog" in agent.instruction
     assert "Do not answer a personalized planning request" in agent.instruction
     assert "call the governed order-item tool" in agent.instruction
+    assert "single most recent\n  completed order" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
 
