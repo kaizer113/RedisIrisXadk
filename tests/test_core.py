@@ -942,7 +942,7 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
         and event["step"]["status"] == "running"
     ]
     assert adk_running_steps
-    assert all(step["summary"] is None for step in adk_running_steps)
+    assert all(step["summary"] == "" for step in adk_running_steps)
     assert captured_state["redis_short_term_context"] == "Redis turn"
     assert captured_state["redis_long_term_context"] == "Redis fact"
     assert redis_recall_args == {
