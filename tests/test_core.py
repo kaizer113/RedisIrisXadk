@@ -611,40 +611,6 @@ async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> N
     assert profile["name"] == "Alex Rivera"
 
 
-async def test_context_retriever_caches_order_reads_per_session(monkeypatch) -> None:
-    context = ContextRetrieverService(Settings(_env_file=None, mcp_agent_key="test"))
-    calls = []
-
-    async def call(name, arguments):
-        calls.append((name, arguments))
-        return {"orders": [{"order_id": "VH-1"}]}
-
-    monkeypatch.setattr(context, "call", call)
-
-    first = await context.call_for_session(
-        "session-1", "get_orders_by_member_id", {"member_id": "member-1001"}
-    )
-    second = await context.call_for_session(
-        "session-1", "get_orders_by_member_id", {"member_id": "member-1001"}
-    )
-    other_session = await context.call_for_session(
-        "session-2", "get_orders_by_member_id", {"member_id": "member-1001"}
-    )
-    inventory = await context.call_for_session(
-        "session-1", "get_inventory_by_id", {"id": "portland-vh-1001"}
-    )
-
-    assert first["_context_cache"] == "miss"
-    assert second["_context_cache"] == "hit"
-    assert other_session["_context_cache"] == "miss"
-    assert "_context_cache" not in inventory
-    assert calls == [
-        ("get_orders_by_member_id", {"member_id": "member-1001"}),
-        ("get_orders_by_member_id", {"member_id": "member-1001"}),
-        ("get_inventory_by_id", {"id": "portland-vh-1001"}),
-    ]
-
-
 async def test_member_profile_reuses_application_session_cache(monkeypatch) -> None:
     profile_context = '{"member_id":"member-1001","name":"Alex Rivera"}'
 

@@ -17,10 +17,6 @@ def _member_id(tool_context: ToolContext) -> str:
     )
 
 
-def _session_id(tool_context: ToolContext) -> str:
-    return str(tool_context.state.get("session_id") or _member_id(tool_context))
-
-
 def search_catalog(
     query: str,
     category: str = "",
@@ -160,11 +156,7 @@ async def list_context_retriever_tools() -> dict[str, Any]:
     return {"tools": tools, "source": "server_cache" if cached else "context_retriever"}
 
 
-async def query_context_retriever(
-    tool_name: str,
-    arguments_json: str,
-    tool_context: ToolContext,
-) -> dict[str, Any]:
+async def query_context_retriever(tool_name: str, arguments_json: str) -> dict[str, Any]:
     """Call a governed Redis Context Retriever tool for live commerce data.
 
     Call list_context_retriever_tools first. Never invent a tool name or argument.
@@ -179,11 +171,7 @@ async def query_context_retriever(
         return {"ok": False, "error": f"invalid_arguments_json: {exc}"}
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "arguments_json_must_be_an_object"}
-    return await services.context.call_for_session(
-        _session_id(tool_context),
-        tool_name,
-        arguments,
-    )
+    return await services.context.call(tool_name, arguments)
 
 
 ALL_TOOLS = [
