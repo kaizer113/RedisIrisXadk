@@ -144,6 +144,23 @@ def event_text(event: Any) -> str:
     ).strip()
 
 
+def is_llm_response_event(event: Any) -> bool:
+    """Return whether an ADK event represents one completed logical LLM call."""
+    content = getattr(event, "content", None)
+    return bool(
+        not getattr(event, "partial", False)
+        and (
+            getattr(event, "usage_metadata", None) is not None
+            or (content is not None and getattr(content, "role", None) == "model")
+        )
+    )
+
+
+def llm_count_label(label: str, count: int) -> str:
+    unit = "llm call" if count == 1 else "llm calls"
+    return f"{label} ({count} {unit})"
+
+
 def trace_event(
     step_id: str,
     label: str,
@@ -236,6 +253,14 @@ async def member_profile_for_session(member_id: str, session_id: str) -> dict[st
     return {"context": context, "source": "redis_context_retriever"}
 
 
+def member_profile_source_label(source: str) -> str:
+    return {
+        "redis_context_retriever": "Loaded from Redis Context Retriever",
+        "application_session_cache": "Reused from application session cache",
+        "member_id_fallback": "Profile unavailable; using member ID only",
+    }.get(source, source)
+
+
 async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     """Run one shopping turn and emit observable steps as newline-delimited events."""
     total_started = time.perf_counter()
@@ -281,33 +306,58 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         result = await awaitable
         return step_id, result, round((time.perf_counter() - started) * 1000, 2)
 
-    route_started = time.perf_counter()
-    routing = await asyncio.to_thread(services.semantic_router.route, request.message)
-    route_duration = round((time.perf_counter() - route_started) * 1000, 2)
+    prefetched_short_term: tuple[str, Any, float] | None = None
+    routing_context = ""
+    if services.semantic_router.is_contextual_followup(request.message):
+        prefetched_short_term = await timed("redis-short-term", fetch_short_term())
+        routing_context = "\n".join(memory_snippets(prefetched_short_term[1]))
+    route_args = (
+        (request.message, routing_context)
+        if routing_context
+        else (request.message,)
+    )
+    routing = await asyncio.to_thread(services.semantic_router.route, *route_args)
+    route_duration = routing.get("route_duration_ms", routing.get("redisvl_duration_ms"))
+    redisvl_called = route_duration is not None
     cache_read = bool(routing.get("cache_read", routing.get("eligible", False)))
     cache_write = bool(routing.get("cache_write", routing.get("eligible", False)))
+    cache_scope = str(routing.get("cache_scope") or "")
     blocked = bool(routing.get("blocked", False))
     route_details = [
         f"Decision source: {routing.get('decision_source', 'unknown')}",
         f"Action: {'block' if blocked else 'allow'}",
         f"LangCache read: {'yes' if cache_read else 'no'}",
         f"LangCache write: {'yes' if cache_write else 'no'}",
+        f"LangCache scope: {cache_scope or 'none'}",
         f"Threshold: {routing.get('threshold', 'not set')}",
     ]
+    if routing.get("contextual_followup"):
+        route_details.append("Recent Redis session context used for routing")
     if routing.get("distance") is not None:
         route_details.append(f"Cosine distance: {routing['distance']}")
-    if blocked:
+    if routing.get("embedding_duration_ms") is not None:
+        route_details.append(
+            f"Local embedding: {routing['embedding_duration_ms']} ms · "
+            f"{settings.valueharbor_embedding_model}"
+        )
+    if routing.get("redisvl_duration_ms") is not None:
+        route_details.append(
+            f"Redis vector classification: {routing['redisvl_duration_ms']} ms"
+        )
+    if not redisvl_called:
+        route_summary = f"RedisVL bypassed · {routing.get('reason', 'routing guardrail')}"
+    elif blocked:
         route_summary = "Blocked · outside Value Wholesale ecommerce scope"
     elif cache_read or cache_write:
         route_summary = (
-            f"{routing.get('route') or 'cacheable ecommerce'} · LangCache read + write"
+            f"{cache_scope} · LangCache read + write"
         )
     else:
         route_summary = f"{routing.get('route') or 'allowed'} · LangCache bypass"
     yield trace_event(
         "semantic-router",
         "Routing with RedisVL Semantic Router",
-        duration_ms=route_duration,
+        duration_ms=route_duration if redisvl_called else 0,
         summary=route_summary,
         details=route_details,
     )
@@ -332,14 +382,22 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         yield {"type": "answer", "answer": answer, "cache_hit": False, "blocked": True}
         yield trace_event(
             "total",
-            "Total request",
+            llm_count_label("Total request", 0),
             duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
             summary="Blocked outside ecommerce scope",
         )
         return
 
+    async def prefetched_short_term_result() -> tuple[str, Any, float]:
+        assert prefetched_short_term is not None
+        return prefetched_short_term
+
     required_tasks = {
-        asyncio.create_task(timed("redis-short-term", fetch_short_term())),
+        asyncio.create_task(
+            prefetched_short_term_result()
+            if prefetched_short_term is not None
+            else timed("redis-short-term", fetch_short_term())
+        ),
         asyncio.create_task(timed("redis-long-term", fetch_redis_long_term())),
         asyncio.create_task(timed("member-profile", fetch_member_profile())),
     }
@@ -348,7 +406,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             asyncio.create_task(
                 timed(
                     "langcache",
-                    services.langcache.search(request.message, "reusable-ecommerce"),
+                    services.langcache.search(request.message, cache_scope),
                 )
             )
         )
@@ -363,11 +421,25 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         asyncio.create_task(timed("adk-short-term", fetch_adk_short_term())),
         asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
     }
+    # Insert comparison rows as Redis/ADK pairs. Subsequent completion events update
+    # these existing rows without changing their order in the browser trace.
+    yield trace_event(
+        "redis-short-term",
+        "Getting Redis short-term memory",
+        status="running",
+        summary="Required context for Gemini",
+    )
     yield trace_event(
         "adk-short-term",
         "ADK short-term session read",
         status="running",
         summary="Telemetry only · excluded from Gemini context",
+    )
+    yield trace_event(
+        "redis-long-term",
+        "Searching Redis long-term memory",
+        status="running",
+        summary="Required context for Gemini",
     )
     yield trace_event(
         "vertex-long-term",
@@ -381,11 +453,24 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         results[step_id] = result
         if step_id == "langcache":
             hit = bool(result and result.get("response"))
+            cached_prompt = (
+                services.langcache.display_prompt(str(result.get("prompt", "")))
+                if hit
+                else ""
+            )
             yield trace_event(
                 "langcache",
                 "Checking Redis LangCache",
                 duration_ms=duration,
-                summary="Hit" if hit else "Miss",
+                summary=(f"Hit · {cache_scope}" if hit else f"Miss · {cache_scope}"),
+                details=(
+                    [
+                        f"Current query: {request.message}",
+                        f"Cached query: {cached_prompt}",
+                    ]
+                    if cached_prompt
+                    else []
+                ),
             )
         elif step_id == "redis-short-term":
             snippets = memory_snippets(result)
@@ -407,18 +492,14 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             )
         elif step_id == "member-profile":
             source = result.get("source", "unavailable")
-            source_label = {
-                "redis_context_retriever": "Loaded from Redis Context Retriever",
-                "application_session_cache": "Reused from application session cache",
-                "member_id_fallback": "Profile unavailable; using member ID only",
-            }.get(source, source)
-            yield trace_event(
-                step_id,
-                "Hydrating authoritative member profile",
-                duration_ms=duration,
-                summary=source_label,
-                details=[result["context"]],
-            )
+            if source != "application_session_cache":
+                yield trace_event(
+                    step_id,
+                    "Hydrating authoritative member profile",
+                    duration_ms=duration,
+                    summary=member_profile_source_label(source),
+                    details=[result["context"]],
+                )
 
     async def drain_adk_telemetry() -> AsyncIterator[dict[str, Any]]:
         for task in asyncio.as_completed(adk_telemetry_tasks):
@@ -469,7 +550,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             yield telemetry_event
         yield trace_event(
             "total",
-            "Total request",
+            llm_count_label("Total request", 0),
             duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
             summary="Completed from semantic cache",
         )
@@ -483,10 +564,17 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         or "No prior session events.",
         "redis_long_term_context": "\n".join(memory_snippets(redis_memories))
         or "No relevant Redis long-term memories.",
+        "cache_safety_context": (
+            f"Cacheable reusable scope `{cache_scope}`. Do not include member-specific facts, "
+            "current prices, inventory, orders, carts, or other live data in the answer."
+            if cache_scope
+            else "Not cache eligible; follow the normal grounding and personalization rules."
+        ),
     }
     runner_started = time.perf_counter()
     tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
     final_answer = ""
+    llm_calls = 0
     try:
         async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
             async for event in runners[request.model].run_async(
@@ -495,6 +583,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 new_message=types.Content(role="user", parts=[types.Part(text=request.message)]),
                 state_delta=state_delta,
             ):
+                if is_llm_response_event(event):
+                    llm_calls += 1
                 for call in event.get_function_calls():
                     name = str(call.name or "tool")
                     arguments = dict(call.args or {})
@@ -572,31 +662,44 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         services.memory.add_event, member_id, session_id, "ASSISTANT", final_answer
     )
     if cache_write:
-        await services.langcache.store(
-            request.message, final_answer, "reusable-ecommerce"
-        )
+        await services.langcache.store(request.message, final_answer, cache_scope)
 
     yield {"type": "answer", "answer": final_answer, "cache_hit": False}
     async for telemetry_event in drain_adk_telemetry():
         yield telemetry_event
     yield trace_event(
         "total",
-        "Total request",
+        llm_count_label("Total request", llm_calls),
         duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
         summary="Completed with generation",
     )
 
 
 async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, Any]]:
-    """Let a separate ADK agent choose whether retrieval would improve its greeting."""
+    """Hydrate the shopping session, then generate an optionally personalized greeting."""
     member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
-    session_id = safe_id(f"{request.session_id}-greeting", "greeting-session")
+    shopping_session_id = safe_id(
+        request.session_id, settings.valueharbor_demo_session_id
+    )
+    session_id = safe_id(f"{shopping_session_id}-greeting", "greeting-session")
     tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
     context_sources: list[str] = []
     context_details: list[str] = []
     final_greeting = ""
+    llm_calls = 0
 
     yield {"type": "start", "session_id": session_id}
+    profile_started = time.perf_counter()
+    member_profile = await member_profile_for_session(member_id, shopping_session_id)
+    profile_source = str(member_profile.get("source", "unavailable"))
+    if profile_source != "application_session_cache":
+        yield trace_event(
+            "greeting-member-profile",
+            "Hydrating authoritative member profile",
+            duration_ms=round((time.perf_counter() - profile_started) * 1000, 2),
+            summary=member_profile_source_label(profile_source),
+            details=[member_profile["context"]],
+        )
     yield trace_event(
         "greeting-generation",
         "ADK Greeting",
@@ -614,14 +717,20 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     parts=[
                         types.Part(
                             text=(
-                                "Create my brief welcome greeting. Decide whether personal "
-                                "memory or live member context would make it more relevant."
+                                "Create my brief welcome greeting using the supplied member "
+                                "profile. Decide whether personal memory would improve it."
                             )
                         )
                     ],
                 ),
-                state_delta={"member_id": member_id, "user_id": member_id},
+                state_delta={
+                    "member_id": member_id,
+                    "user_id": member_id,
+                    "member_profile_context": member_profile["context"],
+                },
             ):
+                if is_llm_response_event(event):
+                    llm_calls += 1
                 for call in event.get_function_calls():
                     name = str(call.name or "tool")
                     arguments = dict(call.args or {})
@@ -689,15 +798,16 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     context_summary = (
         f"Context used: {' + '.join(context_sources)}"
         if context_sources
-        else "No optional context tools used"
+        else (
+            "The agent chose not to call Redis Agent Memory or Context Retriever."
+        )
     )
     yield trace_event(
         "greeting-generation",
-        "ADK Greeting",
+        llm_count_label("ADK Greeting", llm_calls),
         duration_ms=round((time.perf_counter() - runner_started) * 1000, 2),
-        summary=f"Runner only · excludes page warm-up · {context_summary}",
-        details=context_details
-        or ["The agent chose not to call Redis Agent Memory or Context Retriever."],
+        summary=context_summary,
+        details=context_details,
     )
     yield {"type": "greeting", "greeting": final_greeting.strip()}
 
@@ -708,7 +818,7 @@ async def index() -> FileResponse:
 
 
 async def warmup_redis_services() -> dict[str, Any]:
-    """Prime the five Redis integrations used on the shopping request path."""
+    """Prime the six Redis integrations used on the shopping request path."""
     started = time.perf_counter()
 
     async def probe(name: str, operation: Any) -> tuple[str, dict[str, Any]]:
@@ -735,13 +845,17 @@ async def warmup_redis_services() -> dict[str, Any]:
         return bool(count), f"{count} governed tools discovered", {"tools": tools}
 
     async def router_probe() -> tuple[bool, str, dict[str, Any]]:
+        embedding = await asyncio.to_thread(services.embeddings.warmup)
         decision = await asyncio.to_thread(
             services.semantic_router.route,
             "What is the electronics return policy?",
         )
         ok = decision.get("decision_source") == "redisvl"
         route = decision.get("route") or "no route"
-        return ok, f"Semantic route ready · {route}", {}
+        return ok, f"Semantic route ready · {route}", {"embedding": embedding}
+
+    async def embedding_cache_probe() -> tuple[bool, str, dict[str, Any]]:
+        return await asyncio.to_thread(services.embeddings.cache_probe)
 
     async def langcache_probe() -> tuple[bool, str, dict[str, Any]]:
         ok = await services.langcache.warmup("What is the electronics return policy?")
@@ -755,6 +869,7 @@ async def warmup_redis_services() -> dict[str, Any]:
         probe("redis_database", database_probe),
         probe("context_retriever", context_probe),
         probe("semantic_router", router_probe),
+        probe("embedding_cache", embedding_cache_probe),
         probe("langcache", langcache_probe),
         probe("redis_agent_memory", memory_probe),
     )
@@ -774,11 +889,13 @@ async def health() -> dict[str, Any]:
         "cloud_run_location": settings.google_cloud_location,
         "memory_bank_location": settings.google_memory_location,
         "default_model": settings.google_model,
+        "embedding_model": settings.valueharbor_embedding_model,
         "models": settings.available_google_models,
         "services": {
             "redis_database": settings.redis_configured,
             "context_retriever": bool(settings.mcp_agent_key),
             "semantic_router": services.semantic_router.configured,
+            "embedding_cache": services.embeddings.embedding_cache is not None,
             "langcache": settings.langcache_configured,
             "redis_agent_memory": services.memory.client is not None,
             "vertex_adk_memory_bank": services.vertex_memory.client is not None,

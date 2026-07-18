@@ -30,10 +30,10 @@ flowchart TB
     subgraph rediscloud["Redis Cloud"]
         direction TB
         rdi["Redis Data Integration<br/>CDC capture + continuous sync"]
-        cache["LangCache<br/>FAQ + reusable answers"]
+        cache["LangCache<br/>policy + product education + shopping guides"]
         ram["Agent Memory<br/>session events + long-term facts"]
         context["Context Retriever<br/>governed live-data tools"]
-        semantic["Semantic Router<br/>routes reusable questions to LangCache"]
+        semantic["Semantic Router<br/>routes scoped reusable questions to LangCache"]
         database["Database + Query Engine<br/>catalog, policy, cart, commerce data"]
     end
 

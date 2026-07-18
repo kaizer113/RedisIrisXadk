@@ -7,9 +7,9 @@ memory paths and Gemini model selector.
 ## Before the session
 
 1. Open [http://34.182.213.82](http://34.182.213.82).
-2. Confirm that all seven service indicators are green:
-   Redis database, Context Retriever, Semantic Router, LangCache, Agent Memory, ADK Memory Bank,
-   and Agent Sessions.
+2. Confirm that all eight service indicators are blue:
+   Redis database, Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory,
+   ADK Memory Bank, and ADK Agent Sessions.
 3. Select **Alex Rivera** in the **Shop as** dropdown.
 4. Leave **Gemini 2.5 Flash** selected.
 5. Use a fresh browser reload so the visible conversation starts clean and the governed Context
@@ -21,15 +21,20 @@ Portland Harbor location.
 For the high-cardinality memory scenario, switch to `member-1005`, Taylor Morgan. Taylor has
 exactly 500 pre-seeded memories: 20 durable preferences and 480 episodic distractors.
 
-After the page warm-up, Vale generates a short member greeting. The greeting agent can choose to
-use Redis Agent Memory, Context Retriever, both, or neither. Wait for the greeting to finish before
-starting the scripted prompts. The first shopping turn should show the authoritative member profile
-being loaded from Context Retriever; later turns reuse the application session cache. Changing the
-selected member clears the visible chat and creates a new session for that member.
+During page warm-up, the application loads the shared local
+`redis/langcache-embed-v3-small` model and primes routing before Vale generates a short member
+greeting. When a member is selected, the application deterministically loads the authoritative
+member profile from Context Retriever, caches it for the new shopping session, and supplies it to
+the greeting agent. The greeting agent may optionally retrieve Redis Agent Memory; it does not
+retrieve the profile again. Wait for the greeting to finish before starting the scripted prompts.
+The first shopping turn silently reuses the cached profile, so no member-profile hydration row
+should appear in its trace. Changing the selected member clears the visible chat and creates a new
+session with its own profile hydration.
 
 The Context Retriever tool catalog is discovered once during page warm-up and cached by the
-application. Profile hydration and agent tool selection reuse it, so the trace intentionally hides
-the redundant `discover MCP tools` step. Reload the page when you want to refresh the catalog.
+application. Profile hydration during member selection and later agent tool selection reuse it, so
+the trace intentionally hides the redundant `discover MCP tools` step. Reload the page when you
+want to refresh the catalog.
 
 ## 1. Grounded product discovery and live inventory
 
@@ -71,6 +76,13 @@ entities such as members, inventory, orders, and order lines.
 
 ## 3. Demonstrate semantic response caching
 
+LangCache uses three versioned semantic scopes in the same managed cache: `policy:v1`,
+`product-education:catalog-v1`, and `shopping-guide:v1`. The scope is prefixed inside the prompt
+to keep semantically similar questions from different workloads distinct without relying on
+undeclared preview attributes.
+
+### Policy scope
+
 First prompt:
 
 > What is the electronics return policy?
@@ -85,7 +97,39 @@ Then ask:
 The second request should show a semantic LangCache hit and skip `ADK Runner + Gemini`. Explain
 that the RedisVL Semantic Router allows reusable ecommerce answers into LangCache while
 personalized and live-data requests bypass it. Out-of-domain requests are blocked before cache,
-memory, or model execution.
+memory, or model execution. Expand the LangCache hit to compare the current query with the cached
+query that matched it.
+
+### Product-education scope
+
+First prompt:
+
+> What flavor notes does Rain City Medium Roast Coffee have?
+
+Then ask in a new session or after clearing the trace:
+
+> How would you describe the taste of your whole-bean medium roast?
+
+The first request generates a stable, catalog-grounded description. The paraphrase should hit
+the `product-education:catalog-v1` scope. Cached product education excludes price, availability,
+orders, member preferences, and other volatile or personalized fields.
+
+### Shopping-guide scope
+
+First prompt:
+
+> How should I store a large bag of rolled oats after opening?
+
+Then ask:
+
+> What is the best way to keep bulk oats fresh?
+
+The paraphrase should hit `shopping-guide:v1`. This demonstrates reusable guidance rather than
+only policy FAQs. Guides remain generic and cannot contain member or live-commerce data.
+
+For every cacheable example, expand the Semantic Router and LangCache trace rows. Point out the
+versioned scope, the first miss, the semantic hit, the current-versus-cached query comparison, and
+`Total request (0 llm calls)` on the hit.
 
 ## 4. Show both memory systems on every request
 
