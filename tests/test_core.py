@@ -718,6 +718,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
 
 async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> None:
     captured_state = {}
+    redis_recall_args = {}
 
     class FakeEvent:
         content = types.Content(role="model", parts=[types.Part(text="Generated first")])
@@ -754,11 +755,15 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
             "source": "application_session_cache",
         }
 
+    def recall(member_id, query, limit):
+        redis_recall_args.update(member_id=member_id, query=query, limit=limit)
+        return [{"text": "Redis fact"}]
+
     monkeypatch.setattr(api_module, "session_service", SlowSessionService())
     monkeypatch.setattr(api_module, "member_profile_for_session", profile)
     monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", FakeRunner())
     monkeypatch.setattr(services.memory, "short_term", lambda *_args: [{"text": "Redis turn"}])
-    monkeypatch.setattr(services.memory, "recall", lambda *_args: [{"text": "Redis fact"}])
+    monkeypatch.setattr(services.memory, "recall", recall)
     monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
     monkeypatch.setattr(services.vertex_memory, "recall", slow_vertex_recall)
     monkeypatch.setattr(
@@ -796,6 +801,11 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
     assert adk_done_indexes and all(answer_index < index for index in adk_done_indexes)
     assert captured_state["redis_short_term_context"] == "Redis turn"
     assert captured_state["redis_long_term_context"] == "Redis fact"
+    assert redis_recall_args == {
+        "member_id": "member-1001",
+        "query": "What do I prefer?",
+        "limit": 3,
+    }
     assert "vertex_long_term_context" not in captured_state
     assert not any(
         event["type"] == "trace" and event["step"]["id"] == "member-profile"
