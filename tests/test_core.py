@@ -934,6 +934,15 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
         and event["step"]["status"] == "done"
     ]
     assert adk_done_indexes and all(answer_index < index for index in adk_done_indexes)
+    adk_running_steps = [
+        event["step"]
+        for event in events
+        if event["type"] == "trace"
+        and event["step"]["id"] in {"adk-short-term", "vertex-long-term"}
+        and event["step"]["status"] == "running"
+    ]
+    assert adk_running_steps
+    assert all(step["summary"] is None for step in adk_running_steps)
     assert captured_state["redis_short_term_context"] == "Redis turn"
     assert captured_state["redis_long_term_context"] == "Redis fact"
     assert redis_recall_args == {

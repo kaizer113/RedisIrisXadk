@@ -461,7 +461,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         "adk-short-term",
         "ADK short-term session read",
         status="running",
-        summary="Telemetry only · excluded from Gemini context",
     )
     yield trace_event(
         "redis-long-term",
@@ -473,7 +472,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         "vertex-long-term",
         "ADK Memory Bank search",
         status="running",
-        summary="Telemetry only · excluded from Gemini context",
     )
     results: dict[str, Any] = {}
     for task in asyncio.as_completed(required_tasks):
