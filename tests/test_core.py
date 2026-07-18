@@ -101,6 +101,23 @@ def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
     _catalog_cache.clear()
 
 
+def test_catalog_search_clamps_limit_to_one_through_six(monkeypatch) -> None:
+    calls = []
+
+    def search(query, category, limit):
+        calls.append(limit)
+        return []
+
+    _catalog_cache.clear()
+    monkeypatch.setattr(services.catalog, "search_products", search)
+
+    search_catalog("pantry staples", "pantry", 10)
+    search_catalog("paper goods", "household", 0)
+
+    assert calls == [6, 1]
+    _catalog_cache.clear()
+
+
 def test_catalog_product_embedding_text_includes_retrieval_signals() -> None:
     text = CatalogService.product_embedding_text(
         {

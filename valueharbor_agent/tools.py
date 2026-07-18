@@ -34,9 +34,9 @@ def search_catalog(
     Args:
         query: What the member wants or the need the product should satisfy.
         category: Optional exact category: pantry, household, beverages, electronics, fresh-food.
-        limit: Maximum products to return, from 1 to 10.
+        limit: Maximum products to return, from 1 to 6.
     """
-    normalized_limit = max(1, min(limit, 10))
+    normalized_limit = max(1, min(limit, 6))
     cache_key = (query.strip().lower(), category.strip().lower(), normalized_limit)
     now = time.monotonic()
     with _catalog_cache_lock:
