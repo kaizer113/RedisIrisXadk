@@ -654,6 +654,7 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     assert "you MUST list the governed Context Retriever" in agent.instruction
     assert "before calling search_catalog" in agent.instruction
     assert "Do not answer a personalized planning request" in agent.instruction
+    assert "call the governed order-item tool" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
 
@@ -661,7 +662,7 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
 def test_context_order_result_becomes_invisible_session_context() -> None:
     result = _context_result_session_event(
         "query_context_retriever",
-        {"tool_name": "get_orders_by_member_id"},
+        {"tool_name": "filter_order_by_member_id"},
         {"result": {"orders": [{"order_id": "VH-ORD-1048"}]}},
     )
 
@@ -671,7 +672,7 @@ def test_context_order_result_becomes_invisible_session_context() -> None:
     assert "VH-ORD-1048" in text
     assert metadata == {
         "kind": "context_retriever_order_history",
-        "tool_name": "get_orders_by_member_id",
+        "tool_name": "filter_order_by_member_id",
         "visibility": "agent_context_only",
     }
     assert (

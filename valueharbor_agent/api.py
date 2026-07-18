@@ -244,7 +244,7 @@ def _context_result_session_event(
     tool_name = str(arguments.get("tool_name", "")).strip()
     normalized = tool_name.lower()
     if "order" not in normalized or not normalized.startswith(
-        ("get_", "list_", "search_", "find_")
+        ("get_", "list_", "search_", "find_", "filter_")
     ):
         return None
     payload = response.get("result", response)
