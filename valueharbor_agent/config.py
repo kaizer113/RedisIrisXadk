@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     agent_memory_namespace: str = "valueharbor-shopping"
     agent_memory_similarity_threshold: float = Field(default=0.30, ge=0, le=1)
 
-    valueharbor_agent_timeout_seconds: float = Field(default=45, ge=5, le=120)
+    valueharbor_agent_timeout_seconds: float = Field(default=90, ge=5, le=120)
 
     port: int = 8080
     log_level: str = "INFO"

@@ -66,6 +66,7 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.valueharbor_vector_search_enabled is True
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
+    assert settings.valueharbor_agent_timeout_seconds == 90
     assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
     assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
 
