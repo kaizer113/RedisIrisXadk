@@ -97,7 +97,7 @@ a LangCache miss and normal policy retrieval/generation.
 
 Then ask:
 
-> How long do I have to return a laptop?
+> How long is the return window for electronics ?
 
 The second request should show a semantic LangCache hit and skip `ADK Runner + Gemini`. Explain
 that the RedisVL Semantic Router allows reusable ecommerce answers into LangCache while
