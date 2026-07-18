@@ -16,6 +16,7 @@ from valueharbor_agent import api as api_module
 from valueharbor_agent.agent import build_agent, build_greeting_agent
 from valueharbor_agent.api import (
     _chat_events,
+    _context_result_session_event,
     _greeting_events,
     _tool_label,
     _tool_summary,
@@ -649,9 +650,36 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     agent = build_agent("gemini-2.5-flash")
     assert "{cache_safety_context}" in agent.instruction
     assert "omit prices, availability" in agent.instruction
-    assert "always consult the signed-in member's recent order history" in agent.instruction
+    assert "consult the signed-in member's recent order history" in agent.instruction
+    assert "reuse it and do not call Context Retriever again" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
+
+
+def test_context_order_result_becomes_invisible_session_context() -> None:
+    result = _context_result_session_event(
+        "query_context_retriever",
+        {"tool_name": "get_orders_by_member_id"},
+        {"result": {"orders": [{"order_id": "VH-ORD-1048"}]}},
+    )
+
+    assert result is not None
+    text, metadata = result
+    assert "Context Retriever order-history snapshot" in text
+    assert "VH-ORD-1048" in text
+    assert metadata == {
+        "kind": "context_retriever_order_history",
+        "tool_name": "get_orders_by_member_id",
+        "visibility": "agent_context_only",
+    }
+    assert (
+        _context_result_session_event(
+            "query_context_retriever",
+            {"tool_name": "get_inventory_by_id"},
+            {"result": {"quantity": 31}},
+        )
+        is None
+    )
 
 
 async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None:

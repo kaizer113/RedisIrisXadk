@@ -233,6 +233,34 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
     return "Completed", [compact[:300]] if compact and compact != "{}" else []
 
 
+def _context_result_session_event(
+    name: str,
+    arguments: dict[str, Any],
+    response: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    """Turn governed order reads into invisible Redis session working context."""
+    if name != "query_context_retriever":
+        return None
+    tool_name = str(arguments.get("tool_name", "")).strip()
+    normalized = tool_name.lower()
+    if "order" not in normalized or not normalized.startswith(
+        ("get_", "list_", "search_", "find_")
+    ):
+        return None
+    payload = response.get("result", response)
+    if not isinstance(payload, dict) or payload.get("ok") is False:
+        return None
+    compact = json.dumps(payload, default=str, sort_keys=True, separators=(",", ":"))
+    return (
+        f"Context Retriever order-history snapshot from {tool_name}: {compact[:4_000]}",
+        {
+            "kind": "context_retriever_order_history",
+            "tool_name": tool_name,
+            "visibility": "agent_context_only",
+        },
+    )
+
+
 async def member_profile_for_session(member_id: str, session_id: str) -> dict[str, Any]:
     """Load the authoritative member profile without depending on ADK session reads."""
     cache_key = (member_id, session_id)
@@ -614,6 +642,21 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     )
                     duration = round((time.perf_counter() - started) * 1000, 2)
                     summary, details = _tool_summary(name, dict(response.response or {}))
+                    session_event = _context_result_session_event(
+                        name,
+                        arguments,
+                        dict(response.response or {}),
+                    )
+                    if session_event is not None:
+                        event_text_value, event_metadata = session_event
+                        await asyncio.to_thread(
+                            services.memory.add_event,
+                            member_id,
+                            session_id,
+                            "SYSTEM",
+                            event_text_value,
+                            event_metadata,
+                        )
                     if trace_visible:
                         yield trace_event(
                             f"tool-{call_id}",

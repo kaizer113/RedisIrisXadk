@@ -899,20 +899,36 @@ class MemoryService:
             except Exception as exc:
                 log.warning("Agent Memory SDK initialization failed: %s", exc)
 
-    def add_event(self, member_id: str, session_id: str, role: str, text: str) -> bool:
+    def add_event(
+        self,
+        member_id: str,
+        session_id: str,
+        role: str,
+        text: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
         if self.client is None or self.models is None:
             return False
         role_enum = getattr(self.models.MessageRole, role.upper())
+        actor_id = (
+            member_id
+            if role.upper() == "USER"
+            else "valueharbor-context"
+            if role.upper() == "SYSTEM"
+            else "valueharbor-agent"
+        )
         try:
             self.client.add_session_event(
                 session_id=safe_id(session_id, "shopping-session"),
-                actor_id=safe_id(
-                    member_id if role.upper() == "USER" else "valueharbor-agent", "actor"
-                ),
+                actor_id=safe_id(actor_id, "actor"),
                 role=role_enum,
                 content=[{"text": text}],
                 created_at=datetime.now(UTC),
-                metadata={"channel": "web", "agent": "valueharbor-shopping"},
+                metadata={
+                    "channel": "web",
+                    "agent": "valueharbor-shopping",
+                    **(metadata or {}),
+                },
             )
             return True
         except Exception as exc:
