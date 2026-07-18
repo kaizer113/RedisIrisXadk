@@ -804,7 +804,7 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
     assert redis_recall_args == {
         "member_id": "member-1001",
         "query": "What do I prefer?",
-        "limit": 3,
+        "limit": 4,
     }
     assert "vertex_long_term_context" not in captured_state
     assert not any(

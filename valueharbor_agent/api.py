@@ -273,7 +273,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         return await asyncio.to_thread(services.memory.short_term, session_id, 5)
 
     async def fetch_redis_long_term() -> list[dict[str, Any]]:
-        return await asyncio.to_thread(services.memory.recall, member_id, request.message, 3)
+        return await asyncio.to_thread(services.memory.recall, member_id, request.message, 4)
 
     async def fetch_vertex_long_term() -> list[dict[str, Any]]:
         return await services.vertex_memory.recall(member_id, request.message)
