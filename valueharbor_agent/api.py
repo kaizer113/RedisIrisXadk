@@ -185,7 +185,11 @@ def trace_event(
 
 def _tool_label(name: str, arguments: dict[str, Any]) -> str:
     if name == "search_catalog":
-        return "RedisVL Search Catalog"
+        query = str(arguments.get("query", "")).strip()
+        category = str(arguments.get("category", "")).strip() or "all categories"
+        limit = arguments.get("limit", 5)
+        compact_query = f'"{query[:72]}{"…" if len(query) > 72 else ""}"'
+        return f"RedisVL Search Catalog · {compact_query} · {category} · limit {limit}"
     if name == "list_context_retriever_tools":
         return "Context Retriever · discover MCP tools"
     if name == "query_context_retriever":
@@ -197,7 +201,10 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
     payload = response.get("result", response)
     if name == "search_catalog" and isinstance(payload, dict):
         products = payload.get("products", [])
-        return f"{len(products)} products found", [
+        summary = f"{len(products)} products found"
+        if payload.get("identical_search_reused"):
+            summary += " · identical search reused"
+        return summary, [
             str(product.get("name", product.get("sku", "product"))) for product in products[:5]
         ]
     if name == "check_warehouse_inventory" and isinstance(payload, dict):

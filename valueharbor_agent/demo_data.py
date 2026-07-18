@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-PRODUCTS = [
+CORE_PRODUCTS = [
     {
         "sku": "VH-1001",
         "name": "Harbor Select Extra Virgin Olive Oil, 2 x 1L",
@@ -93,13 +93,258 @@ PRODUCTS = [
     },
 ]
 
+# Thirty product families with three deterministic pack variants produce 90 additional products.
+# Keeping this source compact and generated makes the 100-product workshop catalog reproducible.
+_CATALOG_FAMILIES = [
+    (
+        "pantry",
+        "Harbor Trail Lightly Salted Tortilla Chips",
+        "Crunchy corn tortilla chips with a light sea-salt finish.",
+        ["lightly-salted", "snack", "party"],
+        8.99,
+    ),
+    (
+        "pantry",
+        "North Fork Roasted Almonds",
+        "Dry-roasted almonds seasoned with a small amount of sea salt.",
+        ["nuts", "protein", "lightly-salted"],
+        13.49,
+    ),
+    (
+        "pantry",
+        "Portside Bronze-Cut Pasta",
+        "Slow-dried bronze-cut pasta for family meals and gatherings.",
+        ["pasta", "italian", "bulk"],
+        9.49,
+    ),
+    (
+        "pantry",
+        "Willamette Jasmine Rice",
+        "Aromatic long-grain jasmine rice for everyday cooking.",
+        ["rice", "gluten-free", "bulk"],
+        14.99,
+    ),
+    (
+        "pantry",
+        "Canyon Creek Black Beans",
+        "Low-sodium black beans packed for soups, bowls, and sides.",
+        ["beans", "low-sodium", "pantry"],
+        10.49,
+    ),
+    (
+        "pantry",
+        "Rainier Honey Oat Granola",
+        "Toasted oat clusters with honey, seeds, and dried fruit.",
+        ["breakfast", "snack", "whole-grain"],
+        11.99,
+    ),
+    (
+        "household",
+        "Clear Harbor Dishwasher Tablets",
+        "Unscented concentrated dishwasher tablets for everyday loads.",
+        ["unscented", "dishwasher", "cleaning"],
+        17.99,
+    ),
+    (
+        "household",
+        "Family Dock Drawstring Trash Bags",
+        "Tear-resistant drawstring bags for kitchen and household use.",
+        ["trash-bags", "durable", "bulk"],
+        19.99,
+    ),
+    (
+        "household",
+        "Pure Current Foaming Hand Soap",
+        "Fragrance-free foaming hand soap in refillable containers.",
+        ["fragrance-free", "soap", "refill"],
+        12.49,
+    ),
+    (
+        "household",
+        "Harbor Scrub Non-Scratch Sponges",
+        "Reusable non-scratch sponges for dishes and counters.",
+        ["sponges", "kitchen", "reusable"],
+        8.49,
+    ),
+    (
+        "household",
+        "Soft Landing Facial Tissues",
+        "Three-ply facial tissues in family-size multipacks.",
+        ["tissues", "paper", "bulk"],
+        14.49,
+    ),
+    (
+        "household",
+        "Northline Recycled Aluminum Foil",
+        "Heavy-duty recycled aluminum foil for cooking and storage.",
+        ["foil", "kitchen", "recycled"],
+        15.99,
+    ),
+    (
+        "beverages",
+        "Cascade Meadow Herbal Tea",
+        "Caffeine-free herbal tea with mint and citrus botanicals.",
+        ["tea", "caffeine-free", "variety"],
+        12.99,
+    ),
+    (
+        "beverages",
+        "Orchard Press Apple Juice",
+        "Not-from-concentrate apple juice with no added sugar.",
+        ["juice", "no-added-sugar", "family"],
+        13.49,
+    ),
+    (
+        "beverages",
+        "Summit Hydration Sports Drink",
+        "Electrolyte drink variety pack with reduced sugar.",
+        ["sports-drink", "electrolytes", "variety"],
+        16.99,
+    ),
+    (
+        "beverages",
+        "Rain City Dark Cocoa Mix",
+        "Rich cocoa drink mix made with Dutch-process cocoa.",
+        ["cocoa", "hot-drink", "bulk"],
+        10.99,
+    ),
+    (
+        "beverages",
+        "Portside Cold Brew Coffee",
+        "Smooth ready-to-drink cold brew coffee concentrate.",
+        ["coffee", "cold-brew", "concentrate"],
+        18.99,
+    ),
+    (
+        "beverages",
+        "Canyon Grove Sparkling Lemonade",
+        "Lightly sweetened sparkling lemonade in assorted citrus flavors.",
+        ["lemonade", "sparkling", "party"],
+        15.49,
+    ),
+    (
+        "electronics",
+        "Northstar Wireless Earbuds",
+        "Noise-isolating wireless earbuds with a charging case.",
+        ["audio", "wireless", "travel"],
+        49.99,
+    ),
+    (
+        "electronics",
+        "TrailCharge USB-C Power Bank",
+        "Portable fast-charging battery with two USB-C ports.",
+        ["charging", "portable", "travel"],
+        39.99,
+    ),
+    (
+        "electronics",
+        "HarborView 27-inch Monitor",
+        "QHD monitor with an adjustable stand and USB-C input.",
+        ["monitor", "office", "usb-c"],
+        229.99,
+    ),
+    (
+        "electronics",
+        "SummitKeys Wireless Keyboard",
+        "Low-profile wireless keyboard with multi-device pairing.",
+        ["keyboard", "office", "wireless"],
+        44.99,
+    ),
+    (
+        "electronics",
+        "RainSound Portable Speaker",
+        "Water-resistant Bluetooth speaker with all-day battery life.",
+        ["speaker", "bluetooth", "outdoor"],
+        59.99,
+    ),
+    (
+        "electronics",
+        "PortLink Mesh Wi-Fi Router",
+        "Dual-band mesh router system for whole-home coverage.",
+        ["networking", "wifi", "home"],
+        179.99,
+    ),
+    (
+        "fresh-food",
+        "Cedar Grove Chicken Breasts",
+        "Individually packed boneless chicken breasts ready to freeze.",
+        ["chicken", "protein", "family"],
+        24.99,
+    ),
+    (
+        "fresh-food",
+        "Columbia Valley Honeycrisp Apples",
+        "Crisp sweet-tart apples grown in the Pacific Northwest.",
+        ["fruit", "apples", "snack"],
+        12.99,
+    ),
+    (
+        "fresh-food",
+        "Tillamook Country Cheese Slices",
+        "Mild cheddar and Colby Jack slices for lunches and gatherings.",
+        ["cheese", "snack", "party"],
+        14.99,
+    ),
+    (
+        "fresh-food",
+        "Market Garden Classic Hummus",
+        "Creamy chickpea hummus made with tahini and lemon.",
+        ["hummus", "vegetarian", "snack"],
+        9.99,
+    ),
+    (
+        "fresh-food",
+        "North Meadow Greek Yogurt",
+        "Plain high-protein Greek yogurt in family-size tubs.",
+        ["yogurt", "protein", "breakfast"],
+        11.49,
+    ),
+    (
+        "fresh-food",
+        "Cascade Berry Medley",
+        "Fresh strawberries, blueberries, and raspberries for sharing.",
+        ["berries", "fruit", "fresh"],
+        13.99,
+    ),
+]
+
+_PACK_VARIANTS = [
+    ("Value Pack", 1.0),
+    ("Family Pack", 1.35),
+    ("Club Pack", 1.75),
+]
+
+
+def _expanded_products() -> list[dict]:
+    products = []
+    for family_index, (category, name, description, tags, base_price) in enumerate(
+        _CATALOG_FAMILIES
+    ):
+        for variant_index, (pack_name, multiplier) in enumerate(_PACK_VARIANTS):
+            member_price = round(base_price * multiplier, 2)
+            products.append(
+                {
+                    "sku": f"VH-{6001 + family_index * 3 + variant_index}",
+                    "name": f"{name}, {pack_name}",
+                    "category": category,
+                    "price": round(member_price * 1.14, 2),
+                    "member_price": member_price,
+                    "description": f"{description.rstrip('.')} {pack_name.lower()}.",
+                    "tags": [*tags, "value-wholesale", pack_name.lower().replace(" ", "-")],
+                }
+            )
+    return products
+
+
+PRODUCTS = [*CORE_PRODUCTS, *_expanded_products()]
+
 WAREHOUSES = {
     "portland": {"name": "Portland Harbor", "city": "Portland", "state": "OR"},
     "seattle": {"name": "Seattle South", "city": "Seattle", "state": "WA"},
     "sacramento": {"name": "Sacramento River", "city": "Sacramento", "state": "CA"},
 }
 
-INVENTORY = {
+_CORE_INVENTORY = {
     "portland": {
         "VH-1001": 42,
         "VH-1002": 31,
@@ -137,6 +382,18 @@ INVENTORY = {
         "VH-5002": 12,
     },
 }
+
+
+def _expanded_inventory() -> dict[str, dict[str, int]]:
+    inventory = {warehouse_id: dict(stock) for warehouse_id, stock in _CORE_INVENTORY.items()}
+    for warehouse_index, warehouse_id in enumerate(inventory):
+        for product_index, product in enumerate(PRODUCTS[len(CORE_PRODUCTS) :]):
+            quantity = (product_index * 17 + warehouse_index * 23 + 11) % 72
+            inventory[warehouse_id][product["sku"]] = 0 if quantity % 19 == 0 else quantity
+    return inventory
+
+
+INVENTORY = _expanded_inventory()
 
 MEMBERS = {
     "member-1001": {

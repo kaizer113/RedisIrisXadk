@@ -47,6 +47,7 @@ from valueharbor_agent.services import (
     safe_id,
     services,
 )
+from valueharbor_agent.tools import _catalog_cache, search_catalog
 
 
 def test_safe_id_and_service_configuration() -> None:
@@ -79,6 +80,25 @@ def test_fixture_catalog_search_and_inventory() -> None:
     assert products[0]["sku"] == "VH-2002"
     inventory = catalog.check_inventory("VH-2002", "portland")
     assert inventory["availability"] == "out_of_stock"
+
+
+def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
+    calls = []
+
+    def search(query, category, limit):
+        calls.append((query, category, limit))
+        return [{"sku": "VH-6001", "name": "Lightly Salted Tortilla Chips"}]
+
+    _catalog_cache.clear()
+    monkeypatch.setattr(services.catalog, "search_products", search)
+
+    first = search_catalog("lightly salted snacks", "pantry", 5)
+    second = search_catalog("lightly salted snacks", "pantry", 5)
+
+    assert first["identical_search_reused"] is False
+    assert second["identical_search_reused"] is True
+    assert calls == [("lightly salted snacks", "pantry", 5)]
+    _catalog_cache.clear()
 
 
 def test_catalog_product_embedding_text_includes_retrieval_signals() -> None:
@@ -1151,7 +1171,9 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
     )
     assert summary == "VH-1001 · quantity 42"
     assert details == []
-    assert _tool_label("search_catalog", {}) == "RedisVL Search Catalog"
+    assert _tool_label("search_catalog", {}) == (
+        'RedisVL Search Catalog · "" · all categories · limit 5'
+    )
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200
 
@@ -1159,9 +1181,9 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
 def test_generated_dataset_has_valid_relationships_and_totals() -> None:
     dataset = records()
     assert {name: len(items) for name, items in dataset.items()} == {
-        "products": 10,
+        "products": 100,
         "warehouses": 3,
-        "inventory": 30,
+        "inventory": 300,
         "members": 5,
         "orders": 6,
         "order_items": 12,

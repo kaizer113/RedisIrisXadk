@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import threading
+import time
 from typing import Any
 
 from google.adk.tools import ToolContext
 
 from valueharbor_agent.services import compare_memory_retrieval, memory_snippets, services
+
+_CATALOG_CACHE_TTL_SECONDS = 300
+_catalog_cache: dict[tuple[str, str, int], tuple[float, list[dict[str, Any]]]] = {}
+_catalog_cache_lock = threading.Lock()
 
 
 def _member_id(tool_context: ToolContext) -> str:
@@ -29,7 +36,26 @@ def search_catalog(
         category: Optional exact category: pantry, household, beverages, electronics, fresh-food.
         limit: Maximum products to return, from 1 to 10.
     """
-    return {"products": services.catalog.search_products(query, category, limit)}
+    normalized_limit = max(1, min(limit, 10))
+    cache_key = (query.strip().lower(), category.strip().lower(), normalized_limit)
+    now = time.monotonic()
+    with _catalog_cache_lock:
+        cached = _catalog_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return {
+                "products": copy.deepcopy(cached[1]),
+                "identical_search_reused": True,
+            }
+
+    products = services.catalog.search_products(query, category, normalized_limit)
+    with _catalog_cache_lock:
+        if len(_catalog_cache) >= 256:
+            _catalog_cache.clear()
+        _catalog_cache[cache_key] = (
+            now + _CATALOG_CACHE_TTL_SECONDS,
+            copy.deepcopy(products),
+        )
+    return {"products": products, "identical_search_reused": False}
 
 
 def check_warehouse_inventory(sku: str, warehouse_id: str) -> dict[str, Any]:
