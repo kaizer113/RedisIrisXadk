@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     langcache_host: str = ""
     langcache_cache_id: str = ""
     langcache_api_key: str = ""
-    langcache_similarity_threshold: float = Field(default=0.90, ge=0, le=1)
+    langcache_similarity_threshold: float = Field(default=0.80, ge=0, le=1)
 
     agent_memory_base_url: str = ""
     agent_memory_store_id: str = ""

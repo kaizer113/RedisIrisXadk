@@ -438,6 +438,50 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
     assert calls[0][1]["prompt"] == "scope:public-policy\nReturn policy?"
 
 
+async def test_langcache_clear_flushes_configured_cache(monkeypatch) -> None:
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return FakeResponse()
+
+    monkeypatch.setattr("valueharbor_agent.services.httpx.AsyncClient", FakeAsyncClient)
+    cache = LangCacheService(
+        Settings(
+            _env_file=None,
+            langcache_host="https://langcache.example",
+            langcache_cache_id="demo-cache",
+            langcache_api_key="test-key",
+        )
+    )
+
+    assert await cache.clear() is True
+    assert calls == [
+        (
+            "https://langcache.example/v1/caches/demo-cache/flush",
+            {"headers": {"Authorization": "Bearer test-key"}},
+        )
+    ]
+
+
+def test_langcache_demo_default_accepts_documented_paraphrases() -> None:
+    assert Settings(_env_file=None).langcache_similarity_threshold == 0.80
+
+
 async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
     async def list_tools(*, force_refresh=False):
         assert force_refresh is True

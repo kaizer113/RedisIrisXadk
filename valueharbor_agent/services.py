@@ -850,6 +850,18 @@ class LangCacheService:
             log.warning("LangCache store failed open: %s", exc)
             return False
 
+    async def clear(self) -> bool:
+        """Flush every entry from the configured demo cache."""
+        if not self.base_url:
+            return False
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{self.base_url}/flush",
+                headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
+            )
+            response.raise_for_status()
+        return True
+
 
 class MemoryService:
     """Official Redis Agent Memory SDK adapter, scoped by member and namespace."""

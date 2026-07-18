@@ -6,14 +6,15 @@ memory paths and Gemini model selector.
 
 ## Before the session
 
-1. Open [http://34.182.213.82](http://34.182.213.82).
-2. Confirm that all eight service indicators are blue:
+1. From the project directory, run `make reset-demo`. This flushes the managed LangCache so each
+   scripted pair starts with a miss followed by a semantic hit. It does not delete seeded or
+   learned long-term memories.
+2. Open [http://34.182.213.82](http://34.182.213.82), or reload it if it is already open.
+3. Confirm that all eight service indicators are blue:
    Redis database, Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory,
    ADK Memory Bank, and ADK Agent Sessions.
-3. Select **Alex Rivera** in the **Shop as** dropdown.
-4. Leave **Gemini 2.5 Flash** selected.
-5. Use a fresh browser reload so the visible conversation starts clean and the governed Context
-   Retriever tool catalog is refreshed.
+4. Select **Alex Rivera** in the **Shop as** dropdown.
+5. Leave **Gemini 2.5 Flash** selected.
 
 The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
 Portland Harbor location.
