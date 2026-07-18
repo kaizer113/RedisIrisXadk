@@ -47,7 +47,11 @@ from valueharbor_agent.services import (
     safe_id,
     services,
 )
-from valueharbor_agent.tools import _catalog_cache, search_catalog
+from valueharbor_agent.tools import (
+    _catalog_cache,
+    query_context_retriever,
+    search_catalog,
+)
 
 
 def test_safe_id_and_service_configuration() -> None:
@@ -73,9 +77,7 @@ def test_safe_id_and_service_configuration() -> None:
 
 
 def test_fixture_catalog_search_and_inventory() -> None:
-    catalog = CatalogService(
-        Settings(_env_file=None, valueharbor_vector_search_enabled=False)
-    )
+    catalog = CatalogService(Settings(_env_file=None, valueharbor_vector_search_enabled=False))
     products = catalog.search_products("fragrance free laundry", limit=3)
     assert products[0]["sku"] == "VH-2002"
     inventory = catalog.check_inventory("VH-2002", "portland")
@@ -170,9 +172,7 @@ def test_catalog_search_uses_redisvl_text_query() -> None:
                 }
             ]
 
-    catalog = CatalogService(
-        Settings(_env_file=None, valueharbor_vector_search_enabled=False)
-    )
+    catalog = CatalogService(Settings(_env_file=None, valueharbor_vector_search_enabled=False))
     catalog.redis = SimpleNamespace()
     catalog._product_index = FakeIndex()
 
@@ -474,10 +474,7 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
     assert await cache.warmup("Return policy?") is True
     assert await cache.store("Return policy?", "Thirty days.", "public-policy") is True
     assert all("attributes" not in body for _, body in calls)
-    assert all(
-        body["prompt"].startswith("scope:")
-        for _, body in calls
-    )
+    assert all(body["prompt"].startswith("scope:") for _, body in calls)
     assert calls[0][1]["prompt"] == "scope:public-policy\nReturn policy?"
 
 
@@ -648,6 +645,47 @@ async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> N
     monkeypatch.setattr(context, "call", call)
     profile = await context.get_member_profile("member-1001")
     assert profile["name"] == "Alex Rivera"
+
+
+async def test_identical_inventory_calls_share_one_result_per_turn(monkeypatch) -> None:
+    calls = 0
+
+    async def call(tool_name, arguments):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        return {"result": {"id": arguments["id"], "quantity": 31}}
+
+    monkeypatch.setattr(services.context, "call", call)
+    tool_context = SimpleNamespace(custom_metadata={})
+
+    first, second = await asyncio.gather(
+        query_context_retriever(
+            "get_inventory_by_id",
+            '{"id":"portland-vh-1001"}',
+            tool_context,
+        ),
+        query_context_retriever(
+            "get_inventory_by_id",
+            '{"id": "portland-vh-1001"}',
+            tool_context,
+        ),
+    )
+    third = await query_context_retriever(
+        "get_inventory_by_id",
+        '{"id":"portland-vh-1001"}',
+        tool_context,
+    )
+
+    assert first == second == third
+    assert calls == 1
+
+    await query_context_retriever(
+        "get_inventory_by_id",
+        '{"id":"portland-vh-1001"}',
+        SimpleNamespace(custom_metadata={}),
+    )
+    assert calls == 2
 
 
 async def test_member_profile_reuses_application_session_cache(monkeypatch) -> None:
@@ -829,8 +867,7 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
     tool_events = [
         event
         for event in events
-        if event["type"] == "trace"
-        and event["step"]["id"] == "greeting-tool-memory-call"
+        if event["type"] == "trace" and event["step"]["id"] == "greeting-tool-memory-call"
     ]
     assert [event["step"]["status"] for event in tool_events] == ["running", "done"]
     greeting_trace = next(
@@ -848,14 +885,14 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
 
 def test_member_selector_displays_names_and_requests_generated_greeting() -> None:
     html = (api_module.STATIC_DIR / "index.html").read_text()
-    assert '>Google ADK × Redis Iris</a>' in html
+    assert ">Google ADK × Redis Iris</a>" in html
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
     assert 'id="reset-demo"' in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert '<details class="panel side service-panel" open>' in html
-    assert '<summary><h2>Redis Iris services</h2></summary>' in html
+    assert "<summary><h2>Redis Iris services</h2></summary>" in html
     assert "embedding_cache:'Embedding Cache'" in html
     assert 'class="panel side trace-panel"' in html
     assert "What flavor notes does Rain City Medium Roast Coffee have?" in html
@@ -888,7 +925,7 @@ def test_demo_reset_flushes_langcache(monkeypatch) -> None:
     assert cleared == [True]
 
 
-async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> None:
+async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch) -> None:
     captured_state = {}
     redis_recall_args = {}
 
@@ -910,15 +947,16 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
     class FakeRunner:
         async def run_async(self, **kwargs):
             captured_state.update(kwargs["state_delta"])
+            await asyncio.sleep(0.05)
             yield FakeEvent()
 
     class SlowSessionService:
         async def get_session(self, **_kwargs):
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)
             return None
 
     async def slow_vertex_recall(_member_id, _query):
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.01)
         return [{"text": "ADK-only fact"}]
 
     async def profile(_member_id, _session_id):
@@ -970,7 +1008,7 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
         and event["step"]["id"] in {"adk-short-term", "vertex-long-term"}
         and event["step"]["status"] == "done"
     ]
-    assert adk_done_indexes and all(answer_index < index for index in adk_done_indexes)
+    assert adk_done_indexes and all(index < answer_index for index in adk_done_indexes)
     adk_running_steps = [
         event["step"]
         for event in events
@@ -989,8 +1027,7 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
     }
     assert "vertex_long_term_context" not in captured_state
     assert not any(
-        event["type"] == "trace" and event["step"]["id"] == "member-profile"
-        for event in events
+        event["type"] == "trace" and event["step"]["id"] == "member-profile" for event in events
     )
     first_trace_ids = []
     for event in events:
@@ -1029,8 +1066,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         searched.update(prompt=prompt, scope=scope)
         return {
             "prompt": (
-                "scope:product-education:catalog-v1\n"
-                "What does Rain City Medium Roast taste like?"
+                "scope:product-education:catalog-v1\nWhat does Rain City Medium Roast taste like?"
             ),
             "response": "Cocoa and caramel notes.",
         }
@@ -1088,11 +1124,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "answer": "Cocoa and caramel notes.",
         "cache_hit": True,
     }
-    traces = {
-        event["step"]["id"]: event["step"]
-        for event in events
-        if event["type"] == "trace"
-    }
+    traces = {event["step"]["id"]: event["step"] for event in events if event["type"] == "trace"}
     assert traces["langcache"]["summary"] == "Hit · product-education:catalog-v1"
     assert traces["langcache"]["details"] == [
         "Current query: What flavor notes does the medium roast have?",
@@ -1161,11 +1193,7 @@ async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
     ]
 
     answer = next(event for event in events if event["type"] == "answer")
-    traces = {
-        event["step"]["id"]: event["step"]
-        for event in events
-        if event["type"] == "trace"
-    }
+    traces = {event["step"]["id"]: event["step"] for event in events if event["type"] == "trace"}
     assert answer["blocked"] is True
     assert "Value Wholesale shopping" in answer["answer"]
     assert traces["semantic-router"]["summary"].startswith("Blocked")
@@ -1215,9 +1243,7 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
     order_ids = {item["order_id"] for item in dataset["orders"]}
     memory_by_id = {item["id"]: item for item in dataset["memory_seeds"]}
     large_member_memories = [
-        memory
-        for memory in dataset["memory_seeds"]
-        if memory["owner_id"] == "member-1005"
+        memory for memory in dataset["memory_seeds"] if memory["owner_id"] == "member-1005"
     ]
 
     assert len(memory_by_id) == len(dataset["memory_seeds"])
