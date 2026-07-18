@@ -4,7 +4,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from valueharbor_agent.services import CatalogService, services
+from valueharbor_agent.services import (
+    LOCAL_EMBEDDING_DIMS,
+    PRODUCT_INDEX_NAME,
+    CatalogService,
+    services,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data" / "generated"
@@ -33,10 +38,10 @@ def ensure_indexes(catalog: CatalogService) -> None:
         item.decode() if isinstance(item, bytes) else str(item)
         for item in client.execute_command("FT._LIST")
     }
-    if "idx:valueharbor:products" not in indexes:
+    if PRODUCT_INDEX_NAME not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valueharbor:products",
+            PRODUCT_INDEX_NAME,
             "ON",
             "HASH",
             "PREFIX",
@@ -68,7 +73,7 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "TYPE",
             "FLOAT32",
             "DIM",
-            768,
+            LOCAL_EMBEDDING_DIMS,
             "DISTANCE_METRIC",
             "COSINE",
             "M",
@@ -183,7 +188,7 @@ def main() -> None:
 
     pipeline = client.pipeline(transaction=False)
     for product in products:
-        embedding = catalog._embed(f"{product['name']}. {product['description']}")  # noqa: SLF001
+        embedding = catalog._embed(catalog.product_embedding_text(product))  # noqa: SLF001
         mapping = redis_mapping(product)
         mapping["tags"] = ",".join(product["tags"])
         if embedding:

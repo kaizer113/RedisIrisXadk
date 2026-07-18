@@ -4,14 +4,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-if [[ ! -f .env ]]; then
-  echo ".env is required. Copy .env.example and configure it first."
+SOURCE_ENV_FILE="${VALUEHARBOR_VM_ENV_FILE:-.env}"
+if [[ ! -f "$SOURCE_ENV_FILE" ]]; then
+  echo "$SOURCE_ENV_FILE is required. Copy .env.example and configure it first."
   exit 1
 fi
 
 set -a
 # shellcheck disable=SC1091
-source .env
+source "$SOURCE_ENV_FILE"
 set +a
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
@@ -40,7 +41,9 @@ if ! gcloud artifacts repositories describe "$REPOSITORY" --location "$REGION" >
     --labels "$LABELS"
 fi
 
-gcloud builds submit --tag "$IMAGE" .
+if [[ "${VALUEHARBOR_SKIP_BUILD:-false}" != "true" ]]; then
+  gcloud builds submit --tag "$IMAGE" .
+fi
 
 if ! gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; then
   gcloud compute firewall-rules create "$FIREWALL_RULE" \
@@ -50,7 +53,8 @@ if ! gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; th
     --rules tcp:80 \
     --source-ranges 0.0.0.0/0 \
     --target-tags "$NETWORK_TAG" \
-    --description "Public HTTP access for the Value Wholesale workshop demo"
+    --description "Public HTTP access for the Value Wholesale workshop demo" \
+    || gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null
 fi
 
 if gcloud compute instances describe "$VM_NAME" --zone "$ZONE" >/dev/null 2>&1; then
@@ -106,10 +110,21 @@ while IFS= read -r line; do
   key="${line%%=*}"
   case "$key" in
     GOOGLE_*|VALUEHARBOR_*|REDIS_URL|CTX_MCP_URL|MCP_AGENT_KEY|LANGCACHE_*|AGENT_MEMORY_*|PORT|LOG_LEVEL)
+      if [[ "$key" == "REDIS_URL" && -n "${VALUEHARBOR_VM_REDIS_HOST:-}" ]]; then
+        redis_value="${line#REDIS_URL=}"
+        redis_prefix="${redis_value%@*}"
+        redis_host_and_port="${redis_value##*@}"
+        redis_port="${redis_host_and_port##*:}"
+        if [[ "$redis_prefix" == "$redis_value" || "$redis_port" == "$redis_host_and_port" ]]; then
+          echo "REDIS_URL must include credentials, a hostname, and a port."
+          exit 1
+        fi
+        line="REDIS_URL=${redis_prefix}@${VALUEHARBOR_VM_REDIS_HOST}:${redis_port}"
+      fi
       printf '%s\n' "$line" >> "$RUNTIME_ENV_FILE"
       ;;
   esac
-done < .env
+done < "$SOURCE_ENV_FILE"
 
 gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/valueharbor.env" --zone "$ZONE" --quiet
 gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "

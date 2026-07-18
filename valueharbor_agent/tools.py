@@ -187,6 +187,4 @@ ALL_TOOLS = [
 
 GREETING_TOOLS = [
     recall_redis_shopping_memory,
-    list_context_retriever_tools,
-    query_context_retriever,
 ]

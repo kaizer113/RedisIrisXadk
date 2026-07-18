@@ -19,8 +19,8 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 | Models | Gemini 2.5 Flash / Gemini 2.5 Pro | Flash is the fast default; Pro is the slower, heavier reasoning option. The selected model chooses one of two prebuilt runners. |
 | Commerce data | Redis database + Query Engine | Stores the checked-in catalog, policies, inventory, member, order, and cart data; supports lexical and optional vector product retrieval. |
 | Governed context | Redis Context Retriever | Exposes live member, inventory, and order entities through a governed tool surface. FastAPI hydrates the signed-in profile on the first generated turn of a session. |
-| Semantic routing | RedisVL Semantic Router | Classifies stable public-policy prompts using a Redis vector index. Member-specific, live-data, and sensitive requests are deterministically bypassed first. |
-| Semantic cache | Redis LangCache | Serves semantically similar public policy answers without invoking ADK or Gemini. Personalized requests are not cache eligible. |
+| Semantic routing | RedisVL Semantic Router | Classifies reusable policy, static product-education, shopping-guide, general ecommerce, and out-of-domain prompts using a Redis vector index and the shared local `redis/langcache-embed-v3-small` model. Member-specific, live-data, and sensitive requests are deterministically bypassed first. |
+| Semantic cache | Redis LangCache | Serves semantically similar policy, static product-education, and reusable shopping-guide answers without invoking ADK or Gemini. Personalized and live-data requests are not cache eligible. |
 | Redis memory | Redis Agent Memory | Receives explicit user and assistant session events and stores/retrieves durable member preference memories. |
 | Source systems | Commerce, warehouse, and master-data stores | Persistent systems of record for orders, inventory and fulfillment, products, pricing, and members. |
 | Data integration | Redis Data Integration (RDI) | Captures database changes from the source systems and continuously synchronizes the application-ready data model into Redis. |
@@ -33,12 +33,14 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 
 1. FastAPI normalizes the member and session IDs. Deterministic guardrails immediately bypass
    caching for member-specific, live-data, or sensitive requests.
-2. RedisVL classifies all remaining prompts against a `public_stable_policy` semantic route.
-   The routing call starts concurrently with the authoritative member profile, required Redis
-   Agent Memory short- and long-term reads, and two telemetry-only Google reads: Agent Platform
-   session history and ADK Memory Bank search.
+2. RedisVL classifies all remaining prompts into policy, static product-education, reusable
+   shopping-guide, general ecommerce, or blocked semantic routes. For a short conversational
+   follow-up, FastAPI first loads recent Redis Agent Memory session events and supplies that
+   context to RedisVL; the resulting context-dependent request is never cache eligible.
 3. When RedisVL matches the safe route within its configured cosine-distance threshold,
-   FastAPI searches LangCache. No route or any routing error fails closed and bypasses the cache.
+   FastAPI searches the corresponding versioned LangCache scope. No route or any routing error
+   fails closed and bypasses the cache. Required Redis reads and telemetry-only Google reads then
+   run concurrently.
 4. Each completed read is emitted to the UI as a trace step with client-observed latency and
    retrieved snippets. Redis receives the user event independently of the ADK session backend.
    ADK reads are explicitly marked telemetry-only.
@@ -52,8 +54,8 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    completion, result summary, and elapsed time are streamed to the UI.
 8. ADK stores the conversational turn through its shared session service. The agent's
    post-turn callback asks ADK to generate Memory Bank memories from that session.
-9. FastAPI records the assistant event in Redis Agent Memory and stores an eligible public
-   policy answer in LangCache.
+9. FastAPI records the assistant event in Redis Agent Memory and stores an eligible reusable
+   answer in a versioned LangCache scope. Cacheable answers exclude personalized and live data.
 
 Only reads are benchmarked in the demo. Memory and cache writes are intentionally outside the
 reported comparison because this is a short workshop and cross-system write consistency is not
@@ -114,9 +116,11 @@ own APIs and lifecycle rather than application code directly reading their recor
 commerce keyspace.
 
 Product discovery uses Redis Query Engine. Lexical retrieval always works; optional semantic
-retrieval uses `text-embedding-005` embeddings with a 768-dimensional HNSW cosine index.
-Context Retriever is the required path for live member, warehouse inventory, and order data in
-the agent instructions. Redis fixtures remain available as a local-development fallback.
+retrieval uses the same local `redis/langcache-embed-v3-small` model as routing, with a versioned
+384-dimensional HNSW cosine index. The model is loaded and exercised during page warm-up, then
+shared by router and catalog calls for the life of the process. Context Retriever is the required
+path for live member, warehouse inventory, and order data in the agent instructions. Redis
+fixtures remain available as a local-development fallback.
 
 ## Failure behavior
 

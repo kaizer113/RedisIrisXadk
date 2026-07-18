@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
+    HF_HOME=/opt/huggingface \
     PORT=8080
 
 WORKDIR /app
@@ -9,6 +10,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv
 COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
+RUN uv run --no-sync python -c "from huggingface_hub import snapshot_download; snapshot_download('redis/langcache-embed-v3-small')"
 
 COPY valueharbor_agent ./valueharbor_agent
 COPY scripts ./scripts

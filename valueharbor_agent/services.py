@@ -7,28 +7,44 @@ import logging
 import re
 import threading
 import time
-from array import array
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 import redis
+from redisvl.extensions.cache.embeddings import EmbeddingsCache
 from redisvl.index import SearchIndex
 from redisvl.query import TextQuery, VectorQuery
 from redisvl.query.filter import Tag
+from redisvl.utils.vectorize import HFTextVectorizer
 
 from valueharbor_agent.config import Settings, get_settings
 from valueharbor_agent.demo_data import INVENTORY, MEMBERS, ORDERS, POLICIES, PRODUCTS, WAREHOUSES
 
 log = logging.getLogger(__name__)
 
+PRODUCT_INDEX_NAME = "idx:valueharbor:products-v2"
+LOCAL_EMBEDDING_DIMS = 384
+EMBEDDING_CACHE_NAME = "valueharbor-embeddings-v1"
+EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
+
 PUBLIC_POLICY_ROUTE = "reusable_ecommerce"
+PRODUCT_EDUCATION_ROUTE = "product_education"
+SHOPPING_GUIDE_ROUTE = "shopping_guide"
+LANGCACHE_SCOPES = {
+    PUBLIC_POLICY_ROUTE: "policy:v1",
+    PRODUCT_EDUCATION_ROUTE: "product-education:catalog-v1",
+    SHOPPING_GUIDE_ROUTE: "shopping-guide:v1",
+}
 PUBLIC_POLICY_REFERENCES = [
     "What is the return policy?",
     "What is the electronics return policy?",
     "How long is the return window?",
     "Can an electronics purchase be returned?",
     "Can I return a television after buying it?",
+    "Can I return an item without a receipt?",
+    "Does the return policy require a receipt?",
+    "What if I no longer have the receipt?",
     "Explain the electronics returns rules.",
     "What does the product warranty cover?",
     "How does warranty coverage work?",
@@ -41,12 +57,33 @@ PUBLIC_POLICY_REFERENCES = [
     "What payment methods can members use?",
     "How does curbside pickup work?",
     "Do products include a manufacturer warranty?",
+]
+PRODUCT_EDUCATION_REFERENCES = [
+    "Tell me about Rain City Medium Roast Coffee.",
+    "What flavor notes does your whole-bean medium roast coffee have?",
+    "What are the features of North Trail Organic Oats?",
+    "Explain what free-and-clear laundry detergent means.",
+    "Tell me about the Harbor Select extra virgin olive oil.",
+    "What features does the SummitBook laptop have?",
+    "Compare the static features of two products without checking price or stock.",
+]
+SHOPPING_GUIDE_REFERENCES = [
+    "How should I store bulk rolled oats after opening?",
+    "What is the best way to keep a large bag of oats fresh?",
     "How do I care for and store bulk pantry products?",
+    "How should individually portioned salmon be frozen?",
+    "How much pasta should I prepare for twenty people?",
+    "Give me a reusable checklist for planning a pantry restock.",
+    "How should I organize bulk household supplies?",
 ]
 ECOMMERCE_ROUTE = "ecommerce_request"
 ECOMMERCE_REFERENCES = [
     "Find family-size pantry staples under thirty dollars.",
     "Recommend products for my household.",
+    "Recommend a good pasta from your catalog.",
+    "What pasta products do you sell?",
+    "What food and grocery products do you carry?",
+    "Help me choose a product that you sell.",
     "Compare these products and prices.",
     "Is this item available at my warehouse?",
     "Check current inventory in Portland.",
@@ -80,11 +117,105 @@ def safe_id(value: str, fallback: str) -> str:
     return (cleaned or fallback)[:64]
 
 
-class CatalogService:
-    """Redis-backed product and policy retrieval with fixture fallback."""
+class LocalEmbeddingService:
+    """One lazily loaded local embedding model shared by routing and catalog search."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
+        self._vectorizer: HFTextVectorizer | None = None
+        self._lock = threading.Lock()
+        self._inference_lock = threading.Lock()
+        self.embedding_cache = (
+            EmbeddingsCache(
+                name=EMBEDDING_CACHE_NAME,
+                ttl=settings.valueharbor_embedding_cache_ttl_seconds,
+                redis_url=settings.redis_url,
+                connection_kwargs={
+                    "socket_connect_timeout": 4,
+                    "socket_timeout": 8,
+                    "health_check_interval": 30,
+                },
+            )
+            if settings.redis_url
+            else None
+        )
+
+    @property
+    def loaded(self) -> bool:
+        return self._vectorizer is not None
+
+    def get_vectorizer(self) -> HFTextVectorizer:
+        if self._vectorizer is None:
+            with self._lock:
+                if self._vectorizer is None:
+                    vectorizer = HFTextVectorizer(
+                        model=self.settings.valueharbor_embedding_model,
+                        dtype="float32",
+                        cache=self.embedding_cache,
+                        device=self.settings.valueharbor_embedding_device,
+                        model_kwargs={"dtype": "float32"},
+                    )
+                    if vectorizer.dims != LOCAL_EMBEDDING_DIMS:
+                        raise ValueError(
+                            f"Embedding model returned {vectorizer.dims} dimensions; "
+                            f"expected {LOCAL_EMBEDDING_DIMS}"
+                        )
+                    self._vectorizer = vectorizer
+        return self._vectorizer
+
+    def embed(self, text: str, *, as_buffer: bool = False) -> list[float] | bytes:
+        vectorizer = self.get_vectorizer()
+        with self._inference_lock:
+            return vectorizer.embed(text, as_buffer=as_buffer)
+
+    def embed_many(
+        self, texts: list[str], *, as_buffer: bool = False
+    ) -> list[list[float]] | list[bytes]:
+        vectorizer = self.get_vectorizer()
+        with self._inference_lock:
+            return vectorizer.embed_many(texts, as_buffer=as_buffer)
+
+    def cache_probe(self) -> tuple[bool, str, dict[str, Any]]:
+        if self.embedding_cache is None:
+            return False, "RedisVL EmbeddingsCache is not configured", {}
+        vector = self.embed(EMBEDDING_WARMUP_TEXT)
+        cached = self.embedding_cache.exists(
+            content=EMBEDDING_WARMUP_TEXT,
+            model_name=self.settings.valueharbor_embedding_model,
+        )
+        return (
+            cached,
+            "RedisVL EmbeddingsCache ready" if cached else "Embedding was not cached",
+            {
+                "model": self.settings.valueharbor_embedding_model,
+                "dimensions": len(vector),
+                "ttl_seconds": self.settings.valueharbor_embedding_cache_ttl_seconds,
+                "cache_name": EMBEDDING_CACHE_NAME,
+            },
+        )
+
+    def warmup(self) -> dict[str, Any]:
+        started = time.perf_counter()
+        vector = self.embed(EMBEDDING_WARMUP_TEXT)
+        return {
+            "model": self.settings.valueharbor_embedding_model,
+            "dimensions": len(vector),
+            "device": self.settings.valueharbor_embedding_device,
+            "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+            "cache": EMBEDDING_CACHE_NAME if self.embedding_cache else None,
+        }
+
+
+class CatalogService:
+    """Redis-backed product and policy retrieval with fixture fallback."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        embeddings: LocalEmbeddingService | None = None,
+    ) -> None:
+        self.settings = settings
+        self.embeddings = embeddings or LocalEmbeddingService(settings)
         self.redis: redis.Redis | None = None
         self._product_index: SearchIndex | None = None
         self._product_index_lock = threading.Lock()
@@ -101,6 +232,16 @@ class CatalogService:
         """Perform a real round trip to the configured Redis database."""
         return bool(self.redis is not None and self.redis.ping())
 
+    @staticmethod
+    def product_embedding_text(product: dict[str, Any]) -> str:
+        """Build a compact product representation for local semantic retrieval."""
+        tags = ", ".join(str(tag) for tag in product.get("tags", []))
+        description = str(product["description"]).rstrip(". ")
+        return (
+            f"{product['name']}. {description}. "
+            f"Category: {product['category']}. Keywords: {tags}."
+        )
+
     def _get_product_index(self) -> SearchIndex:
         """Lazily bind RedisVL to the checked-in product index."""
         if self.redis is None:
@@ -109,29 +250,20 @@ class CatalogService:
             with self._product_index_lock:
                 if self._product_index is None:
                     self._product_index = SearchIndex.from_existing(
-                        "idx:valueharbor:products",
+                        PRODUCT_INDEX_NAME,
                         redis_client=self.redis,
                     )
         return self._product_index
 
     def _embed(self, text: str) -> bytes | None:
-        if (
-            not self.settings.valueharbor_vector_search_enabled
-            or not self.settings.google_cloud_project
-        ):
+        if not self.settings.valueharbor_vector_search_enabled:
             return None
         try:
-            from google import genai
-
-            client = genai.Client(
-                vertexai=True,
-                project=self.settings.google_cloud_project,
-                location=self.settings.google_cloud_location,
-            )
-            response = client.models.embed_content(model="text-embedding-005", contents=text)
-            return array("f", response.embeddings[0].values).tobytes()
+            embedding = self.embeddings.embed(text, as_buffer=True)
+            assert isinstance(embedding, bytes)
+            return embedding
         except Exception as exc:
-            log.warning("Vertex embedding unavailable; using lexical retrieval: %s", exc)
+            log.warning("Local embedding unavailable; using lexical retrieval: %s", exc)
             return None
 
     @staticmethod
@@ -426,14 +558,22 @@ class SemanticRouterService:
             ),
         ),
     )
+    _CONTEXTUAL_FOLLOWUP = re.compile(
+        r"^\s*(?:and\b|also\b|but\b|even\b|what\s+about\b|how\s+about\b|"
+        r"what\s+if\b|without\b|with\b|does\s+(?:that|it)\b|"
+        r"is\s+(?:that|it)\b|can\s+(?:that|it)\b)",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
         settings: Settings,
         redis_client: redis.Redis | None = None,
+        embeddings: LocalEmbeddingService | None = None,
     ) -> None:
         self.settings = settings
         self.redis = redis_client
+        self.embeddings = embeddings or LocalEmbeddingService(settings)
         self.configured = bool(redis_client is not None and settings.semantic_router_configured)
         self._router: Any | None = None
         self._lock = threading.Lock()
@@ -445,6 +585,13 @@ class SemanticRouterService:
                 return reason
         return None
 
+    @classmethod
+    def is_contextual_followup(cls, message: str) -> bool:
+        """Identify short utterances that need recent session context to be routed."""
+        return bool(
+            len(message.split()) <= 12 and cls._CONTEXTUAL_FOLLOWUP.search(message)
+        )
+
     def _get_router(self) -> Any:
         if self._router is not None:
             return self._router
@@ -452,31 +599,9 @@ class SemanticRouterService:
             if self._router is not None:
                 return self._router
 
-            from google import genai
             from redisvl.extensions.router import Route, SemanticRouter
-            from redisvl.utils.vectorize import CustomVectorizer
 
-            embedding_client = genai.Client(
-                vertexai=True,
-                project=self.settings.google_cloud_project,
-                location=self.settings.google_cloud_location,
-            )
-
-            def embed(content: str) -> list[float]:
-                response = embedding_client.models.embed_content(
-                    model=self.settings.valueharbor_semantic_router_embedding_model,
-                    contents=content,
-                )
-                return list(response.embeddings[0].values)
-
-            def embed_many(contents: list[str]) -> list[list[float]]:
-                response = embedding_client.models.embed_content(
-                    model=self.settings.valueharbor_semantic_router_embedding_model,
-                    contents=contents,
-                )
-                return [list(item.values) for item in response.embeddings]
-
-            vectorizer = CustomVectorizer(embed=embed, embed_many=embed_many)
+            vectorizer = self.embeddings.get_vectorizer()
             self._router = SemanticRouter(
                 name=self.settings.valueharbor_semantic_router_index,
                 routes=[
@@ -493,6 +618,18 @@ class SemanticRouterService:
                         metadata={"action": "allow", "cache_read": False, "cache_write": False},
                     ),
                     Route(
+                        name=PRODUCT_EDUCATION_ROUTE,
+                        references=PRODUCT_EDUCATION_REFERENCES,
+                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        metadata={"action": "allow", "cache_read": True, "cache_write": True},
+                    ),
+                    Route(
+                        name=SHOPPING_GUIDE_ROUTE,
+                        references=SHOPPING_GUIDE_REFERENCES,
+                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        metadata={"action": "allow", "cache_read": True, "cache_write": True},
+                    ),
+                    Route(
                         name=OUT_OF_DOMAIN_ROUTE,
                         references=OUT_OF_DOMAIN_REFERENCES,
                         distance_threshold=self.settings.valueharbor_semantic_router_threshold,
@@ -501,11 +638,11 @@ class SemanticRouterService:
                 ],
                 vectorizer=vectorizer,
                 redis_client=self.redis,
-                overwrite=True,
+                overwrite=False,
             )
         return self._router
 
-    def route(self, message: str) -> dict[str, Any]:
+    def route(self, message: str, recent_context: str = "") -> dict[str, Any]:
         threshold = self.settings.valueharbor_semantic_router_threshold
         guardrail = self.guardrail_reason(message)
         if guardrail:
@@ -521,6 +658,7 @@ class SemanticRouterService:
                 "threshold": threshold,
                 "reason": guardrail,
                 "decision_source": "guardrail",
+                "redisvl_duration_ms": None,
             }
         if not self.configured:
             return {
@@ -535,18 +673,51 @@ class SemanticRouterService:
                 "threshold": threshold,
                 "reason": "semantic router is not configured",
                 "decision_source": "fail-safe",
+                "redisvl_duration_ms": None,
             }
 
+        route_started = time.perf_counter()
+        redisvl_duration_ms: float | None = None
+        embedding_duration_ms: float | None = None
         try:
-            match = self._get_router()(message)
+            router = self._get_router()
+            contextual_followup = bool(
+                recent_context and self.is_contextual_followup(message)
+            )
+            routing_statement = (
+                f"Previous shopping conversation:\n{recent_context[-1_500:]}\n"
+                f"Current follow-up: {message}"
+                if contextual_followup
+                else message
+            )
+            embedding_started = time.perf_counter()
+            vector = self.embeddings.embed(routing_statement)
+            embedding_duration_ms = round(
+                (time.perf_counter() - embedding_started) * 1000, 2
+            )
+            redisvl_started = time.perf_counter()
+            try:
+                match = router(vector=vector)
+            finally:
+                redisvl_duration_ms = round(
+                    (time.perf_counter() - redisvl_started) * 1000, 2
+                )
             route_name = getattr(match, "name", None)
             distance = getattr(match, "distance", None)
-            cacheable = route_name == PUBLIC_POLICY_ROUTE
+            cache_scope = LANGCACHE_SCOPES.get(route_name)
+            reusable = cache_scope is not None
+            cacheable = reusable and not contextual_followup
             ecommerce = route_name == ECOMMERCE_ROUTE
-            blocked = route_name == OUT_OF_DOMAIN_ROUTE or not (cacheable or ecommerce)
+            blocked = route_name == OUT_OF_DOMAIN_ROUTE or not (reusable or ecommerce)
             reason = (
-                "reusable ecommerce answer"
-                if cacheable
+                "contextual ecommerce follow-up"
+                if contextual_followup and (reusable or ecommerce)
+                else "reusable policy answer"
+                if route_name == PUBLIC_POLICY_ROUTE
+                else "reusable product education"
+                if route_name == PRODUCT_EDUCATION_ROUTE
+                else "reusable shopping guide"
+                if route_name == SHOPPING_GUIDE_ROUTE
                 else "ecommerce request"
                 if ecommerce
                 else "outside Value Wholesale ecommerce scope"
@@ -563,6 +734,13 @@ class SemanticRouterService:
                 "threshold": threshold,
                 "reason": reason,
                 "decision_source": "redisvl",
+                "redisvl_duration_ms": redisvl_duration_ms,
+                "embedding_duration_ms": embedding_duration_ms,
+                "route_duration_ms": round(
+                    (time.perf_counter() - route_started) * 1000, 2
+                ),
+                "contextual_followup": contextual_followup,
+                "cache_scope": cache_scope if cacheable else None,
             }
         except Exception as exc:
             log.warning("RedisVL semantic routing failed open without caching: %s", exc)
@@ -578,6 +756,11 @@ class SemanticRouterService:
                 "threshold": threshold,
                 "reason": "semantic router unavailable",
                 "decision_source": "fail-safe",
+                "redisvl_duration_ms": redisvl_duration_ms,
+                "embedding_duration_ms": embedding_duration_ms,
+                "route_duration_ms": round(
+                    (time.perf_counter() - route_started) * 1000, 2
+                ),
             }
 
 
@@ -590,11 +773,24 @@ class LangCacheService:
             else ""
         )
 
-    async def search(self, prompt: str, _scope: str) -> dict[str, Any] | None:
+    @staticmethod
+    def scoped_prompt(prompt: str, scope: str) -> str:
+        """Separate semantic workloads without relying on preview attribute schemas."""
+        return f"scope:{scope}\n{prompt.strip()}"
+
+    @staticmethod
+    def display_prompt(prompt: str) -> str:
+        """Remove the internal cache-scope prefix before showing a stored prompt."""
+        first_line, separator, remainder = prompt.partition("\n")
+        if separator and first_line.startswith("scope:"):
+            return remainder.strip()
+        return prompt.strip()
+
+    async def search(self, prompt: str, scope: str) -> dict[str, Any] | None:
         if not self.base_url:
             return None
         body = {
-            "prompt": prompt,
+            "prompt": self.scoped_prompt(prompt, scope),
             "similarityThreshold": self.settings.langcache_similarity_threshold,
             "searchStrategies": ["semantic"],
         }
@@ -612,12 +808,12 @@ class LangCacheService:
             log.warning("LangCache search failed open: %s", exc)
             return None
 
-    async def warmup(self, prompt: str) -> bool:
+    async def warmup(self, prompt: str, scope: str = "policy:v1") -> bool:
         """Warm LangCache embeddings with a read-only semantic lookup."""
         if not self.base_url:
             return False
         body = {
-            "prompt": prompt,
+            "prompt": self.scoped_prompt(prompt, scope),
             "similarityThreshold": self.settings.langcache_similarity_threshold,
             "searchStrategies": ["semantic"],
         }
@@ -630,11 +826,11 @@ class LangCacheService:
             response.raise_for_status()
         return True
 
-    async def store(self, prompt: str, answer: str, _scope: str) -> bool:
+    async def store(self, prompt: str, answer: str, scope: str) -> bool:
         if not self.base_url:
             return False
         body = {
-            "prompt": prompt,
+            "prompt": self.scoped_prompt(prompt, scope),
             "response": answer,
         }
         try:
@@ -991,9 +1187,14 @@ async def compare_memory_retrieval(
 class Services:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.catalog = CatalogService(self.settings)
+        self.embeddings = LocalEmbeddingService(self.settings)
+        self.catalog = CatalogService(self.settings, self.embeddings)
         self.cart = CartService(self.settings)
-        self.semantic_router = SemanticRouterService(self.settings, self.catalog.redis)
+        self.semantic_router = SemanticRouterService(
+            self.settings,
+            self.catalog.redis,
+            self.embeddings,
+        )
         self.langcache = LangCacheService(self.settings)
         self.memory = MemoryService(self.settings)
         self.vertex_memory = VertexMemoryService(self.settings)

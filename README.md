@@ -21,8 +21,8 @@ session and long-term memory paths, deployment topology, and a rendered system d
 | Agent runtime | Google ADK + Gemini on Vertex AI | Tool selection and response generation |
 | Catalog and policies | Redis database + Query Engine/vector search | Low-latency grounded retrieval |
 | Live commerce context | Redis Context Retriever | Governed access to inventory/order entities |
-| Cache routing | RedisVL Semantic Router | Safe semantic classification of reusable public-policy prompts |
-| Response cache | Redis LangCache | Cache-aside for non-personalized policy answers |
+| Cache routing | RedisVL Semantic Router | Safe semantic classification of reusable policy, product-education, and shopping-guide prompts |
+| Response cache | Redis LangCache | Scoped cache-aside for policies, static product education, and reusable shopping guides |
 | Memory A | Redis Agent Memory | Session events and scoped semantic/episodic preferences |
 | Memory B | Vertex AI ADK Memory Bank | ADK-managed conversation memory |
 | Hosting | Compute Engine / Cloud Run | Public web app and API in `us-east4` |
@@ -119,9 +119,13 @@ gcloud compute instances stop valueharbor-demo --zone us-east4-c
 
 The deterministic JSONL dataset lives in [`data/generated`](data/generated) and includes products, warehouses, inventory, members, normalized orders, policies, identical memory seeds, and labeled retrieval-evaluation cases. See [`data/README.md`](data/README.md) for its schema and Redis key model.
 
-The product index uses HNSW, 768-dimensional `FLOAT32` vectors, and cosine distance to match Vertex `text-embedding-005`. Category filtering is applied before KNN search.
-
-Vector embedding is off by default so the dataset can be recreated without GCP credentials. After application-default authentication is available, set `VALUEHARBOR_VECTOR_SEARCH_ENABLED=true` and rerun `make seed` to populate product embeddings; lexical Redis search remains available either way.
+The semantic router and product index share the local
+`redis/langcache-embed-v3-small` model. Page warm-up loads the 22.6M-parameter model once per
+application process before the greeting. The versioned product index uses HNSW,
+384-dimensional `FLOAT32` vectors, and cosine distance; category filtering is applied before KNN
+search. RedisVL's embedding cache reuses exact text/model vectors for the semantic router and
+catalog search with a 24-hour TTL. `make seed` generates product embeddings locally without GCP credentials, while lexical
+Redis search remains the fail-open fallback.
 
 ## GCP deployment
 
@@ -160,7 +164,8 @@ Some GCP resource types, including service accounts and API enablement records, 
 1. Run product discovery and warehouse inventory using fixtures.
 2. Seed Redis and repeat the same grounded queries.
 3. Connect Context Retriever and inspect its live tool schemas.
-4. Ask the same public policy question twice to observe LangCache.
+4. Ask semantic paraphrases in the policy, product-education, and shopping-guide examples to
+   observe isolated LangCache scopes.
 5. Save a shopping preference and watch Redis session memory, both long-term memory systems,
    governed tool calls, and total generation latency appear in the live trace.
 

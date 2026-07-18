@@ -16,7 +16,10 @@ class Settings(BaseSettings):
     google_genai_use_vertexai: bool = True
     google_memory_location: str = "us-east4"
     google_agent_engine_id: str = ""
-    valueharbor_vector_search_enabled: bool = False
+    valueharbor_vector_search_enabled: bool = True
+    valueharbor_embedding_model: str = "redis/langcache-embed-v3-small"
+    valueharbor_embedding_device: str = "cpu"
+    valueharbor_embedding_cache_ttl_seconds: int = Field(default=86_400, ge=60)
 
     valueharbor_demo_member_id: str = "member-1001"
     valueharbor_demo_session_id: str = "shopping-demo-1"
@@ -25,13 +28,12 @@ class Settings(BaseSettings):
     mcp_agent_key: str = ""
 
     valueharbor_semantic_router_threshold: float = Field(default=0.48, gt=0, le=2)
-    valueharbor_semantic_router_index: str = "valueharbor-cache-router-v1"
-    valueharbor_semantic_router_embedding_model: str = "text-embedding-005"
+    valueharbor_semantic_router_index: str = "valueharbor-cache-router-v2"
 
     langcache_host: str = ""
     langcache_cache_id: str = ""
     langcache_api_key: str = ""
-    langcache_similarity_threshold: float = Field(default=0.92, ge=0, le=1)
+    langcache_similarity_threshold: float = Field(default=0.90, ge=0, le=1)
 
     agent_memory_base_url: str = ""
     agent_memory_store_id: str = ""
@@ -54,7 +56,7 @@ class Settings(BaseSettings):
 
     @property
     def semantic_router_configured(self) -> bool:
-        return bool(self.redis_url and self.google_cloud_project)
+        return bool(self.redis_url)
 
     @property
     def memory_configured(self) -> bool:

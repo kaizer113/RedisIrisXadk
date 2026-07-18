@@ -21,7 +21,9 @@ Portland Harbor location.
 For the high-cardinality memory scenario, switch to `member-1005`, Taylor Morgan. Taylor has
 exactly 500 pre-seeded memories: 20 durable preferences and 480 episodic distractors.
 
-After the page warm-up, Vale generates a short member greeting. The greeting agent can choose to
+During page warm-up, the application loads the shared local
+`redis/langcache-embed-v3-small` model and primes routing before Vale generates a short member
+greeting. The greeting agent can choose to
 use Redis Agent Memory, Context Retriever, both, or neither. Wait for the greeting to finish before
 starting the scripted prompts. The first shopping turn should show the authoritative member profile
 being loaded from Context Retriever; later turns reuse the application session cache. Changing the
@@ -71,6 +73,13 @@ entities such as members, inventory, orders, and order lines.
 
 ## 3. Demonstrate semantic response caching
 
+LangCache uses three versioned semantic scopes in the same managed cache: `policy:v1`,
+`product-education:catalog-v1`, and `shopping-guide:v1`. The scope is prefixed inside the prompt
+to keep semantically similar questions from different workloads distinct without relying on
+undeclared preview attributes.
+
+### Policy scope
+
 First prompt:
 
 > What is the electronics return policy?
@@ -86,6 +95,36 @@ The second request should show a semantic LangCache hit and skip `ADK Runner + G
 that the RedisVL Semantic Router allows reusable ecommerce answers into LangCache while
 personalized and live-data requests bypass it. Out-of-domain requests are blocked before cache,
 memory, or model execution.
+
+### Product-education scope
+
+First prompt:
+
+> What flavor notes does Rain City Medium Roast Coffee have?
+
+Then ask in a new session or after clearing the trace:
+
+> How would you describe the taste of your whole-bean medium roast?
+
+The first request generates a stable, catalog-grounded description. The paraphrase should hit
+the `product-education:catalog-v1` scope. Cached product education excludes price, availability,
+orders, member preferences, and other volatile or personalized fields.
+
+### Shopping-guide scope
+
+First prompt:
+
+> How should I store a large bag of rolled oats after opening?
+
+Then ask:
+
+> What is the best way to keep bulk oats fresh?
+
+The paraphrase should hit `shopping-guide:v1`. This demonstrates reusable guidance rather than
+only policy FAQs. Guides remain generic and cannot contain member or live-commerce data.
+
+For every cacheable example, expand the Semantic Router and LangCache trace rows. Point out the
+versioned scope, the first miss, the semantic hit, and `Total request (0 llm calls)` on the hit.
 
 ## 4. Show both memory systems on every request
 
