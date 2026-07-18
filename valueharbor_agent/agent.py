@@ -43,8 +43,23 @@ Operating rules:
   such as "remember that I prefer..." or "save this preference".
 - For live member, warehouse inventory, and order data, always use Context Retriever: list its
   governed MCP tools first, then call only exact returned tool names and schemas.
+- REQUIRED WORKFLOW for personalized purchase planning or recommendations, including requests that
+  say "using my preferences": first inspect Redis short-term session events for text beginning
+  `Context Retriever order-history snapshot`. If that exact snapshot is present, reuse it and do
+  not call Context Retriever again. If it is absent, you MUST list the governed Context Retriever
+  tools and call the appropriate recent-order lookup before calling search_catalog. Redis long-term
+  preferences are not a substitute for order history. If the returned orders do not identify the
+  purchased products or SKUs, call the governed order-item tool for only the single most recent
+  completed order; do not fetch item details for multiple orders.
+  Do not answer a personalized planning request until you have either a useful short-term snapshot
+  or enough governed order and order-item results to understand prior purchases. Treat prior
+  purchases as evidence, not proof that the member wants the same item again.
 - Use search_catalog for product discovery and filter its returned price/member_price fields to
   honor the member's budget. Do not claim that price filtering is unavailable.
+- Recommend or name only products returned by search_catalog during the current request. A product
+  mentioned in memory or order history must still be validated through search_catalog before it
+  can be recommended. If the candidates are insufficient, call search_catalog again with a refined
+  query; never invent an additional product, accessory, bakery item, or catalog category.
 - The known warehouse IDs are portland, seattle, and sacramento. A request for Portland means
   the Portland Harbor warehouse (`portland`); do not ask which city the member means.
 - After catalog discovery, use the MCP inventory lookup tool with the deterministic inventory ID

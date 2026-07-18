@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import socket
 import threading
 import time
 from datetime import UTC, datetime
@@ -27,6 +28,23 @@ PRODUCT_INDEX_NAME = "idx:valueharbor:products-v2"
 LOCAL_EMBEDDING_DIMS = 384
 EMBEDDING_CACHE_NAME = "valueharbor-embeddings-v1"
 EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
+
+REDIS_KEEPALIVE_OPTIONS = {
+    option: value
+    for option, value in (
+        (getattr(socket, "TCP_KEEPIDLE", None), 60),
+        (getattr(socket, "TCP_KEEPINTVL", None), 15),
+        (getattr(socket, "TCP_KEEPCNT", None), 4),
+    )
+    if option is not None
+}
+REDIS_CONNECTION_KWARGS: dict[str, Any] = {
+    "socket_connect_timeout": 4,
+    "socket_timeout": 8,
+    "health_check_interval": 30,
+    "socket_keepalive": True,
+    "socket_keepalive_options": REDIS_KEEPALIVE_OPTIONS,
+}
 
 PUBLIC_POLICY_ROUTE = "reusable_ecommerce"
 PRODUCT_EDUCATION_ROUTE = "product_education"
@@ -130,11 +148,7 @@ class LocalEmbeddingService:
                 name=EMBEDDING_CACHE_NAME,
                 ttl=settings.valueharbor_embedding_cache_ttl_seconds,
                 redis_url=settings.redis_url,
-                connection_kwargs={
-                    "socket_connect_timeout": 4,
-                    "socket_timeout": 8,
-                    "health_check_interval": 30,
-                },
+                connection_kwargs=REDIS_CONNECTION_KWARGS,
             )
             if settings.redis_url
             else None
@@ -223,9 +237,7 @@ class CatalogService:
             self.redis = redis.Redis.from_url(
                 settings.redis_url,
                 decode_responses=False,
-                socket_connect_timeout=4,
-                socket_timeout=8,
-                health_check_interval=30,
+                **REDIS_CONNECTION_KWARGS,
             )
 
     def ping(self) -> bool:
@@ -489,7 +501,11 @@ class CatalogService:
 class CartService:
     def __init__(self, settings: Settings) -> None:
         self.redis = (
-            redis.Redis.from_url(settings.redis_url, decode_responses=True)
+            redis.Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                **REDIS_CONNECTION_KWARGS,
+            )
             if settings.redis_url
             else None
         )
@@ -536,8 +552,12 @@ class SemanticRouterService:
             "member-specific request",
             re.compile(
                 r"\b(?:my|our)\s+(?:(?:pickup|recent|shopping|member)\s+)?"
-                r"(?:order|cart|account|reward|preference|membership|purchase|profile|address)"
-                r"\b|\bremember\b|\bi\s+prefer\b",
+                r"(?:orders?|cart|account|rewards?|preferences?|membership|purchases?|profile|address)"
+                r"\b|\bwho\s+am\s+i\b|"
+                r"\bwhat\s+do\s+you\s+(?:know|remember)\s+about\s+me\b|"
+                r"\bdo\s+i\s+have\s+(?:(?:a|any)\s+)?"
+                r"(?:(?:recent|open|ready)\s+)?orders?\b|"
+                r"\bremember\b|\bi\s+prefer\b",
                 re.IGNORECASE,
             ),
         ),
@@ -846,6 +866,18 @@ class LangCacheService:
             log.warning("LangCache store failed open: %s", exc)
             return False
 
+    async def clear(self) -> bool:
+        """Flush every entry from the configured demo cache."""
+        if not self.base_url:
+            return False
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(
+                f"{self.base_url}/flush",
+                headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
+            )
+            response.raise_for_status()
+        return True
+
 
 class MemoryService:
     """Official Redis Agent Memory SDK adapter, scoped by member and namespace."""
@@ -867,20 +899,36 @@ class MemoryService:
             except Exception as exc:
                 log.warning("Agent Memory SDK initialization failed: %s", exc)
 
-    def add_event(self, member_id: str, session_id: str, role: str, text: str) -> bool:
+    def add_event(
+        self,
+        member_id: str,
+        session_id: str,
+        role: str,
+        text: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> bool:
         if self.client is None or self.models is None:
             return False
         role_enum = getattr(self.models.MessageRole, role.upper())
+        actor_id = (
+            member_id
+            if role.upper() == "USER"
+            else "valueharbor-context"
+            if role.upper() == "SYSTEM"
+            else "valueharbor-agent"
+        )
         try:
             self.client.add_session_event(
                 session_id=safe_id(session_id, "shopping-session"),
-                actor_id=safe_id(
-                    member_id if role.upper() == "USER" else "valueharbor-agent", "actor"
-                ),
+                actor_id=safe_id(actor_id, "actor"),
                 role=role_enum,
                 content=[{"text": text}],
                 created_at=datetime.now(UTC),
-                metadata={"channel": "web", "agent": "valueharbor-shopping"},
+                metadata={
+                    "channel": "web",
+                    "agent": "valueharbor-shopping",
+                    **(metadata or {}),
+                },
             )
             return True
         except Exception as exc:

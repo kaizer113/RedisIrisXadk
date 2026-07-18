@@ -16,6 +16,7 @@ from valueharbor_agent import api as api_module
 from valueharbor_agent.agent import build_agent, build_greeting_agent
 from valueharbor_agent.api import (
     _chat_events,
+    _context_result_session_event,
     _greeting_events,
     _tool_label,
     _tool_summary,
@@ -33,6 +34,7 @@ from valueharbor_agent.services import (
     PRODUCT_EDUCATION_ROUTE,
     PRODUCT_INDEX_NAME,
     PUBLIC_POLICY_ROUTE,
+    REDIS_CONNECTION_KWARGS,
     SHOPPING_GUIDE_ROUTE,
     CatalogService,
     ContextRetrieverService,
@@ -44,6 +46,11 @@ from valueharbor_agent.services import (
     memory_snippets,
     safe_id,
     services,
+)
+from valueharbor_agent.tools import (
+    _catalog_cache,
+    query_context_retriever,
+    search_catalog,
 )
 
 
@@ -64,16 +71,53 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.valueharbor_vector_search_enabled is True
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
+    assert settings.valueharbor_agent_timeout_seconds == 90
+    assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
+    assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
 
 
 def test_fixture_catalog_search_and_inventory() -> None:
-    catalog = CatalogService(
-        Settings(_env_file=None, valueharbor_vector_search_enabled=False)
-    )
+    catalog = CatalogService(Settings(_env_file=None, valueharbor_vector_search_enabled=False))
     products = catalog.search_products("fragrance free laundry", limit=3)
     assert products[0]["sku"] == "VH-2002"
     inventory = catalog.check_inventory("VH-2002", "portland")
     assert inventory["availability"] == "out_of_stock"
+
+
+def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
+    calls = []
+
+    def search(query, category, limit):
+        calls.append((query, category, limit))
+        return [{"sku": "VH-6001", "name": "Lightly Salted Tortilla Chips"}]
+
+    _catalog_cache.clear()
+    monkeypatch.setattr(services.catalog, "search_products", search)
+
+    first = search_catalog("lightly salted snacks", "pantry", 5)
+    second = search_catalog("lightly salted snacks", "pantry", 5)
+
+    assert first["identical_search_reused"] is False
+    assert second["identical_search_reused"] is True
+    assert calls == [("lightly salted snacks", "pantry", 5)]
+    _catalog_cache.clear()
+
+
+def test_catalog_search_clamps_limit_to_one_through_six(monkeypatch) -> None:
+    calls = []
+
+    def search(query, category, limit):
+        calls.append(limit)
+        return []
+
+    _catalog_cache.clear()
+    monkeypatch.setattr(services.catalog, "search_products", search)
+
+    search_catalog("pantry staples", "pantry", 10)
+    search_catalog("paper goods", "household", 0)
+
+    assert calls == [6, 1]
+    _catalog_cache.clear()
 
 
 def test_catalog_product_embedding_text_includes_retrieval_signals() -> None:
@@ -128,9 +172,7 @@ def test_catalog_search_uses_redisvl_text_query() -> None:
                 }
             ]
 
-    catalog = CatalogService(
-        Settings(_env_file=None, valueharbor_vector_search_enabled=False)
-    )
+    catalog = CatalogService(Settings(_env_file=None, valueharbor_vector_search_enabled=False))
     catalog.redis = SimpleNamespace()
     catalog._product_index = FakeIndex()
 
@@ -330,6 +372,21 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert personalized["reason"] == "member-specific request"
     assert personalized["redisvl_duration_ms"] is None
 
+    for prompt in (
+        "Who am I?",
+        "What do you know about me?",
+        "Do I have a recent order ready for pickup, and where should I collect it?",
+        "Plan the best pantry purchase under $40 using my preferences and explain the trade-off.",
+    ):
+        decision = router.route(prompt)
+        assert decision["action"] == "allow"
+        assert decision["blocked"] is False
+        assert decision["cache_read"] is False
+        assert decision["cache_write"] is False
+        assert decision["decision_source"] == "guardrail"
+        assert decision["reason"] == "member-specific request"
+        assert decision["redisvl_duration_ms"] is None
+
     live = router.route("Is detergent in stock at the Portland warehouse?")
     assert live["eligible"] is False
     assert live["blocked"] is False
@@ -417,11 +474,52 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
     assert await cache.warmup("Return policy?") is True
     assert await cache.store("Return policy?", "Thirty days.", "public-policy") is True
     assert all("attributes" not in body for _, body in calls)
-    assert all(
-        body["prompt"].startswith("scope:")
-        for _, body in calls
-    )
+    assert all(body["prompt"].startswith("scope:") for _, body in calls)
     assert calls[0][1]["prompt"] == "scope:public-policy\nReturn policy?"
+
+
+async def test_langcache_clear_flushes_configured_cache(monkeypatch) -> None:
+    calls = []
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+    class FakeAsyncClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return FakeResponse()
+
+    monkeypatch.setattr("valueharbor_agent.services.httpx.AsyncClient", FakeAsyncClient)
+    cache = LangCacheService(
+        Settings(
+            _env_file=None,
+            langcache_host="https://langcache.example",
+            langcache_cache_id="demo-cache",
+            langcache_api_key="test-key",
+        )
+    )
+
+    assert await cache.clear() is True
+    assert calls == [
+        (
+            "https://langcache.example/v1/caches/demo-cache/flush",
+            {"headers": {"Authorization": "Bearer test-key"}},
+        )
+    ]
+
+
+def test_langcache_demo_default_accepts_documented_paraphrases() -> None:
+    assert Settings(_env_file=None).langcache_similarity_threshold == 0.80
 
 
 async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
@@ -480,6 +578,19 @@ async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
     assert result["services"]["embedding_cache"]["ok"] is True
 
 
+async def test_keepalive_returns_compact_warmup_result(monkeypatch) -> None:
+    async def fake_warmup():
+        return {
+            "ok": True,
+            "duration_ms": 12.5,
+            "services": {"context_retriever": {"tools": [{"name": "tool"}]}},
+        }
+
+    monkeypatch.setattr(api_module, "warmup_redis_services", fake_warmup)
+
+    assert await api_module.keepalive() == {"ok": True, "duration_ms": 12.5}
+
+
 async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) -> None:
     calls = 0
 
@@ -536,6 +647,47 @@ async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> N
     assert profile["name"] == "Alex Rivera"
 
 
+async def test_identical_inventory_calls_share_one_result_per_turn(monkeypatch) -> None:
+    calls = 0
+
+    async def call(tool_name, arguments):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0.01)
+        return {"result": {"id": arguments["id"], "quantity": 31}}
+
+    monkeypatch.setattr(services.context, "call", call)
+    tool_context = SimpleNamespace(custom_metadata={})
+
+    first, second = await asyncio.gather(
+        query_context_retriever(
+            "get_inventory_by_id",
+            '{"id":"portland-vh-1001"}',
+            tool_context,
+        ),
+        query_context_retriever(
+            "get_inventory_by_id",
+            '{"id": "portland-vh-1001"}',
+            tool_context,
+        ),
+    )
+    third = await query_context_retriever(
+        "get_inventory_by_id",
+        '{"id":"portland-vh-1001"}',
+        tool_context,
+    )
+
+    assert first == second == third
+    assert calls == 1
+
+    await query_context_retriever(
+        "get_inventory_by_id",
+        '{"id":"portland-vh-1001"}',
+        SimpleNamespace(custom_metadata={}),
+    )
+    assert calls == 2
+
+
 async def test_member_profile_reuses_application_session_cache(monkeypatch) -> None:
     profile_context = '{"member_id":"member-1001","name":"Alex Rivera"}'
 
@@ -574,6 +726,40 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     agent = build_agent("gemini-2.5-flash")
     assert "{cache_safety_context}" in agent.instruction
     assert "omit prices, availability" in agent.instruction
+    assert "REQUIRED WORKFLOW for personalized purchase planning" in agent.instruction
+    assert "you MUST list the governed Context Retriever" in agent.instruction
+    assert "before calling search_catalog" in agent.instruction
+    assert "Do not answer a personalized planning request" in agent.instruction
+    assert "call the governed order-item tool" in agent.instruction
+    assert "single most recent\n  completed order" in agent.instruction
+    assert "Recommend or name only products returned by search_catalog" in agent.instruction
+    assert "never invent an additional product" in agent.instruction
+
+
+def test_context_order_result_becomes_invisible_session_context() -> None:
+    result = _context_result_session_event(
+        "query_context_retriever",
+        {"tool_name": "filter_order_by_member_id"},
+        {"result": {"orders": [{"order_id": "VH-ORD-1048"}]}},
+    )
+
+    assert result is not None
+    text, metadata = result
+    assert "Context Retriever order-history snapshot" in text
+    assert "VH-ORD-1048" in text
+    assert metadata == {
+        "kind": "context_retriever_order_history",
+        "tool_name": "filter_order_by_member_id",
+        "visibility": "agent_context_only",
+    }
+    assert (
+        _context_result_session_event(
+            "query_context_retriever",
+            {"tool_name": "get_inventory_by_id"},
+            {"result": {"quantity": 31}},
+        )
+        is None
+    )
 
 
 async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None:
@@ -681,8 +867,7 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
     tool_events = [
         event
         for event in events
-        if event["type"] == "trace"
-        and event["step"]["id"] == "greeting-tool-memory-call"
+        if event["type"] == "trace" and event["step"]["id"] == "greeting-tool-memory-call"
     ]
     assert [event["step"]["status"] for event in tool_events] == ["running", "done"]
     greeting_trace = next(
@@ -700,11 +885,14 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
 
 def test_member_selector_displays_names_and_requests_generated_greeting() -> None:
     html = (api_module.STATIC_DIR / "index.html").read_text()
-    assert '>Google ADK × Redis Iris</a>' in html
+    assert ">Google ADK × Redis Iris</a>" in html
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
+    assert "RedisIrisXadk/blob/main/docs/demo.md" in html
+    assert 'id="reset-demo"' in html
+    assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert '<details class="panel side service-panel" open>' in html
-    assert '<summary><h2>Redis Iris services</h2></summary>' in html
+    assert "<summary><h2>Redis Iris services</h2></summary>" in html
     assert "embedding_cache:'Embedding Cache'" in html
     assert 'class="panel side trace-panel"' in html
     assert "What flavor notes does Rain City Medium Roast Coffee have?" in html
@@ -712,12 +900,34 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
     assert "fetch('/api/greeting/stream'" in html
-    assert "await warmupOnLoad();await selectMember()" in html
+    assert (
+        "await warmupOnLoad();setInterval(keepServicesWarm,KEEPALIVE_INTERVAL_MS);"
+        "await selectMember()"
+    ) in html
+    assert "fetch('/api/keepalive',{method:'POST'})" in html
+    assert "KEEPALIVE_INTERVAL_MS=120000" in html
     assert "What can I help you find?" not in html
 
 
-async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> None:
+def test_demo_reset_flushes_langcache(monkeypatch) -> None:
+    cleared = []
+
+    async def clear():
+        cleared.append(True)
+        return True
+
+    monkeypatch.setattr(services.langcache, "clear", clear)
+    with TestClient(app) as client:
+        response = client.post("/api/reset-demo")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True, "message": "LangCache flushed"}
+    assert cleared == [True]
+
+
+async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch) -> None:
     captured_state = {}
+    redis_recall_args = {}
 
     class FakeEvent:
         content = types.Content(role="model", parts=[types.Part(text="Generated first")])
@@ -737,15 +947,16 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
     class FakeRunner:
         async def run_async(self, **kwargs):
             captured_state.update(kwargs["state_delta"])
+            await asyncio.sleep(0.05)
             yield FakeEvent()
 
     class SlowSessionService:
         async def get_session(self, **_kwargs):
-            await asyncio.sleep(0.05)
+            await asyncio.sleep(0.01)
             return None
 
     async def slow_vertex_recall(_member_id, _query):
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.01)
         return [{"text": "ADK-only fact"}]
 
     async def profile(_member_id, _session_id):
@@ -754,11 +965,15 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
             "source": "application_session_cache",
         }
 
+    def recall(member_id, query, limit):
+        redis_recall_args.update(member_id=member_id, query=query, limit=limit)
+        return [{"text": "Redis fact"}]
+
     monkeypatch.setattr(api_module, "session_service", SlowSessionService())
     monkeypatch.setattr(api_module, "member_profile_for_session", profile)
     monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", FakeRunner())
     monkeypatch.setattr(services.memory, "short_term", lambda *_args: [{"text": "Redis turn"}])
-    monkeypatch.setattr(services.memory, "recall", lambda *_args: [{"text": "Redis fact"}])
+    monkeypatch.setattr(services.memory, "recall", recall)
     monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
     monkeypatch.setattr(services.vertex_memory, "recall", slow_vertex_recall)
     monkeypatch.setattr(
@@ -793,13 +1008,26 @@ async def test_adk_memory_telemetry_does_not_block_generation(monkeypatch) -> No
         and event["step"]["id"] in {"adk-short-term", "vertex-long-term"}
         and event["step"]["status"] == "done"
     ]
-    assert adk_done_indexes and all(answer_index < index for index in adk_done_indexes)
+    assert adk_done_indexes and all(index < answer_index for index in adk_done_indexes)
+    adk_running_steps = [
+        event["step"]
+        for event in events
+        if event["type"] == "trace"
+        and event["step"]["id"] in {"adk-short-term", "vertex-long-term"}
+        and event["step"]["status"] == "running"
+    ]
+    assert adk_running_steps
+    assert all(step["summary"] == "" for step in adk_running_steps)
     assert captured_state["redis_short_term_context"] == "Redis turn"
     assert captured_state["redis_long_term_context"] == "Redis fact"
+    assert redis_recall_args == {
+        "member_id": "member-1001",
+        "query": "What do I prefer?",
+        "limit": 4,
+    }
     assert "vertex_long_term_context" not in captured_state
     assert not any(
-        event["type"] == "trace" and event["step"]["id"] == "member-profile"
-        for event in events
+        event["type"] == "trace" and event["step"]["id"] == "member-profile" for event in events
     )
     first_trace_ids = []
     for event in events:
@@ -838,8 +1066,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         searched.update(prompt=prompt, scope=scope)
         return {
             "prompt": (
-                "scope:product-education:catalog-v1\n"
-                "What does Rain City Medium Roast taste like?"
+                "scope:product-education:catalog-v1\nWhat does Rain City Medium Roast taste like?"
             ),
             "response": "Cocoa and caramel notes.",
         }
@@ -897,11 +1124,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "answer": "Cocoa and caramel notes.",
         "cache_hit": True,
     }
-    traces = {
-        event["step"]["id"]: event["step"]
-        for event in events
-        if event["type"] == "trace"
-    }
+    traces = {event["step"]["id"]: event["step"] for event in events if event["type"] == "trace"}
     assert traces["langcache"]["summary"] == "Hit · product-education:catalog-v1"
     assert traces["langcache"]["details"] == [
         "Current query: What flavor notes does the medium roast have?",
@@ -970,11 +1193,7 @@ async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
     ]
 
     answer = next(event for event in events if event["type"] == "answer")
-    traces = {
-        event["step"]["id"]: event["step"]
-        for event in events
-        if event["type"] == "trace"
-    }
+    traces = {event["step"]["id"]: event["step"] for event in events if event["type"] == "trace"}
     assert answer["blocked"] is True
     assert "Value Wholesale shopping" in answer["answer"]
     assert traces["semantic-router"]["summary"].startswith("Blocked")
@@ -997,7 +1216,9 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
     )
     assert summary == "VH-1001 · quantity 42"
     assert details == []
-    assert _tool_label("search_catalog", {}) == "RedisVL Search Catalog"
+    assert _tool_label("search_catalog", {}) == (
+        'RedisVL Search Catalog · "" · all categories · limit 5'
+    )
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200
 
@@ -1005,9 +1226,9 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
 def test_generated_dataset_has_valid_relationships_and_totals() -> None:
     dataset = records()
     assert {name: len(items) for name, items in dataset.items()} == {
-        "products": 10,
+        "products": 100,
         "warehouses": 3,
-        "inventory": 30,
+        "inventory": 300,
         "members": 5,
         "orders": 6,
         "order_items": 12,
@@ -1022,9 +1243,7 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
     order_ids = {item["order_id"] for item in dataset["orders"]}
     memory_by_id = {item["id"]: item for item in dataset["memory_seeds"]}
     large_member_memories = [
-        memory
-        for memory in dataset["memory_seeds"]
-        if memory["owner_id"] == "member-1005"
+        memory for memory in dataset["memory_seeds"] if memory["owner_id"] == "member-1005"
     ]
 
     assert len(memory_by_id) == len(dataset["memory_seeds"])

@@ -185,7 +185,11 @@ def trace_event(
 
 def _tool_label(name: str, arguments: dict[str, Any]) -> str:
     if name == "search_catalog":
-        return "RedisVL Search Catalog"
+        query = str(arguments.get("query", "")).strip()
+        category = str(arguments.get("category", "")).strip() or "all categories"
+        limit = arguments.get("limit", 5)
+        compact_query = f'"{query[:72]}{"…" if len(query) > 72 else ""}"'
+        return f"RedisVL Search Catalog · {compact_query} · {category} · limit {limit}"
     if name == "list_context_retriever_tools":
         return "Context Retriever · discover MCP tools"
     if name == "query_context_retriever":
@@ -197,7 +201,10 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
     payload = response.get("result", response)
     if name == "search_catalog" and isinstance(payload, dict):
         products = payload.get("products", [])
-        return f"{len(products)} products found", [
+        summary = f"{len(products)} products found"
+        if payload.get("identical_search_reused"):
+            summary += " · identical search reused"
+        return summary, [
             str(product.get("name", product.get("sku", "product"))) for product in products[:5]
         ]
     if name == "check_warehouse_inventory" and isinstance(payload, dict):
@@ -221,9 +228,7 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
         return f"{len(payload.get('policies', []))} policy records found", []
     if name == "remember_shopping_preference":
         saved = (
-            bool(payload.get("redis_agent_memory_saved"))
-            if isinstance(payload, dict)
-            else False
+            bool(payload.get("redis_agent_memory_saved")) if isinstance(payload, dict) else False
         )
         return "Preference saved" if saved else "Preference write unavailable", []
     if name == "recall_redis_shopping_memory" and isinstance(payload, dict):
@@ -231,6 +236,34 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
         return f"{len(memories)} relevant memories found", memories[:5]
     compact = json.dumps(payload, default=str, separators=(",", ":"))
     return "Completed", [compact[:300]] if compact and compact != "{}" else []
+
+
+def _context_result_session_event(
+    name: str,
+    arguments: dict[str, Any],
+    response: dict[str, Any],
+) -> tuple[str, dict[str, Any]] | None:
+    """Turn governed order reads into invisible Redis session working context."""
+    if name != "query_context_retriever":
+        return None
+    tool_name = str(arguments.get("tool_name", "")).strip()
+    normalized = tool_name.lower()
+    if "order" not in normalized or not normalized.startswith(
+        ("get_", "list_", "search_", "find_", "filter_")
+    ):
+        return None
+    payload = response.get("result", response)
+    if not isinstance(payload, dict) or payload.get("ok") is False:
+        return None
+    compact = json.dumps(payload, default=str, sort_keys=True, separators=(",", ":"))
+    return (
+        f"Context Retriever order-history snapshot from {tool_name}: {compact[:4_000]}",
+        {
+            "kind": "context_retriever_order_history",
+            "tool_name": tool_name,
+            "visibility": "agent_context_only",
+        },
+    )
 
 
 async def member_profile_for_session(member_id: str, session_id: str) -> dict[str, Any]:
@@ -273,7 +306,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         return await asyncio.to_thread(services.memory.short_term, session_id, 5)
 
     async def fetch_redis_long_term() -> list[dict[str, Any]]:
-        return await asyncio.to_thread(services.memory.recall, member_id, request.message, 5)
+        return await asyncio.to_thread(services.memory.recall, member_id, request.message, 4)
 
     async def fetch_vertex_long_term() -> list[dict[str, Any]]:
         return await services.vertex_memory.recall(member_id, request.message)
@@ -311,11 +344,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     if services.semantic_router.is_contextual_followup(request.message):
         prefetched_short_term = await timed("redis-short-term", fetch_short_term())
         routing_context = "\n".join(memory_snippets(prefetched_short_term[1]))
-    route_args = (
-        (request.message, routing_context)
-        if routing_context
-        else (request.message,)
-    )
+    route_args = (request.message, routing_context) if routing_context else (request.message,)
     routing = await asyncio.to_thread(services.semantic_router.route, *route_args)
     route_duration = routing.get("route_duration_ms", routing.get("redisvl_duration_ms"))
     redisvl_called = route_duration is not None
@@ -341,17 +370,13 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             f"{settings.valueharbor_embedding_model}"
         )
     if routing.get("redisvl_duration_ms") is not None:
-        route_details.append(
-            f"Redis vector classification: {routing['redisvl_duration_ms']} ms"
-        )
+        route_details.append(f"Redis vector classification: {routing['redisvl_duration_ms']} ms")
     if not redisvl_called:
         route_summary = f"RedisVL bypassed · {routing.get('reason', 'routing guardrail')}"
     elif blocked:
         route_summary = "Blocked · outside Value Wholesale ecommerce scope"
     elif cache_read or cache_write:
-        route_summary = (
-            f"{cache_scope} · LangCache read + write"
-        )
+        route_summary = f"{cache_scope} · LangCache read + write"
     else:
         route_summary = f"{routing.get('route') or 'allowed'} · LangCache bypass"
     yield trace_event(
@@ -433,7 +458,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         "adk-short-term",
         "ADK short-term session read",
         status="running",
-        summary="Telemetry only · excluded from Gemini context",
     )
     yield trace_event(
         "redis-long-term",
@@ -445,82 +469,98 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         "vertex-long-term",
         "ADK Memory Bank search",
         status="running",
-        summary="Telemetry only · excluded from Gemini context",
     )
+
+    def adk_telemetry_event(
+        step_id: str, result: list[dict[str, Any]], duration: float
+    ) -> dict[str, Any]:
+        snippets = memory_snippets(result)
+        if step_id == "adk-short-term":
+            return trace_event(
+                step_id,
+                "ADK short-term session read",
+                duration_ms=duration,
+                summary=f"{len(result)} prior events",
+                details=snippets,
+            )
+        return trace_event(
+            step_id,
+            "ADK Memory Bank search",
+            duration_ms=duration,
+            summary=f"{len(result)} memories",
+            details=snippets,
+        )
+
     results: dict[str, Any] = {}
-    for task in asyncio.as_completed(required_tasks):
-        step_id, result, duration = await task
-        results[step_id] = result
-        if step_id == "langcache":
-            hit = bool(result and result.get("response"))
-            cached_prompt = (
-                services.langcache.display_prompt(str(result.get("prompt", "")))
-                if hit
-                else ""
-            )
-            yield trace_event(
-                "langcache",
-                "Checking Redis LangCache",
-                duration_ms=duration,
-                summary=(f"Hit · {cache_scope}" if hit else f"Miss · {cache_scope}"),
-                details=(
-                    [
-                        f"Current query: {request.message}",
-                        f"Cached query: {cached_prompt}",
-                    ]
-                    if cached_prompt
-                    else []
-                ),
-            )
-        elif step_id == "redis-short-term":
-            snippets = memory_snippets(result)
-            yield trace_event(
-                step_id,
-                "Getting Redis short-term memory",
-                duration_ms=duration,
-                summary=f"{len(result)} recent session events",
-                details=snippets,
-            )
-        elif step_id == "redis-long-term":
-            snippets = memory_snippets(result)
-            yield trace_event(
-                step_id,
-                "Searching Redis long-term memory",
-                duration_ms=duration,
-                summary=f"{len(result)} relevant memories found",
-                details=snippets,
-            )
-        elif step_id == "member-profile":
-            source = result.get("source", "unavailable")
-            if source != "application_session_cache":
+    pending_required = set(required_tasks)
+    pending_adk_telemetry = set(adk_telemetry_tasks)
+    while pending_required:
+        completed, _ = await asyncio.wait(
+            pending_required | pending_adk_telemetry,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in completed:
+            step_id, result, duration = await task
+            if task in pending_adk_telemetry:
+                pending_adk_telemetry.remove(task)
+                yield adk_telemetry_event(step_id, result, duration)
+                continue
+
+            pending_required.remove(task)
+            results[step_id] = result
+            if step_id == "langcache":
+                hit = bool(result and result.get("response"))
+                cached_prompt = (
+                    services.langcache.display_prompt(str(result.get("prompt", ""))) if hit else ""
+                )
+                yield trace_event(
+                    "langcache",
+                    "Checking Redis LangCache",
+                    duration_ms=duration,
+                    summary=(f"Hit · {cache_scope}" if hit else f"Miss · {cache_scope}"),
+                    details=(
+                        [
+                            f"Current query: {request.message}",
+                            f"Cached query: {cached_prompt}",
+                        ]
+                        if cached_prompt
+                        else []
+                    ),
+                )
+            elif step_id == "redis-short-term":
+                snippets = memory_snippets(result)
                 yield trace_event(
                     step_id,
-                    "Hydrating authoritative member profile",
+                    "Getting Redis short-term memory",
                     duration_ms=duration,
-                    summary=member_profile_source_label(source),
-                    details=[result["context"]],
+                    summary=f"{len(result)} recent session events",
+                    details=snippets,
                 )
+            elif step_id == "redis-long-term":
+                snippets = memory_snippets(result)
+                yield trace_event(
+                    step_id,
+                    "Searching Redis long-term memory",
+                    duration_ms=duration,
+                    summary=f"{len(result)} relevant memories found",
+                    details=snippets,
+                )
+            elif step_id == "member-profile":
+                source = result.get("source", "unavailable")
+                if source != "application_session_cache":
+                    yield trace_event(
+                        step_id,
+                        "Hydrating authoritative member profile",
+                        duration_ms=duration,
+                        summary=member_profile_source_label(source),
+                        details=[result["context"]],
+                    )
 
     async def drain_adk_telemetry() -> AsyncIterator[dict[str, Any]]:
-        for task in asyncio.as_completed(adk_telemetry_tasks):
+        for task in asyncio.as_completed(pending_adk_telemetry):
             step_id, result, duration = await task
-            snippets = memory_snippets(result)
-            if step_id == "adk-short-term":
-                yield trace_event(
-                    step_id,
-                    "ADK short-term session read",
-                    duration_ms=duration,
-                    summary=f"{len(result)} prior events",
-                    details=snippets,
-                )
-            else:
-                yield trace_event(
-                    step_id,
-                    "ADK Memory Bank search",
-                    duration_ms=duration,
-                    summary=f"{len(result)} memories",
-                    details=snippets,
-                )
+            yield adk_telemetry_event(step_id, result, duration)
+        pending_adk_telemetry.clear()
 
     short_memories = results.get("redis-short-term", [])
     redis_memories = results.get("redis-long-term", [])
@@ -575,14 +615,48 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
     final_answer = ""
     llm_calls = 0
+    next_runner_event: asyncio.Task[Any] | None = None
+
+    async def cancel_in_flight_tasks() -> None:
+        tasks = list(pending_adk_telemetry)
+        if next_runner_event is not None and not next_runner_event.done():
+            tasks.append(next_runner_event)
+        for task in tasks:
+            task.cancel()
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
     try:
         async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
-            async for event in runners[request.model].run_async(
-                user_id=member_id,
-                session_id=session_id,
-                new_message=types.Content(role="user", parts=[types.Part(text=request.message)]),
-                state_delta=state_delta,
-            ):
+            runner_events = (
+                runners[request.model]
+                .run_async(
+                    user_id=member_id,
+                    session_id=session_id,
+                    new_message=types.Content(
+                        role="user", parts=[types.Part(text=request.message)]
+                    ),
+                    state_delta=state_delta,
+                )
+                .__aiter__()
+            )
+            next_runner_event = asyncio.create_task(anext(runner_events))
+            while True:
+                completed, _ = await asyncio.wait(
+                    {next_runner_event} | pending_adk_telemetry,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for telemetry_task in completed & pending_adk_telemetry:
+                    pending_adk_telemetry.remove(telemetry_task)
+                    step_id, result, duration = await telemetry_task
+                    yield adk_telemetry_event(step_id, result, duration)
+
+                if next_runner_event not in completed:
+                    continue
+                try:
+                    event = next_runner_event.result()
+                except StopAsyncIteration:
+                    break
                 if is_llm_response_event(event):
                     llm_calls += 1
                 for call in event.get_function_calls():
@@ -590,8 +664,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     arguments = dict(call.args or {})
                     call_id = str(call.id or name)
                     trace_visible = not (
-                        name == "list_context_retriever_tools"
-                        and services.context.tools_cached
+                        name == "list_context_retriever_tools" and services.context.tools_cached
                     )
                     tool_starts[call_id] = (
                         time.perf_counter(),
@@ -614,6 +687,21 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     )
                     duration = round((time.perf_counter() - started) * 1000, 2)
                     summary, details = _tool_summary(name, dict(response.response or {}))
+                    session_event = _context_result_session_event(
+                        name,
+                        arguments,
+                        dict(response.response or {}),
+                    )
+                    if session_event is not None:
+                        event_text_value, event_metadata = session_event
+                        await asyncio.to_thread(
+                            services.memory.add_event,
+                            member_id,
+                            session_id,
+                            "SYSTEM",
+                            event_text_value,
+                            event_metadata,
+                        )
                     if trace_visible:
                         yield trace_event(
                             f"tool-{call_id}",
@@ -624,9 +712,9 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                         )
                 if event.is_final_response():
                     final_answer = event_text(event)
+                next_runner_event = asyncio.create_task(anext(runner_events))
     except TimeoutError:
-        for task in adk_telemetry_tasks:
-            task.cancel()
+        await cancel_in_flight_tasks()
         elapsed = round((time.perf_counter() - runner_started) * 1000, 2)
         yield trace_event(
             "generation",
@@ -638,15 +726,13 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         yield {"type": "error", "message": "The model timed out. Please retry."}
         return
     except Exception as exc:
-        for task in adk_telemetry_tasks:
-            task.cancel()
+        await cancel_in_flight_tasks()
         log.exception("ADK request failed")
         yield {"type": "error", "message": f"Agent request failed: {exc}"}
         return
 
     if not final_answer:
-        for task in adk_telemetry_tasks:
-            task.cancel()
+        await cancel_in_flight_tasks()
         yield {"type": "error", "message": "Agent returned no final response"}
         return
 
@@ -678,9 +764,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, Any]]:
     """Hydrate the shopping session, then generate an optionally personalized greeting."""
     member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
-    shopping_session_id = safe_id(
-        request.session_id, settings.valueharbor_demo_session_id
-    )
+    shopping_session_id = safe_id(request.session_id, settings.valueharbor_demo_session_id)
     session_id = safe_id(f"{shopping_session_id}-greeting", "greeting-session")
     tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
     context_sources: list[str] = []
@@ -736,8 +820,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     arguments = dict(call.args or {})
                     call_id = str(call.id or name)
                     trace_visible = not (
-                        name == "list_context_retriever_tools"
-                        and services.context.tools_cached
+                        name == "list_context_retriever_tools" and services.context.tools_cached
                     )
                     tool_starts[call_id] = (
                         time.perf_counter(),
@@ -772,9 +855,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                         yield trace_event(
                             f"greeting-tool-{call_id}",
                             _tool_label(name, arguments),
-                            duration_ms=round(
-                                (time.perf_counter() - call_started) * 1000, 2
-                            ),
+                            duration_ms=round((time.perf_counter() - call_started) * 1000, 2),
                             summary=summary,
                             details=details,
                         )
@@ -798,9 +879,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     context_summary = (
         f"Context used: {' + '.join(context_sources)}"
         if context_sources
-        else (
-            "The agent chose not to call Redis Agent Memory or Context Retriever."
-        )
+        else ("The agent chose not to call Redis Agent Memory or Context Retriever.")
     )
     yield trace_event(
         "greeting-generation",
@@ -904,6 +983,19 @@ async def health() -> dict[str, Any]:
     }
 
 
+@app.post("/api/reset-demo")
+async def reset_demo() -> dict[str, Any]:
+    """Flush shared LangCache state so the scripted demo starts cold."""
+    if not settings.langcache_configured:
+        raise HTTPException(status_code=503, detail="LangCache is not configured")
+    try:
+        await services.langcache.clear()
+    except Exception as exc:
+        log.warning("Demo reset failed: %s", exc)
+        raise HTTPException(status_code=502, detail="LangCache reset failed") from exc
+    return {"ok": True, "message": "LangCache flushed"}
+
+
 @app.get("/api/context/tools")
 async def context_tools() -> dict[str, Any]:
     started = time.perf_counter()
@@ -919,6 +1011,15 @@ async def context_tools() -> dict[str, Any]:
 @app.post("/api/warmup")
 async def warmup() -> dict[str, Any]:
     return await warmup_redis_services()
+
+
+@app.post("/api/keepalive")
+async def keepalive() -> dict[str, Any]:
+    result = await warmup_redis_services()
+    return {
+        "ok": result["ok"],
+        "duration_ms": result["duration_ms"],
+    }
 
 
 @app.get("/api/catalog")

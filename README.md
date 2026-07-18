@@ -8,6 +8,7 @@ The agent can discover products, compare member pricing, check warehouse invento
 
 - [Recommended demo flow](docs/demo.md)
 - [Architecture and request flow](ARCHITECTURE.md)
+- [How Temporal would affect the architecture](docs/temporal.md)
 - [Reproducible dataset](data/README.md)
 - Current public demo: [http://34.182.213.82](http://34.182.213.82)
 

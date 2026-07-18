@@ -1,12 +1,68 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
+import threading
+import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from google.adk.tools import ToolContext
 
 from valueharbor_agent.services import compare_memory_retrieval, memory_snippets, services
+
+_CATALOG_CACHE_TTL_SECONDS = 300
+_catalog_cache: dict[tuple[str, str, int], tuple[float, list[dict[str, Any]]]] = {}
+_catalog_cache_lock = threading.Lock()
+_INVENTORY_TURN_CACHE_METADATA_KEY = "valueharbor_inventory_turn_cache"
+
+
+class _InventoryTurnCache:
+    """Share identical inventory reads within one ADK invocation."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._results: dict[str, dict[str, Any]] = {}
+        self._in_flight: dict[str, asyncio.Task[dict[str, Any]]] = {}
+
+    async def get_or_call(
+        self,
+        key: str,
+        call: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        async with self._lock:
+            cached = self._results.get(key)
+            if cached is not None:
+                return copy.deepcopy(cached)
+            task = self._in_flight.get(key)
+            if task is None:
+                task = asyncio.create_task(self._call_and_store(key, call))
+                self._in_flight[key] = task
+        return copy.deepcopy(await asyncio.shield(task))
+
+    async def _call_and_store(
+        self,
+        key: str,
+        call: Callable[[], Awaitable[dict[str, Any]]],
+    ) -> dict[str, Any]:
+        try:
+            result = await call()
+            if not (isinstance(result, dict) and result.get("ok") is False):
+                async with self._lock:
+                    self._results[key] = copy.deepcopy(result)
+            return result
+        finally:
+            async with self._lock:
+                if self._in_flight.get(key) is asyncio.current_task():
+                    self._in_flight.pop(key, None)
+
+
+def _is_inventory_read(tool_name: str) -> bool:
+    normalized = tool_name.strip().lower()
+    return "inventory" in normalized and normalized.startswith(
+        ("check_", "filter_", "find_", "get_", "list_", "search_")
+    )
 
 
 def _member_id(tool_context: ToolContext) -> str:
@@ -27,9 +83,28 @@ def search_catalog(
     Args:
         query: What the member wants or the need the product should satisfy.
         category: Optional exact category: pantry, household, beverages, electronics, fresh-food.
-        limit: Maximum products to return, from 1 to 10.
+        limit: Maximum products to return, from 1 to 6.
     """
-    return {"products": services.catalog.search_products(query, category, limit)}
+    normalized_limit = max(1, min(limit, 6))
+    cache_key = (query.strip().lower(), category.strip().lower(), normalized_limit)
+    now = time.monotonic()
+    with _catalog_cache_lock:
+        cached = _catalog_cache.get(cache_key)
+        if cached and cached[0] > now:
+            return {
+                "products": copy.deepcopy(cached[1]),
+                "identical_search_reused": True,
+            }
+
+    products = services.catalog.search_products(query, category, normalized_limit)
+    with _catalog_cache_lock:
+        if len(_catalog_cache) >= 256:
+            _catalog_cache.clear()
+        _catalog_cache[cache_key] = (
+            now + _CATALOG_CACHE_TTL_SECONDS,
+            copy.deepcopy(products),
+        )
+    return {"products": products, "identical_search_reused": False}
 
 
 def check_warehouse_inventory(sku: str, warehouse_id: str) -> dict[str, Any]:
@@ -156,7 +231,11 @@ async def list_context_retriever_tools() -> dict[str, Any]:
     return {"tools": tools, "source": "server_cache" if cached else "context_retriever"}
 
 
-async def query_context_retriever(tool_name: str, arguments_json: str) -> dict[str, Any]:
+async def query_context_retriever(
+    tool_name: str,
+    arguments_json: str,
+    tool_context: ToolContext,
+) -> dict[str, Any]:
     """Call a governed Redis Context Retriever tool for live commerce data.
 
     Call list_context_retriever_tools first. Never invent a tool name or argument.
@@ -171,6 +250,21 @@ async def query_context_retriever(tool_name: str, arguments_json: str) -> dict[s
         return {"ok": False, "error": f"invalid_arguments_json: {exc}"}
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "arguments_json_must_be_an_object"}
+    if _is_inventory_read(tool_name):
+        cache = tool_context.custom_metadata.get(_INVENTORY_TURN_CACHE_METADATA_KEY)
+        if not isinstance(cache, _InventoryTurnCache):
+            cache = _InventoryTurnCache()
+            tool_context.custom_metadata[_INVENTORY_TURN_CACHE_METADATA_KEY] = cache
+        cache_key = json.dumps(
+            [tool_name.strip().lower(), arguments],
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        return await cache.get_or_call(
+            cache_key,
+            lambda: services.context.call(tool_name, arguments),
+        )
     return await services.context.call(tool_name, arguments)
 
 

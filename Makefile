@@ -1,4 +1,4 @@
-.PHONY: install dev test lint dataset seed setup-context setup-iris setup-memory-bank deploy deploy-all deploy-vm check-gcp configure-secrets
+.PHONY: install dev test lint dataset seed setup-context setup-iris setup-memory-bank reset-demo deploy deploy-all deploy-vm check-gcp configure-secrets
 
 install:
 	uv sync --all-extras
@@ -27,6 +27,9 @@ setup-iris: seed setup-context
 setup-memory-bank: dataset
 	uv run python scripts/create_memory_bank.py
 	uv run python -m scripts.seed_managed_memories
+
+reset-demo:
+	uv run python -m scripts.reset_demo --yes
 
 check-gcp:
 	./scripts/check_gcp.sh
