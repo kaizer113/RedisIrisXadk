@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import hashlib
 import json
 import logging
@@ -28,6 +29,7 @@ PRODUCT_INDEX_NAME = "idx:valueharbor:products-v2"
 LOCAL_EMBEDDING_DIMS = 384
 EMBEDDING_CACHE_NAME = "valueharbor-embeddings-v1"
 EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
+CONTEXT_ORDER_CACHE_TTL_SECONDS = 300
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value
@@ -1002,6 +1004,8 @@ class ContextRetrieverService:
         self.agent_key = settings.mcp_agent_key
         self._tools_cache: list[dict[str, Any]] | None = None
         self._tools_lock = asyncio.Lock()
+        self._order_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+        self._order_cache_lock = asyncio.Lock()
 
     @property
     def tools_cached(self) -> bool:
@@ -1060,6 +1064,45 @@ class ContextRetrieverService:
         except Exception as exc:
             log.warning("Context Retriever call failed open: %s", exc)
             return {"ok": False, "error": str(exc)}
+
+    @staticmethod
+    def cacheable_order_lookup(tool_name: str) -> bool:
+        normalized = tool_name.strip().lower()
+        return "order" in normalized and normalized.startswith(
+            ("get_", "list_", "search_", "find_")
+        )
+
+    async def call_for_session(
+        self,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Reuse read-only order lookups briefly within one shopping session."""
+        if not self.cacheable_order_lookup(tool_name):
+            return await self.call(tool_name, arguments)
+
+        arguments_key = json.dumps(arguments, sort_keys=True, separators=(",", ":"))
+        cache_key = (safe_id(session_id, "anonymous"), tool_name, arguments_key)
+        async with self._order_cache_lock:
+            now = time.monotonic()
+            cached = self._order_cache.get(cache_key)
+            if cached and cached[0] > now:
+                return {"_context_cache": "hit", **copy.deepcopy(cached[1])}
+
+            result = await self.call(tool_name, arguments)
+            if result.get("ok") is not False:
+                if len(self._order_cache) >= 1_000:
+                    self._order_cache = {
+                        key: value for key, value in self._order_cache.items() if value[0] > now
+                    }
+                    if len(self._order_cache) >= 1_000:
+                        self._order_cache.pop(next(iter(self._order_cache)))
+                self._order_cache[cache_key] = (
+                    now + CONTEXT_ORDER_CACHE_TTL_SECONDS,
+                    copy.deepcopy(result),
+                )
+            return {"_context_cache": "miss", **result}
 
     async def get_member_profile(self, member_id: str) -> dict[str, Any]:
         """Discover and call the governed member lookup tool."""

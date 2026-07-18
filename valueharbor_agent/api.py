@@ -208,6 +208,8 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
         tools = payload.get("tools", [])
         return f"{len(tools)} governed tools available", []
     if name == "query_context_retriever" and isinstance(payload, dict):
+        if payload.get("_context_cache") == "hit":
+            return "Reused from Context Retriever session cache", []
         if payload.get("ok") is False:
             return "MCP call failed", [str(payload.get("error", "Unknown MCP error"))[:300]]
         if "quantity" in payload:
@@ -559,6 +561,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     state_delta = {
         "member_id": member_id,
         "user_id": member_id,
+        "session_id": session_id,
         "member_profile_context": member_profile["context"],
         "redis_short_term_context": "\n".join(memory_snippets(short_memories))
         or "No prior session events.",
