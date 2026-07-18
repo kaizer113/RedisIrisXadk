@@ -934,6 +934,15 @@ async def warmup() -> dict[str, Any]:
     return await warmup_redis_services()
 
 
+@app.post("/api/keepalive")
+async def keepalive() -> dict[str, Any]:
+    result = await warmup_redis_services()
+    return {
+        "ok": result["ok"],
+        "duration_ms": result["duration_ms"],
+    }
+
+
 @app.get("/api/catalog")
 async def catalog() -> dict[str, Any]:
     return {"products": PRODUCTS, "warehouses": WAREHOUSES}

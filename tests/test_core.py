@@ -33,6 +33,7 @@ from valueharbor_agent.services import (
     PRODUCT_EDUCATION_ROUTE,
     PRODUCT_INDEX_NAME,
     PUBLIC_POLICY_ROUTE,
+    REDIS_CONNECTION_KWARGS,
     SHOPPING_GUIDE_ROUTE,
     CatalogService,
     ContextRetrieverService,
@@ -64,6 +65,8 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.valueharbor_vector_search_enabled is True
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
+    assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
+    assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
 
 
 def test_fixture_catalog_search_and_inventory() -> None:
@@ -539,6 +542,19 @@ async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
     assert result["services"]["embedding_cache"]["ok"] is True
 
 
+async def test_keepalive_returns_compact_warmup_result(monkeypatch) -> None:
+    async def fake_warmup():
+        return {
+            "ok": True,
+            "duration_ms": 12.5,
+            "services": {"context_retriever": {"tools": [{"name": "tool"}]}},
+        }
+
+    monkeypatch.setattr(api_module, "warmup_redis_services", fake_warmup)
+
+    assert await api_module.keepalive() == {"ok": True, "duration_ms": 12.5}
+
+
 async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) -> None:
     calls = 0
 
@@ -774,7 +790,12 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
     assert "fetch('/api/greeting/stream'" in html
-    assert "await warmupOnLoad();await selectMember()" in html
+    assert (
+        "await warmupOnLoad();setInterval(keepServicesWarm,KEEPALIVE_INTERVAL_MS);"
+        "await selectMember()"
+    ) in html
+    assert "fetch('/api/keepalive',{method:'POST'})" in html
+    assert "KEEPALIVE_INTERVAL_MS=120000" in html
     assert "What can I help you find?" not in html
 
 

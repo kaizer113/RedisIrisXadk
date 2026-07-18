@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import socket
 import threading
 import time
 from datetime import UTC, datetime
@@ -27,6 +28,23 @@ PRODUCT_INDEX_NAME = "idx:valueharbor:products-v2"
 LOCAL_EMBEDDING_DIMS = 384
 EMBEDDING_CACHE_NAME = "valueharbor-embeddings-v1"
 EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
+
+REDIS_KEEPALIVE_OPTIONS = {
+    option: value
+    for option, value in (
+        (getattr(socket, "TCP_KEEPIDLE", None), 60),
+        (getattr(socket, "TCP_KEEPINTVL", None), 15),
+        (getattr(socket, "TCP_KEEPCNT", None), 4),
+    )
+    if option is not None
+}
+REDIS_CONNECTION_KWARGS: dict[str, Any] = {
+    "socket_connect_timeout": 4,
+    "socket_timeout": 8,
+    "health_check_interval": 30,
+    "socket_keepalive": True,
+    "socket_keepalive_options": REDIS_KEEPALIVE_OPTIONS,
+}
 
 PUBLIC_POLICY_ROUTE = "reusable_ecommerce"
 PRODUCT_EDUCATION_ROUTE = "product_education"
@@ -130,11 +148,7 @@ class LocalEmbeddingService:
                 name=EMBEDDING_CACHE_NAME,
                 ttl=settings.valueharbor_embedding_cache_ttl_seconds,
                 redis_url=settings.redis_url,
-                connection_kwargs={
-                    "socket_connect_timeout": 4,
-                    "socket_timeout": 8,
-                    "health_check_interval": 30,
-                },
+                connection_kwargs=REDIS_CONNECTION_KWARGS,
             )
             if settings.redis_url
             else None
@@ -223,9 +237,7 @@ class CatalogService:
             self.redis = redis.Redis.from_url(
                 settings.redis_url,
                 decode_responses=False,
-                socket_connect_timeout=4,
-                socket_timeout=8,
-                health_check_interval=30,
+                **REDIS_CONNECTION_KWARGS,
             )
 
     def ping(self) -> bool:
@@ -489,7 +501,11 @@ class CatalogService:
 class CartService:
     def __init__(self, settings: Settings) -> None:
         self.redis = (
-            redis.Redis.from_url(settings.redis_url, decode_responses=True)
+            redis.Redis.from_url(
+                settings.redis_url,
+                decode_responses=True,
+                **REDIS_CONNECTION_KWARGS,
+            )
             if settings.redis_url
             else None
         )
