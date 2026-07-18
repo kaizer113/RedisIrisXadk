@@ -10,12 +10,12 @@ from typing import Any
 
 from google.adk.tools import ToolContext
 
-from valueharbor_agent.services import compare_memory_retrieval, memory_snippets, services
+from valuewholesale_agent.services import compare_memory_retrieval, memory_snippets, services
 
 _CATALOG_CACHE_TTL_SECONDS = 300
 _catalog_cache: dict[tuple[str, str, int], tuple[float, list[dict[str, Any]]]] = {}
 _catalog_cache_lock = threading.Lock()
-_INVENTORY_TURN_CACHE_METADATA_KEY = "valueharbor_inventory_turn_cache"
+_INVENTORY_TURN_CACHE_METADATA_KEY = "valuewholesale_inventory_turn_cache"
 
 
 class _InventoryTurnCache:
@@ -69,7 +69,7 @@ def _member_id(tool_context: ToolContext) -> str:
     return str(
         tool_context.state.get("member_id")
         or tool_context.state.get("user_id")
-        or services.settings.valueharbor_demo_member_id
+        or services.settings.valuewholesale_demo_member_id
     )
 
 
@@ -128,7 +128,7 @@ def get_recent_orders(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def search_member_policies(query: str) -> dict[str, Any]:
-    """Search grounded Value Wholesale policies for returns, pickup, and member pricing.
+    """Search grounded Value Wholesale policies with RedisVL vector retrieval.
 
     Args:
         query: The member's policy question.

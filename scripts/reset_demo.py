@@ -3,13 +3,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 
-from valueharbor_agent.config import get_settings
-from valueharbor_agent.services import LangCacheService
+from valuewholesale_agent.config import get_settings
+from valuewholesale_agent.services import LangCacheService
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Reset mutable state that affects the repeatable ValueHarbor demo flow."
+        description="Reset mutable state that affects the repeatable Value Wholesale demo flow."
     )
     parser.add_argument(
         "--yes",

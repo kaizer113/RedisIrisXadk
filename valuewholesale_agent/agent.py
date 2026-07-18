@@ -3,8 +3,8 @@ from __future__ import annotations
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
 
-from valueharbor_agent.config import get_settings
-from valueharbor_agent.tools import ALL_TOOLS, GREETING_TOOLS
+from valuewholesale_agent.config import get_settings
+from valuewholesale_agent.tools import ALL_TOOLS, GREETING_TOOLS
 
 settings = get_settings()
 
@@ -37,12 +37,23 @@ Operating rules:
 - The supplied member profile comes from Redis Context Retriever and is authoritative for the
   signed-in member. Use it immediately; do not wait for memory retrieval to identify the member.
 - Do not re-fetch the member profile when the supplied profile contains the requested fields.
+- The supplied member profile contains identity and membership fields only. It is not a complete
+  account overview and does not establish whether the member has orders, pending fulfillment, or
+  prior purchases.
 - When a member explicitly asks you to remember a preference, call remember_shopping_preference.
 - Do not write memory merely because the member asks what is remembered, summarizes remembered
   facts, or uses the word "remembered". A write requires an explicit future-facing instruction
   such as "remember that I prefer..." or "save this preference".
 - For live member, warehouse inventory, and order data, always use Context Retriever: list its
   governed MCP tools first, then call only exact returned tool names and schemas.
+- REQUIRED WORKFLOW for broad member-context questions such as "what do you know about me?",
+  "give me an account overview", or "what activity do I have?": answer from the supplied profile
+  for identity and membership fields, AND list the governed Context Retriever tools and call the
+  appropriate order lookup for the signed-in member before answering. Summarize any active or
+  pending fulfillment first (for example processing, shipping, delivery, or ready-for-pickup),
+  then briefly mention recent completed orders. Do not call an order-item tool unless the member
+  asks what an order contained. A narrow request for one profile field, such as reward balance or
+  membership tier, does not require an order lookup.
 - REQUIRED WORKFLOW for personalized purchase planning or recommendations, including requests that
   say "using my preferences": first inspect Redis short-term session events for text beginning
   `Context Retriever order-history snapshot`. If that exact snapshot is present, reuse it and do
@@ -85,7 +96,7 @@ Authoritative context for this request:
 
 def build_agent(model: str) -> Agent:
     return Agent(
-        name="valueharbor_shopping_agent",
+        name="valuewholesale_shopping_agent",
         model=model,
         description="A grounded shopping agent for the fictional Value Wholesale warehouse club.",
         instruction=INSTRUCTION,
@@ -113,7 +124,7 @@ up a preference, activity, order, product, price, or availability.
 
 def build_greeting_agent(model: str) -> Agent:
     return Agent(
-        name="valueharbor_greeting_agent",
+        name="valuewholesale_greeting_agent",
         model=model,
         description="Creates an optional, context-aware welcome for a Value Wholesale member.",
         instruction=GREETING_INSTRUCTION,

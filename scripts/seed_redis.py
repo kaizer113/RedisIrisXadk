@@ -4,8 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from valueharbor_agent.services import (
+from valuewholesale_agent.services import (
     LOCAL_EMBEDDING_DIMS,
+    POLICY_INDEX_NAME,
     PRODUCT_INDEX_NAME,
     CatalogService,
     services,
@@ -46,7 +47,7 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "HASH",
             "PREFIX",
             1,
-            "valueharbor:product:",
+            "valuewholesale:product:",
             "SCHEMA",
             "sku",
             "TAG",
@@ -81,15 +82,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "EF_CONSTRUCTION",
             200,
         )
-    if "idx:valueharbor:policies" not in indexes:
+    if POLICY_INDEX_NAME not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valueharbor:policies",
+            POLICY_INDEX_NAME,
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valueharbor:policy:",
+            "valuewholesale:policy:",
             "SCHEMA",
             "title",
             "TEXT",
@@ -97,16 +98,26 @@ def ensure_indexes(catalog: CatalogService) -> None:
             2,
             "content",
             "TEXT",
+            "embedding",
+            "VECTOR",
+            "FLAT",
+            6,
+            "TYPE",
+            "FLOAT32",
+            "DIM",
+            LOCAL_EMBEDDING_DIMS,
+            "DISTANCE_METRIC",
+            "COSINE",
         )
-    if "idx:valueharbor:members" not in indexes:
+    if "idx:valuewholesale:members" not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valueharbor:members",
+            "idx:valuewholesale:members",
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valueharbor:member:",
+            "valuewholesale:member:",
             "SCHEMA",
             "member_id",
             "TAG",
@@ -119,15 +130,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "reward_balance",
             "NUMERIC",
         )
-    if "idx:valueharbor:orders" not in indexes:
+    if "idx:valuewholesale:orders" not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valueharbor:orders",
+            "idx:valuewholesale:orders",
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valueharbor:order:",
+            "valuewholesale:order:",
             "SCHEMA",
             "order_id",
             "TAG",
@@ -144,15 +155,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "total",
             "NUMERIC",
         )
-    if "idx:valueharbor:order-items" not in indexes:
+    if "idx:valuewholesale:order-items" not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valueharbor:order-items",
+            "idx:valuewholesale:order-items",
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valueharbor:order-item:",
+            "valuewholesale:order-item:",
             "SCHEMA",
             "order_item_id",
             "TAG",
@@ -193,11 +204,11 @@ def main() -> None:
         mapping["tags"] = ",".join(product["tags"])
         if embedding:
             mapping["embedding"] = embedding
-        key = f"valueharbor:product:{product['sku']}"
+        key = f"valuewholesale:product:{product['sku']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=mapping)
     for warehouse in warehouses:
-        key = f"valueharbor:warehouse:{warehouse['warehouse_id']}"
+        key = f"valuewholesale:warehouse:{warehouse['warehouse_id']}"
         pipeline.delete(key)
         pipeline.hset(
             key,
@@ -205,32 +216,36 @@ def main() -> None:
         )
     for stock in inventory:
         pipeline.set(
-            f"valueharbor:inventory:{stock['warehouse_id']}:{stock['sku']}",
+            f"valuewholesale:inventory:{stock['warehouse_id']}:{stock['sku']}",
             stock["quantity"],
         )
     for member in members:
-        key = f"valueharbor:member:{member['member_id']}"
+        key = f"valuewholesale:member:{member['member_id']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=redis_mapping(member))
     for order in orders:
-        key = f"valueharbor:order:{order['order_id']}"
+        key = f"valuewholesale:order:{order['order_id']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=redis_mapping(order))
     for item in order_items:
-        key = f"valueharbor:order-item:{item['order_item_id']}"
+        key = f"valuewholesale:order-item:{item['order_item_id']}"
         pipeline.delete(key)
         pipeline.hset(
             key, mapping=redis_mapping(item)
         )
     for policy in policies:
-        key = f"valueharbor:policy:{policy['id']}"
+        embedding = catalog._embed(catalog.policy_embedding_text(policy))  # noqa: SLF001
+        mapping = redis_mapping(policy)
+        if embedding:
+            mapping["embedding"] = embedding
+        key = f"valuewholesale:policy:{policy['id']}"
         pipeline.delete(key)
-        pipeline.hset(key, mapping=redis_mapping(policy))
+        pipeline.hset(key, mapping=mapping)
     for memory in memory_seeds:
-        pipeline.hset(f"valueharbor:memory-seed:{memory['id']}", mapping=redis_mapping(memory))
+        pipeline.hset(f"valuewholesale:memory-seed:{memory['id']}", mapping=redis_mapping(memory))
     for evaluation in memory_evaluations:
         pipeline.hset(
-            f"valueharbor:memory-evaluation:{evaluation['case_id']}",
+            f"valuewholesale:memory-evaluation:{evaluation['case_id']}",
             mapping=redis_mapping(evaluation),
         )
     pipeline.execute()

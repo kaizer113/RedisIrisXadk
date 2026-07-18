@@ -1,10 +1,10 @@
-.PHONY: install dev test lint dataset seed setup-context setup-iris setup-memory-bank reset-demo deploy deploy-all deploy-vm check-gcp configure-secrets
+.PHONY: install dev test lint dataset seed setup-context setup-iris setup-memory-bank seed-scale-memory reset-demo deploy deploy-all deploy-vm check-gcp configure-secrets
 
 install:
 	uv sync --all-extras
 
 dev:
-	uv run uvicorn valueharbor_agent.api:app --env-file .env --reload --port 8080
+	uv run uvicorn valuewholesale_agent.api:app --env-file .env --reload --port 8080
 
 test:
 	uv run pytest
@@ -27,6 +27,9 @@ setup-iris: seed setup-context
 setup-memory-bank: dataset
 	uv run python scripts/create_memory_bank.py
 	uv run python -m scripts.seed_managed_memories
+
+seed-scale-memory:
+	uv run python -m scripts.seed_scale_memories --yes
 
 reset-demo:
 	uv run python -m scripts.reset_demo --yes

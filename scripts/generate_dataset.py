@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from valueharbor_agent.demo_data import (
+from valuewholesale_agent.demo_data import (
     INVENTORY,
     MEMBERS,
     ORDERS,
@@ -79,7 +79,7 @@ def large_member_memory_corpus() -> list[dict[str, Any]]:
         {
             "id": f"mem-1005-pref-{index:03d}",
             "owner_id": "member-1005",
-            "namespace": "valueharbor-shopping",
+            "namespace": "valuewholesale-shopping",
             "memory_type": "semantic",
             "text": text,
             "topics": ["shopping", "preference", *topics],
@@ -132,7 +132,7 @@ def large_member_memory_corpus() -> list[dict[str, Any]]:
             {
                 "id": f"mem-1005-event-{sequence:03d}",
                 "owner_id": "member-1005",
-                "namespace": "valueharbor-shopping",
+                "namespace": "valuewholesale-shopping",
                 "memory_type": "episodic",
                 "text": (
                     f"Taylor browsed {product} on {year}-{month:02d}-{day:02d} and {outcome}."
@@ -147,7 +147,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-household",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Alex prefers fragrance-free household and laundry products.",
         "topics": ["shopping", "household", "preference"],
@@ -155,7 +155,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-pickup",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Alex prefers warehouse pickup at the Portland Harbor location.",
         "topics": ["shopping", "fulfillment", "preference"],
@@ -163,7 +163,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-shopping-time",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Alex usually shops on Saturday mornings before 10 AM.",
         "topics": ["shopping", "schedule", "preference"],
@@ -171,7 +171,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-receipts",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Alex prefers receipts delivered by email instead of printed copies.",
         "topics": ["shopping", "receipts", "preference"],
@@ -179,7 +179,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-snacks",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Alex likes lightly salted bulk snacks for neighborhood gatherings.",
         "topics": ["shopping", "food", "preference"],
@@ -187,7 +187,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-telescope",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "episodic",
         "text": "Alex compared two beginner telescopes last winter but did not purchase one.",
         "topics": ["shopping", "outdoors", "browsing"],
@@ -195,7 +195,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-tire-event",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "episodic",
         "text": "Alex attended a tire safety event at the warehouse in May 2026.",
         "topics": ["warehouse", "automotive", "event"],
@@ -203,7 +203,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-patio-return",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "episodic",
         "text": "Alex returned a patio umbrella because it was too large for the balcony.",
         "topics": ["shopping", "outdoors", "return"],
@@ -211,7 +211,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-book-club",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Alex hosts a mystery book club on the first Thursday of each month.",
         "topics": ["personal", "books", "schedule"],
@@ -219,7 +219,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1001-tote",
         "owner_id": "member-1001",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "episodic",
         "text": "Alex brought a blue insulated reusable tote on the last warehouse visit.",
         "topics": ["warehouse", "visit", "accessory"],
@@ -227,7 +227,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1002-theater",
         "owner_id": "member-1002",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Maya is interested in home theater products and extended warranties.",
         "topics": ["shopping", "electronics", "interest"],
@@ -235,7 +235,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1002-delivery",
         "owner_id": "member-1002",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Maya prefers home delivery from the Seattle South warehouse.",
         "topics": ["shopping", "fulfillment", "preference"],
@@ -243,7 +243,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1003-food",
         "owner_id": "member-1003",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Jordan often shops for organic pantry staples and seafood protein.",
         "topics": ["shopping", "food", "interest"],
@@ -251,7 +251,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1003-laptop",
         "owner_id": "member-1003",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "episodic",
         "text": "Jordan purchased a SummitBook laptop for travel in June 2026.",
         "topics": ["shopping", "electronics", "purchase"],
@@ -259,7 +259,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1004-coffee",
         "owner_id": "member-1004",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Sam prefers whole-bean medium roast coffee.",
         "topics": ["shopping", "beverages", "preference"],
@@ -267,7 +267,7 @@ MEMORY_SEEDS = [
     {
         "id": "mem-1004-food",
         "owner_id": "member-1004",
-        "namespace": "valueharbor-shopping",
+        "namespace": "valuewholesale-shopping",
         "memory_type": "semantic",
         "text": "Sam prefers vegetarian party food and avoids seafood recommendations.",
         "topics": ["shopping", "food", "preference"],
@@ -423,7 +423,7 @@ def generate(output_dir: Path) -> dict[str, Any]:
         write_jsonl(output_dir / f"{name}.jsonl", items)
 
     manifest = {
-        "name": "valueharbor-demo",
+        "name": "valuewholesale-demo",
         "version": "1.0.0",
         "generated_at": "2026-07-16T16:00:00Z",
         "format": "jsonl",

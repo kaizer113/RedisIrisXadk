@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-SOURCE_ENV_FILE="${VALUEHARBOR_VM_ENV_FILE:-.env}"
+SOURCE_ENV_FILE="${VALUEWHOLESALE_VM_ENV_FILE:-.env}"
 if [[ ! -f "$SOURCE_ENV_FILE" ]]; then
   echo "$SOURCE_ENV_FILE is required. Copy .env.example and configure it first."
   exit 1
@@ -17,16 +17,16 @@ set +a
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-east4}"
-ZONE="${VALUEHARBOR_VM_ZONE:-us-east4-c}"
-VM_NAME="${VALUEHARBOR_VM_NAME:-valueharbor-demo}"
+ZONE="${VALUEWHOLESALE_VM_ZONE:-us-east4-c}"
+VM_NAME="${VALUEWHOLESALE_VM_NAME:-valuewholesale-demo}"
 MACHINE_TYPE="e2-standard-4"
 NETWORK="default"
-NETWORK_TAG="valueharbor-web"
-FIREWALL_RULE="valueharbor-allow-http"
-REPOSITORY="valueharbor"
-SERVICE="valueharbor-shopping-agent"
+NETWORK_TAG="valuewholesale-web"
+FIREWALL_RULE="valuewholesale-allow-http"
+REPOSITORY="valuewholesale"
+SERVICE="valuewholesale-shopping-agent"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="owner=lionel_giavelli,app=valueharbor,environment=demo"
+LABELS="owner=lionel_giavelli,app=valuewholesale,environment=demo"
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required"; exit 1; }
@@ -41,7 +41,7 @@ if ! gcloud artifacts repositories describe "$REPOSITORY" --location "$REGION" >
     --labels "$LABELS"
 fi
 
-if [[ "${VALUEHARBOR_SKIP_BUILD:-false}" != "true" ]]; then
+if [[ "${VALUEWHOLESALE_SKIP_BUILD:-false}" != "true" ]]; then
   gcloud builds submit --tag "$IMAGE" .
 fi
 
@@ -61,7 +61,7 @@ if gcloud compute instances describe "$VM_NAME" --zone "$ZONE" >/dev/null 2>&1; 
   current_type="$(gcloud compute instances describe "$VM_NAME" --zone "$ZONE" --format='value(machineType.basename())')"
   if [[ "$current_type" != "$MACHINE_TYPE" ]]; then
     echo "Existing VM $VM_NAME uses $current_type; expected $MACHINE_TYPE."
-    echo "Choose another VALUEHARBOR_VM_NAME or resize the VM explicitly."
+    echo "Choose another VALUEWHOLESALE_VM_NAME or resize the VM explicitly."
     exit 1
   fi
   status="$(gcloud compute instances describe "$VM_NAME" --zone "$ZONE" --format='value(status)')"
@@ -103,14 +103,14 @@ if [[ "$ready" != "true" ]]; then
   exit 1
 fi
 
-RUNTIME_ENV_FILE="$(mktemp /tmp/valueharbor-vm-env.XXXXXX)"
+RUNTIME_ENV_FILE="$(mktemp /tmp/valuewholesale-vm-env.XXXXXX)"
 trap 'rm -f "$RUNTIME_ENV_FILE"' EXIT
 chmod 600 "$RUNTIME_ENV_FILE"
 while IFS= read -r line; do
   key="${line%%=*}"
   case "$key" in
-    GOOGLE_*|VALUEHARBOR_*|REDIS_URL|CTX_MCP_URL|MCP_AGENT_KEY|LANGCACHE_*|AGENT_MEMORY_*|PORT|LOG_LEVEL)
-      if [[ "$key" == "REDIS_URL" && -n "${VALUEHARBOR_VM_REDIS_HOST:-}" ]]; then
+    GOOGLE_*|VALUEWHOLESALE_*|REDIS_URL|CTX_MCP_URL|MCP_AGENT_KEY|LANGCACHE_*|AGENT_MEMORY_*|PORT|LOG_LEVEL)
+      if [[ "$key" == "REDIS_URL" && -n "${VALUEWHOLESALE_VM_REDIS_HOST:-}" ]]; then
         redis_value="${line#REDIS_URL=}"
         redis_prefix="${redis_value%@*}"
         redis_host_and_port="${redis_value##*@}"
@@ -119,28 +119,28 @@ while IFS= read -r line; do
           echo "REDIS_URL must include credentials, a hostname, and a port."
           exit 1
         fi
-        line="REDIS_URL=${redis_prefix}@${VALUEHARBOR_VM_REDIS_HOST}:${redis_port}"
+        line="REDIS_URL=${redis_prefix}@${VALUEWHOLESALE_VM_REDIS_HOST}:${redis_port}"
       fi
       printf '%s\n' "$line" >> "$RUNTIME_ENV_FILE"
       ;;
   esac
 done < "$SOURCE_ENV_FILE"
 
-gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/valueharbor.env" --zone "$ZONE" --quiet
+gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/valuewholesale.env" --zone "$ZONE" --quiet
 gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "
   set -e
-  sudo install -o root -g root -m 600 ~/valueharbor.env /etc/valueharbor.env
-  rm -f ~/valueharbor.env
+  sudo install -o root -g root -m 600 ~/valuewholesale.env /etc/valuewholesale.env
+  rm -f ~/valuewholesale.env
   token=\$(curl -fsS -H 'Metadata-Flavor: Google' \
     'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"access_token\"])')
   printf '%s' \"\$token\" | sudo docker login -u oauth2accesstoken --password-stdin https://$REGION-docker.pkg.dev
   sudo docker pull '$IMAGE'
-  sudo docker rm -f valueharbor-agent >/dev/null 2>&1 || true
+  sudo docker rm -f valuewholesale-agent >/dev/null 2>&1 || true
   sudo docker run -d \
-    --name valueharbor-agent \
+    --name valuewholesale-agent \
     --restart unless-stopped \
-    --env-file /etc/valueharbor.env \
+    --env-file /etc/valuewholesale.env \
     -e PORT=8080 \
     -p 80:8080 \
     '$IMAGE'
@@ -160,7 +160,7 @@ for _ in $(seq 1 30); do
 done
 if [[ "$healthy" != "true" ]]; then
   echo "Container started, but the public health check did not pass."
-  echo "Inspect it with: gcloud compute ssh $VM_NAME --zone $ZONE --command 'sudo docker logs valueharbor-agent'"
+  echo "Inspect it with: gcloud compute ssh $VM_NAME --zone $ZONE --command 'sudo docker logs valuewholesale-agent'"
   exit 1
 fi
 

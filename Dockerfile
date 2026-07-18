@@ -12,8 +12,8 @@ COPY pyproject.toml uv.lock README.md ./
 RUN uv sync --frozen --no-dev
 RUN uv run --no-sync python -c "from huggingface_hub import snapshot_download; snapshot_download('redis/langcache-embed-v3-small')"
 
-COPY valueharbor_agent ./valueharbor_agent
+COPY valuewholesale_agent ./valuewholesale_agent
 COPY scripts ./scripts
 
 EXPOSE 8080
-CMD ["sh", "-c", "uv run --no-sync uvicorn valueharbor_agent.api:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uv run --no-sync uvicorn valuewholesale_agent.api:app --host 0.0.0.0 --port ${PORT}"]

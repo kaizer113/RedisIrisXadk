@@ -1,5 +1,5 @@
 [project]
-name = "valueharbor-shopping-agent"
+name = "valuewholesale-shopping-agent"
 version = "0.1.0"
 description = "A Redis IRIS shopping-agent workshop built with Google ADK for GCP."
 readme = "README.md"

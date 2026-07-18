@@ -5,7 +5,7 @@ from pathlib import Path
 
 import vertexai
 
-DISPLAY_NAME = "valueharbor-memory-bank"
+DISPLAY_NAME = "valuewholesale-memory-bank"
 
 
 def memory_bank_config() -> dict:
@@ -68,7 +68,7 @@ def main() -> None:
             config={
                 "display_name": DISPLAY_NAME,
                 "description": "ADK memory for the Value Wholesale shopping agent.",
-                "labels": {"owner": "lionel_giavelli", "app": "valueharbor"},
+                "labels": {"owner": "lionel_giavelli", "app": "valuewholesale"},
                 **memory_bank_config(),
             }
         )
@@ -78,7 +78,7 @@ def main() -> None:
             config={
                 "display_name": DISPLAY_NAME,
                 "description": "ADK memory for the Value Wholesale shopping agent.",
-                "labels": {"owner": "lionel_giavelli", "app": "valueharbor"},
+                "labels": {"owner": "lionel_giavelli", "app": "valuewholesale"},
                 **memory_bank_config(),
             },
         )

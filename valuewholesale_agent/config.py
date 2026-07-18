@@ -16,19 +16,19 @@ class Settings(BaseSettings):
     google_genai_use_vertexai: bool = True
     google_memory_location: str = "us-east4"
     google_agent_engine_id: str = ""
-    valueharbor_vector_search_enabled: bool = True
-    valueharbor_embedding_model: str = "redis/langcache-embed-v3-small"
-    valueharbor_embedding_device: str = "cpu"
-    valueharbor_embedding_cache_ttl_seconds: int = Field(default=86_400, ge=60)
+    valuewholesale_vector_search_enabled: bool = True
+    valuewholesale_embedding_model: str = "redis/langcache-embed-v3-small"
+    valuewholesale_embedding_device: str = "cpu"
+    valuewholesale_embedding_cache_ttl_seconds: int = Field(default=86_400, ge=60)
 
-    valueharbor_demo_member_id: str = "member-1001"
-    valueharbor_demo_session_id: str = "shopping-demo-1"
+    valuewholesale_demo_member_id: str = "member-1001"
+    valuewholesale_demo_session_id: str = "shopping-demo-1"
 
     redis_url: str = ""
     mcp_agent_key: str = ""
 
-    valueharbor_semantic_router_threshold: float = Field(default=0.48, gt=0, le=2)
-    valueharbor_semantic_router_index: str = "valueharbor-cache-router-v2"
+    valuewholesale_semantic_router_threshold: float = Field(default=0.48, gt=0, le=2)
+    valuewholesale_semantic_router_index: str = "valuewholesale-cache-router-v2"
 
     langcache_host: str = ""
     langcache_cache_id: str = ""
@@ -38,10 +38,10 @@ class Settings(BaseSettings):
     agent_memory_base_url: str = ""
     agent_memory_store_id: str = ""
     agent_memory_api_key: str = ""
-    agent_memory_namespace: str = "valueharbor-shopping"
+    agent_memory_namespace: str = "valuewholesale-shopping"
     agent_memory_similarity_threshold: float = Field(default=0.30, ge=0, le=1)
 
-    valueharbor_agent_timeout_seconds: float = Field(default=90, ge=5, le=120)
+    valuewholesale_agent_timeout_seconds: float = Field(default=90, ge=5, le=120)
 
     port: int = 8080
     log_level: str = "INFO"

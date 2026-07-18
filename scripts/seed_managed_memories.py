@@ -9,10 +9,10 @@ from typing import Any
 import vertexai
 from redis_agent_memory import AgentMemory
 
-from valueharbor_agent.config import Settings
+from valuewholesale_agent.config import Settings
 
-APP_NAME = "valueharbor-shopping-agent"
-REDIS_BATCH_SIZE = 50
+APP_NAME = "valuewholesale-shopping-agent"
+REDIS_BATCH_SIZE = 100
 REDIS_TIMEOUT_MS = 120_000
 VERTEX_WRITES_PER_MINUTE = 80
 

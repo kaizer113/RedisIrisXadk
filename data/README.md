@@ -23,15 +23,15 @@ All names, orders, prices, and preferences are synthetic. No real customer data 
 The seed loader uses flat Hashes for independently searchable entities and Strings for atomic inventory quantities:
 
 ```text
-valueharbor:product:{sku}                         Hash
-valueharbor:warehouse:{warehouse_id}              Hash
-valueharbor:inventory:{warehouse_id}:{sku}        String integer
-valueharbor:member:{member_id}                    Hash
-valueharbor:order:{order_id}                      Hash
-valueharbor:order-item:{order_item_id}             Hash
-valueharbor:policy:{policy_id}                    Hash
-valueharbor:memory-seed:{memory_id}                Hash staging record
-valueharbor:memory-evaluation:{case_id}            Hash staging record
+valuewholesale:product:{sku}                         Hash
+valuewholesale:warehouse:{warehouse_id}              Hash
+valuewholesale:inventory:{warehouse_id}:{sku}        String integer
+valuewholesale:member:{member_id}                    Hash
+valuewholesale:order:{order_id}                      Hash
+valuewholesale:order-item:{order_item_id}             Hash
+valuewholesale:policy:{policy_id}                    Hash
+valuewholesale:memory-seed:{memory_id}                Hash staging record
+valuewholesale:memory-evaluation:{case_id}            Hash staging record
 ```
 
 The keys are lowercase and colon-separated. Product, policy, member, order, and order-item prefixes are indexed by Redis Query Engine. Inventory remains a direct O(1) lookup because the agent normally knows both the warehouse and SKU after product discovery. Memory seed records in the database are the reproducible source corpus; they will also be copied into each managed memory service for comparison.

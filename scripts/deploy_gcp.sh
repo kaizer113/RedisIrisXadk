@@ -11,10 +11,10 @@ fi
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-east4}"
 MEMORY_REGION="${GOOGLE_MEMORY_LOCATION:-$REGION}"
-SERVICE="valueharbor-shopping-agent"
-REPOSITORY="valueharbor"
+SERVICE="valuewholesale-shopping-agent"
+REPOSITORY="valuewholesale"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="owner=lionel_giavelli,app=valueharbor,environment=demo"
+LABELS="owner=lionel_giavelli,app=valuewholesale,environment=demo"
 ACCESS_FLAGS=(--no-invoker-iam-check)
 if [[ "${PUBLIC_ACCESS:-true}" == "false" ]]; then
   ACCESS_FLAGS=()
@@ -31,7 +31,7 @@ fi
 
 gcloud builds submit --tag "$IMAGE" .
 
-RUNTIME_ENV_FILE="$(mktemp /tmp/valueharbor-cloud-run-env.XXXXXX.json)"
+RUNTIME_ENV_FILE="$(mktemp /tmp/valuewholesale-cloud-run-env.XXXXXX.json)"
 trap 'rm -f "$RUNTIME_ENV_FILE"' EXIT
 uv run python - "$RUNTIME_ENV_FILE" <<'PY'
 import json
@@ -46,14 +46,14 @@ names = [
     "GOOGLE_MODEL",
     "GOOGLE_MODELS",
     "GOOGLE_AGENT_ENGINE_ID",
-    "VALUEHARBOR_VECTOR_SEARCH_ENABLED",
-    "VALUEHARBOR_EMBEDDING_MODEL",
-    "VALUEHARBOR_EMBEDDING_DEVICE",
-    "VALUEHARBOR_EMBEDDING_CACHE_TTL_SECONDS",
-    "VALUEHARBOR_SEMANTIC_ROUTER_THRESHOLD",
-    "VALUEHARBOR_SEMANTIC_ROUTER_INDEX",
-    "VALUEHARBOR_DEMO_MEMBER_ID",
-    "VALUEHARBOR_DEMO_SESSION_ID",
+    "VALUEWHOLESALE_VECTOR_SEARCH_ENABLED",
+    "VALUEWHOLESALE_EMBEDDING_MODEL",
+    "VALUEWHOLESALE_EMBEDDING_DEVICE",
+    "VALUEWHOLESALE_EMBEDDING_CACHE_TTL_SECONDS",
+    "VALUEWHOLESALE_SEMANTIC_ROUTER_THRESHOLD",
+    "VALUEWHOLESALE_SEMANTIC_ROUTER_INDEX",
+    "VALUEWHOLESALE_DEMO_MEMBER_ID",
+    "VALUEWHOLESALE_DEMO_SESSION_ID",
     "REDIS_URL",
     "CTX_MCP_URL",
     "MCP_AGENT_KEY",

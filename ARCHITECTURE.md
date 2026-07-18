@@ -137,10 +137,10 @@ These fallbacks are for demo resilience, not a production consistency or availab
 
 | Path | Purpose |
 |---|---|
-| `valueharbor_agent/api.py` | HTTP API, concurrent retrieval, cache branching, runners, streaming trace, and memory comparison endpoint. |
-| `valueharbor_agent/agent.py` | Vale's instructions, model-specific agent construction, and Memory Bank promotion callback. |
-| `valueharbor_agent/tools.py` | ADK commerce, Context Retriever, cart, and memory tools. |
-| `valueharbor_agent/services.py` | RedisVL routing, LangCache, Redis Agent Memory, Context Retriever, Redis data, and Vertex Memory Bank adapters. |
-| `valueharbor_agent/config.py` | Environment-driven service, model, project, and region configuration. |
-| `valueharbor_agent/static/` | Browser chat UI and live execution trace. |
+| `valuewholesale_agent/api.py` | HTTP API, concurrent retrieval, cache branching, runners, streaming trace, and memory comparison endpoint. |
+| `valuewholesale_agent/agent.py` | Vale's instructions, model-specific agent construction, and Memory Bank promotion callback. |
+| `valuewholesale_agent/tools.py` | ADK commerce, Context Retriever, cart, and memory tools. |
+| `valuewholesale_agent/services.py` | RedisVL routing, LangCache, Redis Agent Memory, Context Retriever, Redis data, and Vertex Memory Bank adapters. |
+| `valuewholesale_agent/config.py` | Environment-driven service, model, project, and region configuration. |
+| `valuewholesale_agent/static/` | Browser chat UI and live execution trace. |
 | `data/generated/` | Versioned, reproducible demo entities, memories, and retrieval evaluation cases. |

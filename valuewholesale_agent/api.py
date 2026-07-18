@@ -19,10 +19,10 @@ from google.adk.sessions import InMemorySessionService, VertexAiSessionService
 from google.genai import types
 from pydantic import BaseModel, Field, field_validator
 
-from valueharbor_agent.agent import build_agent, build_greeting_agent
-from valueharbor_agent.config import get_settings
-from valueharbor_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
-from valueharbor_agent.services import (
+from valuewholesale_agent.agent import build_agent, build_greeting_agent
+from valuewholesale_agent.config import get_settings
+from valuewholesale_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
+from valuewholesale_agent.services import (
     compare_memory_retrieval,
     memory_snippets,
     safe_id,
@@ -33,8 +33,8 @@ settings = get_settings()
 log = logging.getLogger(__name__)
 logging.basicConfig(level=settings.log_level)
 
-APP_NAME = "valueharbor-shopping-agent"
-GREETING_APP_NAME = "valueharbor-greeting-agent"
+APP_NAME = "valuewholesale-shopping-agent"
+GREETING_APP_NAME = "valuewholesale-greeting-agent"
 STATIC_DIR = Path(__file__).with_name("static")
 
 
@@ -103,8 +103,8 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8_000)
-    member_id: str = Field(default=settings.valueharbor_demo_member_id, max_length=64)
-    session_id: str = Field(default=settings.valueharbor_demo_session_id, max_length=64)
+    member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
+    session_id: str = Field(default=settings.valuewholesale_demo_session_id, max_length=64)
     model: str = Field(default=settings.google_model, max_length=100)
 
     @field_validator("model")
@@ -116,8 +116,8 @@ class ChatRequest(BaseModel):
 
 
 class GreetingRequest(BaseModel):
-    member_id: str = Field(default=settings.valueharbor_demo_member_id, max_length=64)
-    session_id: str = Field(default=settings.valueharbor_demo_session_id, max_length=64)
+    member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
+    session_id: str = Field(default=settings.valuewholesale_demo_session_id, max_length=64)
     model: str = Field(default=settings.google_model, max_length=100)
 
     @field_validator("model")
@@ -130,7 +130,7 @@ class GreetingRequest(BaseModel):
 
 class MemoryCompareRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2_000)
-    member_id: str = Field(default=settings.valueharbor_demo_member_id, max_length=64)
+    member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
     expected_terms: list[str] = Field(default_factory=list, max_length=20)
     runs: int = Field(default=1, ge=1, le=10)
 
@@ -190,6 +190,10 @@ def _tool_label(name: str, arguments: dict[str, Any]) -> str:
         limit = arguments.get("limit", 5)
         compact_query = f'"{query[:72]}{"…" if len(query) > 72 else ""}"'
         return f"RedisVL Search Catalog · {compact_query} · {category} · limit {limit}"
+    if name == "search_member_policies":
+        query = str(arguments.get("query", "")).strip()
+        compact_query = f'"{query[:72]}{"…" if len(query) > 72 else ""}"'
+        return f"RedisVL Search Policies · {compact_query}"
     if name == "list_context_retriever_tools":
         return "Context Retriever · discover MCP tools"
     if name == "query_context_retriever":
@@ -297,8 +301,8 @@ def member_profile_source_label(source: str) -> str:
 async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     """Run one shopping turn and emit observable steps as newline-delimited events."""
     total_started = time.perf_counter()
-    member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
-    session_id = safe_id(request.session_id, settings.valueharbor_demo_session_id)
+    member_id = safe_id(request.member_id, settings.valuewholesale_demo_member_id)
+    session_id = safe_id(request.session_id, settings.valuewholesale_demo_session_id)
 
     yield {"type": "start", "session_id": session_id}
 
@@ -367,7 +371,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     if routing.get("embedding_duration_ms") is not None:
         route_details.append(
             f"Local embedding: {routing['embedding_duration_ms']} ms · "
-            f"{settings.valueharbor_embedding_model}"
+            f"{settings.valuewholesale_embedding_model}"
         )
     if routing.get("redisvl_duration_ms") is not None:
         route_details.append(f"Redis vector classification: {routing['redisvl_duration_ms']} ms")
@@ -517,7 +521,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     "langcache",
                     "Checking Redis LangCache",
                     duration_ms=duration,
-                    summary=(f"Hit · {cache_scope}" if hit else f"Miss · {cache_scope}"),
+                    summary=(f"Hit · {cache_scope}" if hit else "Miss"),
                     details=(
                         [
                             f"Current query: {request.message}",
@@ -627,7 +631,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             await asyncio.gather(*tasks, return_exceptions=True)
 
     try:
-        async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
+        async with asyncio.timeout(settings.valuewholesale_agent_timeout_seconds):
             runner_events = (
                 runners[request.model]
                 .run_async(
@@ -763,8 +767,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
 async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, Any]]:
     """Hydrate the shopping session, then generate an optionally personalized greeting."""
-    member_id = safe_id(request.member_id, settings.valueharbor_demo_member_id)
-    shopping_session_id = safe_id(request.session_id, settings.valueharbor_demo_session_id)
+    member_id = safe_id(request.member_id, settings.valuewholesale_demo_member_id)
+    shopping_session_id = safe_id(request.session_id, settings.valuewholesale_demo_session_id)
     session_id = safe_id(f"{shopping_session_id}-greeting", "greeting-session")
     tool_starts: dict[str, tuple[float, str, dict[str, Any], bool]] = {}
     context_sources: list[str] = []
@@ -792,7 +796,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     )
     runner_started = time.perf_counter()
     try:
-        async with asyncio.timeout(settings.valueharbor_agent_timeout_seconds):
+        async with asyncio.timeout(settings.valuewholesale_agent_timeout_seconds):
             async for event in greeting_runners[request.model].run_async(
                 user_id=member_id,
                 session_id=session_id,
@@ -968,7 +972,7 @@ async def health() -> dict[str, Any]:
         "cloud_run_location": settings.google_cloud_location,
         "memory_bank_location": settings.google_memory_location,
         "default_model": settings.google_model,
-        "embedding_model": settings.valueharbor_embedding_model,
+        "embedding_model": settings.valuewholesale_embedding_model,
         "models": settings.available_google_models,
         "services": {
             "redis_database": settings.redis_configured,
@@ -1059,7 +1063,7 @@ async def chat(request: ChatRequest) -> dict[str, Any]:
         raise HTTPException(status_code=502, detail="Agent returned no final response")
     return {
         "answer": answer,
-        "session_id": safe_id(request.session_id, settings.valueharbor_demo_session_id),
+        "session_id": safe_id(request.session_id, settings.valuewholesale_demo_session_id),
         "cache": {"hit": cache_hit},
         "trace": trace,
     }
@@ -1098,7 +1102,7 @@ async def memory_compare(request: MemoryCompareRequest) -> dict[str, Any]:
         samples.append(
             await compare_memory_retrieval(
                 request.query,
-                safe_id(request.member_id, settings.valueharbor_demo_member_id),
+                safe_id(request.member_id, settings.valuewholesale_demo_member_id),
                 request.expected_terms,
             )
         )

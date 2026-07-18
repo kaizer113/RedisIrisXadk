@@ -3146,7 +3146,7 @@ wheels = [
 ]
 
 [[package]]
-name = "valueharbor-shopping-agent"
+name = "valuewholesale-shopping-agent"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

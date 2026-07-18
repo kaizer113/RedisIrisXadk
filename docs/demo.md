@@ -69,10 +69,12 @@ than being invented by the model.
 
 Prompt:
 
-> Do I have a recent order ready for pickup, and where should I collect it?
+> What do you know about me?
 
-Expected result: the agent finds order `VH-ORD-1048`, which is ready for pickup at Portland.
-The trace should expose the Context Retriever order lookup rather than a hidden database call.
+Expected result: the agent combines Alex's membership profile with live order context. It should
+lead with order `VH-ORD-1048`, which is ready for pickup at Portland, and may briefly mention the
+recent delivered order `VH-ORD-1026`. The trace should expose the Context Retriever order lookup
+rather than stopping after the preloaded profile or using a hidden database call.
 
 Talk track: Context Retriever gives the agent a controlled tool contract over live commerce
 entities such as members, inventory, orders, and order lines.

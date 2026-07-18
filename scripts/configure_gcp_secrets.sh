@@ -3,8 +3,8 @@ set -euo pipefail
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
 REGION="${GOOGLE_CLOUD_LOCATION:-us-east4}"
-SERVICE="valueharbor-shopping-agent"
-LABELS="owner=lionel_giavelli,app=valueharbor,environment=demo"
+SERVICE="valuewholesale-shopping-agent"
+LABELS="owner=lionel_giavelli,app=valuewholesale,environment=demo"
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required"; exit 1; }
 
@@ -24,10 +24,10 @@ put_secret() {
   printf '%s' "$secret_value" | gcloud secrets versions add "$secret_name" --project "$PROJECT_ID" --data-file=- >/dev/null
 }
 
-put_secret valueharbor-redis-url REDIS_URL
-put_secret valueharbor-mcp-agent-key MCP_AGENT_KEY
-put_secret valueharbor-langcache-api-key LANGCACHE_API_KEY
-put_secret valueharbor-agent-memory-api-key AGENT_MEMORY_API_KEY
+put_secret valuewholesale-redis-url REDIS_URL
+put_secret valuewholesale-mcp-agent-key MCP_AGENT_KEY
+put_secret valuewholesale-langcache-api-key LANGCACHE_API_KEY
+put_secret valuewholesale-agent-memory-api-key AGENT_MEMORY_API_KEY
 
 for env_name in LANGCACHE_HOST LANGCACHE_CACHE_ID AGENT_MEMORY_BASE_URL AGENT_MEMORY_STORE_ID; do
   if [[ -z "${!env_name:-}" ]]; then
@@ -40,4 +40,4 @@ gcloud run services update "$SERVICE" \
   --project "$PROJECT_ID" \
   --region "$REGION" \
   --update-env-vars "LANGCACHE_HOST=$LANGCACHE_HOST,LANGCACHE_CACHE_ID=$LANGCACHE_CACHE_ID,AGENT_MEMORY_BASE_URL=$AGENT_MEMORY_BASE_URL,AGENT_MEMORY_STORE_ID=$AGENT_MEMORY_STORE_ID" \
-  --update-secrets "REDIS_URL=valueharbor-redis-url:latest,MCP_AGENT_KEY=valueharbor-mcp-agent-key:latest,LANGCACHE_API_KEY=valueharbor-langcache-api-key:latest,AGENT_MEMORY_API_KEY=valueharbor-agent-memory-api-key:latest"
+  --update-secrets "REDIS_URL=valuewholesale-redis-url:latest,MCP_AGENT_KEY=valuewholesale-mcp-agent-key:latest,LANGCACHE_API_KEY=valuewholesale-langcache-api-key:latest,AGENT_MEMORY_API_KEY=valuewholesale-agent-memory-api-key:latest"

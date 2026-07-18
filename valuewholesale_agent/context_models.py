@@ -8,7 +8,7 @@ from context_surfaces.context_model import ContextField, ContextModel, ContextRe
 
 
 class Product(ContextModel):
-    __redis_key_template__ = "valueharbor:context:product:{sku}"
+    __redis_key_template__ = "valuewholesale:context:product:{sku}"
 
     sku: str = ContextField(description="Unique product SKU", is_key_component=True)
     name: str = ContextField(description="Product name", index="text", weight=2.0)
@@ -33,7 +33,7 @@ class Product(ContextModel):
 
 
 class Warehouse(ContextModel):
-    __redis_key_template__ = "valueharbor:context:warehouse:{warehouse_id}"
+    __redis_key_template__ = "valuewholesale:context:warehouse:{warehouse_id}"
 
     warehouse_id: str = ContextField(description="Warehouse identifier", is_key_component=True)
     name: str = ContextField(description="Warehouse name", index="text", weight=2.0)
@@ -54,7 +54,7 @@ class Warehouse(ContextModel):
 
 class Inventory(ContextModel):
     # Separate hash records preserve the application's O(1) String inventory keys.
-    __redis_key_template__ = "valueharbor:context:inventory:{inventory_id}"
+    __redis_key_template__ = "valuewholesale:context:inventory:{inventory_id}"
 
     inventory_id: str = ContextField(description="Inventory record ID", is_key_component=True)
     warehouse_id: str = ContextField(description="Warehouse identifier", index="tag")
@@ -75,7 +75,7 @@ class Inventory(ContextModel):
 
 
 class Member(ContextModel):
-    __redis_key_template__ = "valueharbor:context:member:{member_id}"
+    __redis_key_template__ = "valuewholesale:context:member:{member_id}"
 
     member_id: str = ContextField(description="Member identifier", is_key_component=True)
     name: str = ContextField(description="Member name", index="text", weight=2.0)
@@ -99,7 +99,7 @@ class Member(ContextModel):
 
 
 class Order(ContextModel):
-    __redis_key_template__ = "valueharbor:context:order:{order_id}"
+    __redis_key_template__ = "valuewholesale:context:order:{order_id}"
 
     order_id: str = ContextField(description="Order identifier", is_key_component=True)
     member_id: str = ContextField(description="Member who placed the order", index="tag")
@@ -123,7 +123,7 @@ class Order(ContextModel):
 
 
 class OrderItem(ContextModel):
-    __redis_key_template__ = "valueharbor:context:order-item:{order_item_id}"
+    __redis_key_template__ = "valuewholesale:context:order-item:{order_item_id}"
 
     order_item_id: str = ContextField(description="Order-line identifier", is_key_component=True)
     order_id: str = ContextField(description="Parent order", index="tag")
@@ -143,11 +143,3 @@ class OrderItem(ContextModel):
         target="Product",
         source_field="sku",
     )
-
-
-class Policy(ContextModel):
-    __redis_key_template__ = "valueharbor:context:policy:{id}"
-
-    id: str = ContextField(description="Policy identifier", is_key_component=True)
-    title: str = ContextField(description="Policy title", index="text", weight=2.0)
-    content: str = ContextField(description="Authoritative policy text", index="text")

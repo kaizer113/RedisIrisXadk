@@ -52,7 +52,7 @@ ADK Memory Bank generation independently.
 ```bash
 cp .env.example .env
 uv sync --all-extras
-uv run uvicorn valueharbor_agent.api:app --env-file .env --reload --port 8080
+uv run uvicorn valuewholesale_agent.api:app --env-file .env --reload --port 8080
 ```
 
 `.env.example` is the checked-in configuration template. Each developer copies it to the gitignored `.env` file and adds their own service endpoints, IDs, and credentials there. Never commit a live Redis URL or API key.
@@ -75,7 +75,15 @@ Then seed the Redis catalog and inventory:
 make setup-iris
 ```
 
-`make setup-iris` is the repeatable Redis setup command. It regenerates the dataset, seeds the Redis database, creates or updates the existing `ValueHarbor Shopping` Context Surface through `ctxctl`, imports the Value Wholesale entities, and creates a surface-scoped agent key when `.env` does not already contain one. The Context Surface keeps its original resource name for compatibility.
+`make setup-iris` is the repeatable Redis setup command. It regenerates the dataset, seeds the Redis database, creates or updates the `Value Wholesale Shopping` Context Surface through `ctxctl`, imports the Value Wholesale entities, and creates a surface-scoped agent key when `.env` does not already contain one.
+
+For an optional long-term-memory scale corpus, run `make seed-scale-memory`. It writes 100
+deterministic memories for each of 100 synthetic `scale-member-*` owners to both Redis Agent
+Memory and ADK Memory Bank. These owners are deliberately absent from the commerce member dataset,
+so they never appear in the UI. Redis uses 100-record bulk writes; ADK writes each owner-scoped
+memory separately and takes about 125 minutes at the configured 80 writes/minute quota. Preview
+the corpus without external writes with
+`uv run python -m scripts.seed_scale_memories --dry-run`.
 
 Once every managed-service ID is present in `.env` and GCP authentication is active, `make deploy-all` performs the Redis setup and deploys the public Cloud Run service in one command. This demo path uses the project's existing default Cloud Run identity and revision environment variables, so it does not create service accounts or change project IAM. Production deployments should use a dedicated least-privilege service identity and Secret Manager.
 
@@ -96,7 +104,7 @@ make deploy-vm
 
 `make deploy-vm` regenerates and seeds the demo data, updates Context Retriever, creates or
 reuses the ADK Memory Bank, seeds both long-term memory providers, builds the container, and
-updates the existing `valueharbor-demo` VM in `us-east4-c`. It prints the public URL after the
+updates the existing `valuewholesale-demo` VM in `us-east4-c`. It prints the public URL after the
 health check passes.
 
 For a code-only redeploy that leaves the managed-service data unchanged:
@@ -115,7 +123,7 @@ The expected response reports both Gemini models and all Redis/Google integratio
 Stop the VM when the demo is not needed:
 
 ```bash
-gcloud compute instances stop valueharbor-demo --zone us-east4-c
+gcloud compute instances stop valuewholesale-demo --zone us-east4-c
 ```
 
 The deterministic JSONL dataset lives in [`data/generated`](data/generated) and includes products, warehouses, inventory, members, normalized orders, policies, identical memory seeds, and labeled retrieval-evaluation cases. See [`data/README.md`](data/README.md) for its schema and Redis key model.

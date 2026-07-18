@@ -14,20 +14,19 @@ from context_surfaces import UnifiedClient
 from dotenv import dotenv_values
 
 from scripts.generate_dataset import records
-from valueharbor_agent.context_models import (
+from valuewholesale_agent.context_models import (
     Inventory,
     Member,
     Order,
     OrderItem,
-    Policy,
     Product,
     Warehouse,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / ".env"
-MODELS_PATH = ROOT / "valueharbor_agent" / "context_models.py"
-SURFACE_NAME = "ValueHarbor Shopping"
+MODELS_PATH = ROOT / "valuewholesale_agent" / "context_models.py"
+SURFACE_NAME = "Value Wholesale Shopping"
 
 
 def upsert_env(updates: dict[str, str]) -> None:
@@ -139,7 +138,7 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "--surface-id",
             surface_id,
             "--name",
-            "valueharbor-adk-shopping-agent",
+            "valuewholesale-adk-shopping-agent",
             "--description",
             "Public Value Wholesale workshop agent",
             admin_key=admin_key,
@@ -160,7 +159,6 @@ async def import_records(surface_id: str, admin_key: str) -> None:
         Member: datasets["members"],
         Order: datasets["orders"],
         OrderItem: datasets["order_items"],
-        Policy: datasets["policies"],
     }
     async with UnifiedClient() as client:
         for model, rows in entities.items():

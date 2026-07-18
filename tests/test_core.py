@@ -12,9 +12,10 @@ from redisvl.query import TextQuery, VectorQuery
 
 from scripts import seed_managed_memories as managed_seed
 from scripts.generate_dataset import records
-from valueharbor_agent import api as api_module
-from valueharbor_agent.agent import build_agent, build_greeting_agent
-from valueharbor_agent.api import (
+from scripts.seed_scale_memories import build_memories, memory_templates
+from valuewholesale_agent import api as api_module
+from valuewholesale_agent.agent import build_agent, build_greeting_agent
+from valuewholesale_agent.api import (
     _chat_events,
     _context_result_session_event,
     _greeting_events,
@@ -26,11 +27,13 @@ from valueharbor_agent.api import (
     trace_event,
     warmup_redis_services,
 )
-from valueharbor_agent.config import Settings
-from valueharbor_agent.services import (
+from valuewholesale_agent.config import Settings
+from valuewholesale_agent.demo_data import MEMBERS
+from valuewholesale_agent.services import (
     ECOMMERCE_REFERENCES,
     ECOMMERCE_ROUTE,
     OUT_OF_DOMAIN_ROUTE,
+    POLICY_INDEX_NAME,
     PRODUCT_EDUCATION_ROUTE,
     PRODUCT_INDEX_NAME,
     PUBLIC_POLICY_ROUTE,
@@ -47,7 +50,7 @@ from valueharbor_agent.services import (
     safe_id,
     services,
 )
-from valueharbor_agent.tools import (
+from valuewholesale_agent.tools import (
     _catalog_cache,
     query_context_retriever,
     search_catalog,
@@ -67,17 +70,36 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.google_cloud_location == "us-east4"
     assert settings.google_memory_location == "us-east4"
     assert settings.available_google_models == ("gemini-2.5-flash", "gemini-2.5-pro")
-    assert settings.valueharbor_embedding_model == "redis/langcache-embed-v3-small"
-    assert settings.valueharbor_vector_search_enabled is True
+    assert settings.valuewholesale_embedding_model == "redis/langcache-embed-v3-small"
+    assert settings.valuewholesale_vector_search_enabled is True
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
-    assert settings.valueharbor_agent_timeout_seconds == 90
+    assert settings.valuewholesale_agent_timeout_seconds == 90
     assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
     assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
 
 
+def test_scale_memory_corpus_is_deterministic_and_hidden() -> None:
+    templates = memory_templates()
+    memories = build_memories(
+        namespace="valuewholesale-shopping",
+        start_user=7,
+        users=2,
+        memories_per_user=100,
+    )
+
+    assert len(templates) == 100
+    assert len({template["text"] for template in templates}) == 100
+    assert len(memories) == 200
+    assert memories[0]["id"] == "scale-0007-001"
+    assert memories[-1]["id"] == "scale-0008-100"
+    assert memories[0]["text"] == memories[100]["text"]
+    assert {memory["namespace"] for memory in memories} == {"valuewholesale-shopping"}
+    assert not {memory["owner_id"] for memory in memories} & set(MEMBERS)
+
+
 def test_fixture_catalog_search_and_inventory() -> None:
-    catalog = CatalogService(Settings(_env_file=None, valueharbor_vector_search_enabled=False))
+    catalog = CatalogService(Settings(_env_file=None, valuewholesale_vector_search_enabled=False))
     products = catalog.search_products("fragrance free laundry", limit=3)
     assert products[0]["sku"] == "VH-2002"
     inventory = catalog.check_inventory("VH-2002", "portland")
@@ -135,18 +157,28 @@ def test_catalog_product_embedding_text_includes_retrieval_signals() -> None:
     )
 
 
+def test_policy_embedding_text_combines_title_and_content() -> None:
+    text = CatalogService.policy_embedding_text(
+        {
+            "title": "Warehouse pickup",
+            "content": "Pickup orders are held for three calendar days.",
+        }
+    )
+    assert text == "Warehouse pickup. Pickup orders are held for three calendar days."
+
+
 def test_redis_search_response_normalization() -> None:
     redis_8_reply = {
         b"results": [
             {
-                b"id": b"valueharbor:product:VH-1001",
+                b"id": b"valuewholesale:product:VH-1001",
                 b"extra_attributes": {b"sku": b"VH-1001", b"price": b"21.99"},
             }
         ]
     }
     legacy_reply = [
         1,
-        b"valueharbor:product:VH-1001",
+        b"valuewholesale:product:VH-1001",
         [b"sku", b"VH-1001", b"price", b"21.99"],
     ]
     expected = [{"sku": "VH-1001", "price": "21.99"}]
@@ -162,7 +194,7 @@ def test_catalog_search_uses_redisvl_text_query() -> None:
             captured["query"] = query
             return [
                 {
-                    "id": "valueharbor:product:VH-1001",
+                    "id": "valuewholesale:product:VH-1001",
                     "sku": "VH-1001",
                     "name": "Olive Oil Twin Pack",
                     "category": "pantry",
@@ -172,7 +204,7 @@ def test_catalog_search_uses_redisvl_text_query() -> None:
                 }
             ]
 
-    catalog = CatalogService(Settings(_env_file=None, valueharbor_vector_search_enabled=False))
+    catalog = CatalogService(Settings(_env_file=None, valuewholesale_vector_search_enabled=False))
     catalog.redis = SimpleNamespace()
     catalog._product_index = FakeIndex()
 
@@ -199,7 +231,7 @@ def test_catalog_search_uses_shared_local_vectorizer() -> None:
             captured["query"] = query
             return [
                 {
-                    "id": "valueharbor:product:VH-1001",
+                    "id": "valuewholesale:product:VH-1001",
                     "sku": "VH-1001",
                     "name": "Olive Oil Twin Pack",
                     "category": "pantry",
@@ -220,7 +252,57 @@ def test_catalog_search_uses_shared_local_vectorizer() -> None:
     assert isinstance(query, VectorQuery)
     assert query._vector == b"local-vector"
     assert products[0]["score"] == 0.12
-    assert PRODUCT_INDEX_NAME == "idx:valueharbor:products-v2"
+    assert PRODUCT_INDEX_NAME == "idx:valuewholesale:products-v2"
+
+
+def test_policy_search_uses_redisvl_vector_query() -> None:
+    captured = {}
+
+    class FakeEmbeddings:
+        def embed(self, text, *, as_buffer=False):
+            assert text == "How long are electronics returns allowed?"
+            assert as_buffer is True
+            return b"policy-vector"
+
+    class FakeIndex:
+        def query(self, query):
+            captured["query"] = query
+            return [
+                {
+                    "id": "valuewholesale:policy:returns",
+                    "title": "Member satisfaction and returns",
+                    "content": "Electronics have a 90-day return window.",
+                    "vector_distance": "0.08",
+                }
+            ]
+
+    catalog = CatalogService(Settings(_env_file=None, redis_url=""), FakeEmbeddings())
+    catalog.redis = SimpleNamespace()
+    catalog._policy_index = FakeIndex()
+
+    policies = catalog.search_policies("How long are electronics returns allowed?")
+
+    query = captured["query"]
+    assert isinstance(query, VectorQuery)
+    assert query._vector == b"policy-vector"
+    assert policies == [
+        {
+            "title": "Member satisfaction and returns",
+            "content": "Electronics have a 90-day return window.",
+            "score": 0.08,
+        }
+    ]
+    assert POLICY_INDEX_NAME == "idx:valuewholesale:policies-v2"
+
+
+def test_policy_search_falls_back_to_local_fixtures() -> None:
+    catalog = CatalogService(
+        Settings(_env_file=None, redis_url="", valuewholesale_vector_search_enabled=False)
+    )
+
+    policies = catalog.search_policies("electronics return window", limit=1)
+
+    assert policies[0]["id"] == "returns"
 
 
 def test_local_embedding_service_reuses_one_384_dimension_vectorizer() -> None:
@@ -308,7 +390,7 @@ def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
     created, errors = managed_seed.seed_redis(settings, memories)
 
     assert (created, errors) == (205, 0)
-    assert batch_sizes == [50, 50, 50, 50, 5]
+    assert batch_sizes == [100, 100, 5]
 
 
 def test_semantic_router_applies_guardrails_and_positive_route() -> None:
@@ -460,7 +542,7 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
             body = {"data": [{"response": "cached"}]} if url.endswith("/search") else {}
             return FakeResponse(body)
 
-    monkeypatch.setattr("valueharbor_agent.services.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("valuewholesale_agent.services.httpx.AsyncClient", FakeAsyncClient)
     cache = LangCacheService(
         Settings(
             _env_file=None,
@@ -499,7 +581,7 @@ async def test_langcache_clear_flushes_configured_cache(monkeypatch) -> None:
             calls.append((url, kwargs))
             return FakeResponse()
 
-    monkeypatch.setattr("valueharbor_agent.services.httpx.AsyncClient", FakeAsyncClient)
+    monkeypatch.setattr("valuewholesale_agent.services.httpx.AsyncClient", FakeAsyncClient)
     cache = LangCacheService(
         Settings(
             _env_file=None,
@@ -551,7 +633,7 @@ async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
         lambda: (
             True,
             "RedisVL EmbeddingsCache ready",
-            {"cache_name": "valueharbor-embeddings-v1"},
+            {"cache_name": "valuewholesale-embeddings-v1"},
         ),
     )
     monkeypatch.setattr(
@@ -734,6 +816,16 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     assert "single most recent\n  completed order" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
+
+
+def test_shopping_agent_fetches_orders_for_broad_member_context_questions() -> None:
+    instruction = build_agent("gemini-2.5-flash").instruction
+
+    assert "not a complete\n  account overview" in instruction
+    assert 'broad member-context questions such as "what do you know about me?"' in instruction
+    assert "call the\n  appropriate order lookup for the signed-in member" in instruction
+    assert "Summarize any active or\n  pending fulfillment first" in instruction
+    assert "A narrow request for one profile field" in instruction
 
 
 def test_context_order_result_becomes_invisible_session_context() -> None:
@@ -1218,6 +1310,10 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
     assert details == []
     assert _tool_label("search_catalog", {}) == (
         'RedisVL Search Catalog · "" · all categories · limit 5'
+    )
+    assert (
+        _tool_label("search_member_policies", {"query": "How long can I return a laptop?"})
+        == 'RedisVL Search Policies · "How long can I return a laptop?"'
     )
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200

@@ -12,7 +12,7 @@
   },
   "format": "jsonl",
   "generated_at": "2026-07-16T16:00:00Z",
-  "name": "valueharbor-demo",
+  "name": "valuewholesale-demo",
   "relationships": [
     "inventory.warehouse_id -> warehouses.warehouse_id",
     "inventory.sku -> products.sku",

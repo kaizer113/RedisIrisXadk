@@ -19,14 +19,22 @@ from redisvl.query import TextQuery, VectorQuery
 from redisvl.query.filter import Tag
 from redisvl.utils.vectorize import HFTextVectorizer
 
-from valueharbor_agent.config import Settings, get_settings
-from valueharbor_agent.demo_data import INVENTORY, MEMBERS, ORDERS, POLICIES, PRODUCTS, WAREHOUSES
+from valuewholesale_agent.config import Settings, get_settings
+from valuewholesale_agent.demo_data import (
+    INVENTORY,
+    MEMBERS,
+    ORDERS,
+    POLICIES,
+    PRODUCTS,
+    WAREHOUSES,
+)
 
 log = logging.getLogger(__name__)
 
-PRODUCT_INDEX_NAME = "idx:valueharbor:products-v2"
+PRODUCT_INDEX_NAME = "idx:valuewholesale:products-v2"
+POLICY_INDEX_NAME = "idx:valuewholesale:policies-v2"
 LOCAL_EMBEDDING_DIMS = 384
-EMBEDDING_CACHE_NAME = "valueharbor-embeddings-v1"
+EMBEDDING_CACHE_NAME = "valuewholesale-embeddings-v1"
 EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
 
 REDIS_KEEPALIVE_OPTIONS = {
@@ -146,7 +154,7 @@ class LocalEmbeddingService:
         self.embedding_cache = (
             EmbeddingsCache(
                 name=EMBEDDING_CACHE_NAME,
-                ttl=settings.valueharbor_embedding_cache_ttl_seconds,
+                ttl=settings.valuewholesale_embedding_cache_ttl_seconds,
                 redis_url=settings.redis_url,
                 connection_kwargs=REDIS_CONNECTION_KWARGS,
             )
@@ -163,10 +171,10 @@ class LocalEmbeddingService:
             with self._lock:
                 if self._vectorizer is None:
                     vectorizer = HFTextVectorizer(
-                        model=self.settings.valueharbor_embedding_model,
+                        model=self.settings.valuewholesale_embedding_model,
                         dtype="float32",
                         cache=self.embedding_cache,
-                        device=self.settings.valueharbor_embedding_device,
+                        device=self.settings.valuewholesale_embedding_device,
                         model_kwargs={"dtype": "float32"},
                     )
                     if vectorizer.dims != LOCAL_EMBEDDING_DIMS:
@@ -195,15 +203,15 @@ class LocalEmbeddingService:
         vector = self.embed(EMBEDDING_WARMUP_TEXT)
         cached = self.embedding_cache.exists(
             content=EMBEDDING_WARMUP_TEXT,
-            model_name=self.settings.valueharbor_embedding_model,
+            model_name=self.settings.valuewholesale_embedding_model,
         )
         return (
             cached,
             "RedisVL EmbeddingsCache ready" if cached else "Embedding was not cached",
             {
-                "model": self.settings.valueharbor_embedding_model,
+                "model": self.settings.valuewholesale_embedding_model,
                 "dimensions": len(vector),
-                "ttl_seconds": self.settings.valueharbor_embedding_cache_ttl_seconds,
+                "ttl_seconds": self.settings.valuewholesale_embedding_cache_ttl_seconds,
                 "cache_name": EMBEDDING_CACHE_NAME,
             },
         )
@@ -212,9 +220,9 @@ class LocalEmbeddingService:
         started = time.perf_counter()
         vector = self.embed(EMBEDDING_WARMUP_TEXT)
         return {
-            "model": self.settings.valueharbor_embedding_model,
+            "model": self.settings.valuewholesale_embedding_model,
             "dimensions": len(vector),
-            "device": self.settings.valueharbor_embedding_device,
+            "device": self.settings.valuewholesale_embedding_device,
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
             "cache": EMBEDDING_CACHE_NAME if self.embedding_cache else None,
         }
@@ -232,7 +240,9 @@ class CatalogService:
         self.embeddings = embeddings or LocalEmbeddingService(settings)
         self.redis: redis.Redis | None = None
         self._product_index: SearchIndex | None = None
+        self._policy_index: SearchIndex | None = None
         self._product_index_lock = threading.Lock()
+        self._policy_index_lock = threading.Lock()
         if settings.redis_url:
             self.redis = redis.Redis.from_url(
                 settings.redis_url,
@@ -254,6 +264,11 @@ class CatalogService:
             f"Category: {product['category']}. Keywords: {tags}."
         )
 
+    @staticmethod
+    def policy_embedding_text(policy: dict[str, Any]) -> str:
+        """Build the authoritative policy text used for semantic retrieval."""
+        return f"{policy['title']}. {str(policy['content']).rstrip('. ')}."
+
     def _get_product_index(self) -> SearchIndex:
         """Lazily bind RedisVL to the checked-in product index."""
         if self.redis is None:
@@ -267,8 +282,21 @@ class CatalogService:
                     )
         return self._product_index
 
+    def _get_policy_index(self) -> SearchIndex:
+        """Lazily bind RedisVL to the versioned policy vector index."""
+        if self.redis is None:
+            raise RuntimeError("Redis is not configured")
+        if self._policy_index is None:
+            with self._policy_index_lock:
+                if self._policy_index is None:
+                    self._policy_index = SearchIndex.from_existing(
+                        POLICY_INDEX_NAME,
+                        redis_client=self.redis,
+                    )
+        return self._policy_index
+
     def _embed(self, text: str) -> bytes | None:
-        if not self.settings.valueharbor_vector_search_enabled:
+        if not self.settings.valuewholesale_vector_search_enabled:
             return None
         try:
             embedding = self.embeddings.embed(text, as_buffer=True)
@@ -371,7 +399,40 @@ class CatalogService:
         ranked.sort(key=lambda item: (-item[0], item[1]["member_price"]))
         return [dict(product) for _, product in ranked[:limit]]
 
-    def search_policies(self, query: str, limit: int = 3) -> list[dict[str, str]]:
+    def search_policies(self, query: str, limit: int = 3) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 5))
+        if self.redis is not None:
+            try:
+                vector = self._embed(query)
+                return_fields = ["title", "content"]
+                if vector:
+                    redisvl_query = VectorQuery(
+                        vector=vector,
+                        vector_field_name="embedding",
+                        return_fields=return_fields,
+                        num_results=limit,
+                        return_score=True,
+                    )
+                else:
+                    redisvl_query = TextQuery(
+                        text=query,
+                        text_field_name={"title": 2.0, "content": 1.0},
+                        return_fields=return_fields,
+                        num_results=limit,
+                        return_score=False,
+                        stopwords=None,
+                    )
+                docs = []
+                for mapped in self._get_policy_index().query(redisvl_query):
+                    mapped.pop("id", None)
+                    if "vector_distance" in mapped:
+                        mapped["score"] = float(mapped.pop("vector_distance"))
+                    docs.append(mapped)
+                if docs:
+                    return docs
+            except Exception as exc:
+                log.warning("Redis policy search unavailable; using fixtures: %s", exc)
+
         words = set(re.findall(r"[a-z0-9]+", query.lower()))
         ranked = sorted(
             POLICIES,
@@ -379,13 +440,13 @@ class CatalogService:
                 -sum(word in f"{policy['title']} {policy['content']}".lower() for word in words)
             ),
         )
-        return ranked[: max(1, min(limit, 5))]
+        return [dict(policy) for policy in ranked[:limit]]
 
     def check_inventory(self, sku: str, warehouse_id: str) -> dict[str, Any]:
         warehouse_id = warehouse_id.lower()
         if self.redis is not None:
             try:
-                quantity = self.redis.get(f"valueharbor:inventory:{warehouse_id}:{sku.upper()}")
+                quantity = self.redis.get(f"valuewholesale:inventory:{warehouse_id}:{sku.upper()}")
                 if quantity is not None:
                     qty = int(quantity)
                     return self._inventory_result(sku, warehouse_id, qty, "redis")
@@ -419,7 +480,7 @@ class CatalogService:
     def member_profile(self, member_id: str) -> dict[str, Any]:
         if self.redis is not None:
             try:
-                raw = self.redis.hgetall(f"valueharbor:member:{safe_id(member_id, 'unknown')}")
+                raw = self.redis.hgetall(f"valuewholesale:member:{safe_id(member_id, 'unknown')}")
                 if raw:
                     profile = self._decode_map(raw)
                     profile["reward_balance"] = float(profile["reward_balance"])
@@ -435,7 +496,7 @@ class CatalogService:
                 escaped_member_id = self._escape_tag(safe_id(member_id, "unknown"))
                 raw = self.redis.execute_command(
                     "FT.SEARCH",
-                    "idx:valueharbor:orders",
+                    "idx:valuewholesale:orders",
                     f"@member_id:{{{escaped_member_id}}}",
                     "RETURN",
                     8,
@@ -473,7 +534,7 @@ class CatalogService:
         escaped_order_id = self._escape_tag(order_id)
         raw = self.redis.execute_command(
             "FT.SEARCH",
-            "idx:valueharbor:order-items",
+            "idx:valuewholesale:order-items",
             f"@order_id:{{{escaped_order_id}}}",
             "RETURN",
             6,
@@ -519,7 +580,7 @@ class CartService:
             return {"ok": False, "error": "unknown_sku", "sku": sku}
         if self.redis is not None:
             try:
-                key = f"valueharbor:cart:{safe_id(member_id, 'anonymous')}"
+                key = f"valuewholesale:cart:{safe_id(member_id, 'anonymous')}"
                 new_quantity = self.redis.hincrby(key, sku, quantity)
                 self.redis.expire(key, 60 * 60 * 24 * 7)
                 return {"ok": True, "sku": sku, "quantity": new_quantity, "source": "redis"}
@@ -536,7 +597,7 @@ class CartService:
                 return {
                     key: int(value)
                     for key, value in self.redis.hgetall(
-                        f"valueharbor:cart:{safe_id(member_id, 'anonymous')}"
+                        f"valuewholesale:cart:{safe_id(member_id, 'anonymous')}"
                     ).items()
                 }
             except Exception as exc:
@@ -623,36 +684,36 @@ class SemanticRouterService:
 
             vectorizer = self.embeddings.get_vectorizer()
             self._router = SemanticRouter(
-                name=self.settings.valueharbor_semantic_router_index,
+                name=self.settings.valuewholesale_semantic_router_index,
                 routes=[
                     Route(
                         name=PUBLIC_POLICY_ROUTE,
                         references=PUBLIC_POLICY_REFERENCES,
-                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": True, "cache_write": True},
                     ),
                     Route(
                         name=ECOMMERCE_ROUTE,
                         references=ECOMMERCE_REFERENCES,
-                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": False, "cache_write": False},
                     ),
                     Route(
                         name=PRODUCT_EDUCATION_ROUTE,
                         references=PRODUCT_EDUCATION_REFERENCES,
-                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": True, "cache_write": True},
                     ),
                     Route(
                         name=SHOPPING_GUIDE_ROUTE,
                         references=SHOPPING_GUIDE_REFERENCES,
-                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": True, "cache_write": True},
                     ),
                     Route(
                         name=OUT_OF_DOMAIN_ROUTE,
                         references=OUT_OF_DOMAIN_REFERENCES,
-                        distance_threshold=self.settings.valueharbor_semantic_router_threshold,
+                        distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "block", "cache_read": False, "cache_write": False},
                     ),
                 ],
@@ -663,7 +724,7 @@ class SemanticRouterService:
         return self._router
 
     def route(self, message: str, recent_context: str = "") -> dict[str, Any]:
-        threshold = self.settings.valueharbor_semantic_router_threshold
+        threshold = self.settings.valuewholesale_semantic_router_threshold
         guardrail = self.guardrail_reason(message)
         if guardrail:
             return {
@@ -913,9 +974,9 @@ class MemoryService:
         actor_id = (
             member_id
             if role.upper() == "USER"
-            else "valueharbor-context"
+            else "valuewholesale-context"
             if role.upper() == "SYSTEM"
-            else "valueharbor-agent"
+            else "valuewholesale-agent"
         )
         try:
             self.client.add_session_event(
@@ -926,7 +987,7 @@ class MemoryService:
                 created_at=datetime.now(UTC),
                 metadata={
                     "channel": "web",
-                    "agent": "valueharbor-shopping",
+                    "agent": "valuewholesale-shopping",
                     **(metadata or {}),
                 },
             )
@@ -1116,7 +1177,7 @@ class VertexMemoryService:
             return []
         try:
             response = await self.client.search_memory(
-                app_name="valueharbor-shopping-agent",
+                app_name="valuewholesale-shopping-agent",
                 user_id=safe_id(member_id, "anonymous"),
                 query=query,
             )
