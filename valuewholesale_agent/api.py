@@ -523,7 +523,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     "langcache",
                     "Checking Redis LangCache",
                     duration_ms=duration,
-                    summary=(f"Hit · {cache_scope}" if hit else "Miss"),
+                    summary=("Hit" if hit else "Miss"),
                     details=(
                         [
                             f"Current query: {request.message}",

@@ -1242,7 +1242,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "cache_hit": True,
     }
     traces = {event["step"]["id"]: event["step"] for event in events if event["type"] == "trace"}
-    assert traces["langcache"]["summary"] == "Hit · product-education:catalog-v1"
+    assert traces["langcache"]["summary"] == "Hit"
     assert traces["langcache"]["details"] == [
         "Current query: What flavor notes does the medium roast have?",
         "Cached query: What does Rain City Medium Roast taste like?",
