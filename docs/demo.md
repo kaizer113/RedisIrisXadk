@@ -56,7 +56,7 @@ Point to the live trace while the request runs. It should show:
 2. LangCache eligibility.
 3. Redis short-term session retrieval.
 4. Redis long-term memory retrieval.
-5. ADK short-term session read and ADK Memory Bank search.
+5. ADK VertexAISession read and ADK Memory Bank search.
 6. RedisVL catalog search.
 7. Two governed `get_inventory_by_id` calls, each with its own latency.
 8. `ADK Runner + Gemini` and total request time.

@@ -462,7 +462,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     )
     yield trace_event(
         "adk-short-term",
-        "ADK short-term session read",
+        "ADK VertexAISession read",
         status="running",
     )
     yield trace_event(
@@ -484,7 +484,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         if step_id == "adk-short-term":
             return trace_event(
                 step_id,
-                "ADK short-term session read",
+                "ADK VertexAISession read",
                 duration_ms=duration,
                 summary=f"{len(result)} prior events",
                 details=snippets,
