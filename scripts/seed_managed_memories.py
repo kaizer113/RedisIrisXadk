@@ -15,6 +15,7 @@ APP_NAME = "valuewholesale-shopping-agent"
 REDIS_BATCH_SIZE = 100
 REDIS_TIMEOUT_MS = 120_000
 VERTEX_WRITES_PER_MINUTE = 80
+VERTEX_HTTP_TIMEOUT_MS = 60_000
 
 
 def load_memories(path: Path) -> list[dict[str, Any]]:
@@ -64,6 +65,7 @@ def seed_vertex(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int
     client = vertexai.Client(
         project=settings.google_cloud_project,
         location=settings.google_memory_location,
+        http_options={"timeout": VERTEX_HTTP_TIMEOUT_MS},
     )
     name = (
         f"projects/{settings.google_cloud_project}/locations/{settings.google_memory_location}"
