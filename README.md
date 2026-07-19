@@ -7,6 +7,7 @@ The agent can discover products, compare member pricing, check warehouse invento
 ## Quick links
 
 - [Recommended demo flow](docs/demo.md)
+- [Alternative pickup-rescue demo flow](docs/demo2.md)
 - [Architecture and request flow](ARCHITECTURE.md)
 - [How Temporal would affect the architecture](docs/temporal.md)
 - [Reproducible dataset](data/README.md)
