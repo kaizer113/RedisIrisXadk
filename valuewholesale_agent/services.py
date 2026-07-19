@@ -104,6 +104,9 @@ SHOPPING_GUIDE_REFERENCES = [
 ]
 ECOMMERCE_ROUTE = "ecommerce_request"
 ECOMMERCE_REFERENCES = [
+    "I want to buy dish soap.",
+    "I need to buy a household product.",
+    "Help me purchase an item from your catalog.",
     "Find family-size pantry staples under thirty dollars.",
     "Recommend products for my household.",
     "Recommend a good pasta from your catalog.",
@@ -645,6 +648,11 @@ class SemanticRouterService:
         r"is\s+(?:that|it)\b|can\s+(?:that|it)\b)",
         re.IGNORECASE,
     )
+    _EXPLICIT_SHOPPING_INTENT = re.compile(
+        r"\b(?:i\s+(?:want|need|would\s+like)\s+to\s+|help\s+me\s+)"
+        r"(?:buy|purchase|shop\s+for|order|get)\b",
+        re.IGNORECASE,
+    )
 
     def __init__(
         self,
@@ -739,6 +747,21 @@ class SemanticRouterService:
                 "threshold": threshold,
                 "reason": guardrail,
                 "decision_source": "guardrail",
+                "redisvl_duration_ms": None,
+            }
+        if self._EXPLICIT_SHOPPING_INTENT.search(message):
+            return {
+                "configured": self.configured,
+                "eligible": False,
+                "cache_read": False,
+                "cache_write": False,
+                "blocked": False,
+                "action": "allow",
+                "route": ECOMMERCE_ROUTE,
+                "distance": None,
+                "threshold": threshold,
+                "reason": "explicit ecommerce request",
+                "decision_source": "deterministic",
                 "redisvl_duration_ms": None,
             }
         if not self.configured:

@@ -454,6 +454,16 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert personalized["reason"] == "member-specific request"
     assert personalized["redisvl_duration_ms"] is None
 
+    explicit_purchase = router.route("i want to buy dish soap")
+    assert explicit_purchase["action"] == "allow"
+    assert explicit_purchase["blocked"] is False
+    assert explicit_purchase["cache_read"] is False
+    assert explicit_purchase["cache_write"] is False
+    assert explicit_purchase["route"] == ECOMMERCE_ROUTE
+    assert explicit_purchase["decision_source"] == "deterministic"
+    assert explicit_purchase["reason"] == "explicit ecommerce request"
+    assert explicit_purchase["redisvl_duration_ms"] is None
+
     for prompt in (
         "Who am I?",
         "What do you know about me?",
@@ -956,6 +966,12 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
     profile_context = captured["state_delta"]["member_profile_context"]
     assert json.loads(profile_context)["home_warehouse"] == "portland"
     assert member_profile_cache[("member-1005", "shopping-session")] == profile_context
+    profile_trace = next(
+        event["step"]
+        for event in events
+        if event["type"] == "trace" and event["step"]["id"] == "greeting-member-profile"
+    )
+    assert profile_trace["label"] == "Context Retriever · filter_order_by_member_id"
     tool_events = [
         event
         for event in events
