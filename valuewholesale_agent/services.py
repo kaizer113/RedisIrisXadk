@@ -76,6 +76,7 @@ PUBLIC_POLICY_REFERENCES = [
     "How does warranty coverage work?",
     "What are the curbside pickup rules?",
     "How long is the pickup window?",
+    "How long will Value Wholesale hold a pickup order after it is ready?",
     "What happens if a pickup is not collected?",
     "Explain the member pricing policy.",
     "How does membership pricing work?",

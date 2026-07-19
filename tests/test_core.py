@@ -36,6 +36,7 @@ from valuewholesale_agent.services import (
     POLICY_INDEX_NAME,
     PRODUCT_EDUCATION_ROUTE,
     PRODUCT_INDEX_NAME,
+    PUBLIC_POLICY_REFERENCES,
     PUBLIC_POLICY_ROUTE,
     REDIS_CONNECTION_KWARGS,
     SHOPPING_GUIDE_ROUTE,
@@ -394,6 +395,10 @@ def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
 
 
 def test_semantic_router_applies_guardrails_and_positive_route() -> None:
+    assert (
+        "How long will Value Wholesale hold a pickup order after it is ready?"
+        in PUBLIC_POLICY_REFERENCES
+    )
     assert "What pasta products do you sell?" in ECOMMERCE_REFERENCES
     assert (
         "Give me an account overview and tell me if I have anything to pick up."
