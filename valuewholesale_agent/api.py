@@ -169,8 +169,9 @@ def trace_event(
     duration_ms: float | None = None,
     summary: str = "",
     details: list[str] | None = None,
+    move_to_end: bool = False,
 ) -> dict[str, Any]:
-    return {
+    event = {
         "type": "trace",
         "step": {
             "id": step_id,
@@ -181,6 +182,9 @@ def trace_event(
             "details": details or [],
         },
     }
+    if move_to_end:
+        event["step"]["move_to_end"] = True
+    return event
 
 
 def _tool_label(name: str, arguments: dict[str, Any]) -> str:
@@ -894,6 +898,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
         duration_ms=round((time.perf_counter() - runner_started) * 1000, 2),
         summary=context_summary,
         details=context_details,
+        move_to_end=True,
     )
     yield {"type": "greeting", "greeting": final_greeting.strip()}
 

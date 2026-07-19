@@ -996,12 +996,14 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
     assert greeting_trace["duration_ms"] < 50
     assert "Context used: Redis Agent Memory" in greeting_trace["summary"]
     assert greeting_trace["details"] == ["Redis Agent Memory: 1 relevant memories found"]
+    assert greeting_trace["move_to_end"] is True
     assert events[-1] == {"type": "greeting", "greeting": "Ready for a fresh find?"}
     member_profile_cache.clear()
 
 
 def test_member_selector_displays_names_and_requests_generated_greeting() -> None:
     html = (api_module.STATIC_DIR / "index.html").read_text()
+    assert "else if(step.move_to_end){trace.appendChild(el);}" in html
     assert ">Google ADK × Redis Iris</a>" in html
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
