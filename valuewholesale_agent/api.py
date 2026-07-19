@@ -554,7 +554,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 if source != "application_session_cache":
                     yield trace_event(
                         step_id,
-                        "Context Retriever · filter_order_by_member_id",
+                        "Context Retriever - get_member_by_id",
                         duration_ms=duration,
                         summary=member_profile_source_label(source),
                         details=[result["context"]],
@@ -783,7 +783,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     if profile_source != "application_session_cache":
         yield trace_event(
             "greeting-member-profile",
-            "Context Retriever · filter_order_by_member_id",
+            "Context Retriever - get_member_by_id",
             duration_ms=round((time.perf_counter() - profile_started) * 1000, 2),
             summary=member_profile_source_label(profile_source),
             details=[member_profile["context"]],
@@ -806,7 +806,8 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                         types.Part(
                             text=(
                                 "Create my brief welcome greeting using the supplied member "
-                                "profile. Decide whether personal memory would improve it."
+                                "profile. Decide whether personal long term memory or order "
+                                "history would improve it."
                             )
                         )
                     ],
