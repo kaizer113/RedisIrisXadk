@@ -395,6 +395,11 @@ def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
 
 def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert "What pasta products do you sell?" in ECOMMERCE_REFERENCES
+    assert (
+        "Give me an account overview and tell me if I have anything to pick up."
+        in ECOMMERCE_REFERENCES
+    )
+    assert "What household products have I bought in the past?" in ECOMMERCE_REFERENCES
     settings = Settings(
         _env_file=None,
         redis_url="redis://configured",

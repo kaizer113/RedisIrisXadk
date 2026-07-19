@@ -118,6 +118,8 @@ ECOMMERCE_REFERENCES = [
     "Check current inventory in Portland.",
     "Add this product to my shopping cart.",
     "Show my recent order and pickup status.",
+    "Give me an account overview and tell me if I have anything to pick up.",
+    "What household products have I bought in the past?",
     "What products match my preferences?",
     "Help me plan a warehouse shopping trip.",
     "Which membership deal offers the best value?",
