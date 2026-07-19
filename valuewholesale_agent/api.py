@@ -386,7 +386,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     elif blocked:
         route_summary = "Blocked · outside Value Wholesale ecommerce scope"
     elif cache_read or cache_write:
-        route_summary = f"{cache_scope} · LangCache read + write"
+        route_summary = "LangCache read + write"
     else:
         route_summary = f"{routing.get('route') or 'allowed'} · LangCache bypass"
     yield trace_event(

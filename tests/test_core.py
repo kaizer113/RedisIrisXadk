@@ -1244,6 +1244,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "cache_hit": True,
     }
     traces = {event["step"]["id"]: event["step"] for event in events if event["type"] == "trace"}
+    assert traces["semantic-router"]["summary"] == "LangCache read + write"
     assert traces["langcache"]["summary"] == "Hit"
     assert traces["langcache"]["details"] == [
         "Current query: What flavor notes does the medium roast have?",
