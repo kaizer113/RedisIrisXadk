@@ -984,6 +984,9 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
         if event["type"] == "trace" and event["step"]["id"] == "greeting-tool-memory-call"
     ]
     assert [event["step"]["status"] for event in tool_events] == ["running", "done"]
+    assert {event["step"]["label"] for event in tool_events} == {
+        "Searching Redis long-term memory"
+    }
     greeting_trace = next(
         event["step"]
         for event in reversed(events)

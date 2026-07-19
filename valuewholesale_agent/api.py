@@ -184,6 +184,8 @@ def trace_event(
 
 
 def _tool_label(name: str, arguments: dict[str, Any]) -> str:
+    if name == "recall_redis_shopping_memory":
+        return "Searching Redis long-term memory"
     if name == "search_catalog":
         query = str(arguments.get("query", "")).strip()
         category = str(arguments.get("category", "")).strip() or "all categories"
