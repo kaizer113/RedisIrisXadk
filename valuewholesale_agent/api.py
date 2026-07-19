@@ -292,7 +292,7 @@ async def member_profile_for_session(member_id: str, session_id: str) -> dict[st
 
 def member_profile_source_label(source: str) -> str:
     return {
-        "redis_context_retriever": "Loaded from Redis Context Retriever",
+        "redis_context_retriever": "",
         "application_session_cache": "Reused from application session cache",
         "member_id_fallback": "Profile unavailable; using member ID only",
     }.get(source, source)

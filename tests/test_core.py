@@ -972,6 +972,7 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
         if event["type"] == "trace" and event["step"]["id"] == "greeting-member-profile"
     )
     assert profile_trace["label"] == "Context Retriever - get_member_by_id"
+    assert profile_trace["summary"] == ""
     greeting_prompt = captured["new_message"].parts[0].text
     assert (
         "Decide whether personal long term memory or order history would improve it."
