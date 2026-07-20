@@ -10,9 +10,9 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     google_cloud_project: str = ""
-    google_cloud_location: str = "us-east4"
-    google_model: str = "gemini-2.5-flash"
-    google_models: str = "gemini-2.5-flash gemini-2.5-pro"
+    google_cloud_location: str = "global"
+    google_model: str = "gemini-3.1-flash-lite"
+    google_models: str = "gemini-3.1-flash-lite gemini-3.1-pro-preview"
     google_genai_use_vertexai: bool = True
     google_memory_location: str = "us-east4"
     google_agent_engine_id: str = ""
@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     @property
     def available_google_models(self) -> tuple[str, str]:
         """The two demo choices: fast and reasoning-heavy."""
-        return ("gemini-2.5-flash", "gemini-2.5-pro")
+        return ("gemini-3.1-flash-lite", "gemini-3.1-pro-preview")
 
 
 @lru_cache

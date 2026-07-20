@@ -17,7 +17,7 @@ feature-by-feature flow in [demo.md](demo.md).
 2. Return to the top and confirm that all eight service indicators are blue: Redis database,
    Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory, ADK Memory Bank,
    and ADK Agent Sessions.
-3. Select **Alex Rivera** in **Shop as** and **Gemini 2.5 Flash** in **Model**.
+3. Select **Alex Rivera** in **Shop as** and **Gemini 3.1 Flash-Lite** in **Model**.
 4. Wait for the greeting to finish before sending the first prompt.
 
 Alex is the fictional member `member-1001`. The deterministic dataset gives Alex a Portland home
@@ -146,11 +146,11 @@ authorization boundaries.
 
 ## 7. Switch models without losing the journey
 
-Keep the same conversation, switch **Model** to **Gemini 2.5 Pro**, and ask:
+Keep the same conversation, switch **Model** to **Gemini 3.1 Pro**, and ask:
 
 > Summarize my pickup plan, the stock issue we found, and what is in my cart.
 
-The generation trace should name `gemini-2.5-pro`. Redis short-term session events retain the
+The generation trace should name `gemini-3.1-pro-preview`. Redis short-term session events retain the
 shopping journey, and the cart tool supplies current cart state. Both model-specific ADK runners
 share Agent Platform Sessions and ADK Memory Bank for persistence and measurement; Redis remains
 the conversation context sent to Gemini.

@@ -16,7 +16,7 @@ memory paths and Gemini model selector.
    Redis database, Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory,
    ADK Memory Bank, and ADK Agent Sessions.
 4. Select **Alex Rivera** in the **Shop as** dropdown.
-5. Leave **Gemini 2.5 Flash** selected.
+5. Leave **Gemini 3.1 Flash-Lite** selected.
 
 The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
 Portland Harbor location.
@@ -189,11 +189,11 @@ stock truth.
 
 ## 6. Switch models without losing the session
 
-Keep the same conversation, change the composer dropdown to **Gemini 2.5 Pro**, and ask:
+Keep the same conversation, change the composer dropdown to **Gemini 3.1 Pro**, and ask:
 
 > Plan the best pantry purchase under $40 using my preferences and explain the trade-off.
 
-Point out that the generation trace names `gemini-2.5-pro`. Both model-specific ADK runners share
+Point out that the generation trace names `gemini-3.1-pro-preview`. Both model-specific ADK runners share
 Agent Platform Sessions and ADK Memory Bank for persistence and measurement, while Redis continues
 to provide the conversation context sent to Gemini. ADK prior-session contents remain excluded.
 

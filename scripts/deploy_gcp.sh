@@ -9,7 +9,7 @@ if [[ -f .env ]]; then
 fi
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
-REGION="${GOOGLE_CLOUD_LOCATION:-us-east4}"
+REGION="${VALUEWHOLESALE_DEPLOY_REGION:-us-east4}"
 MEMORY_REGION="${GOOGLE_MEMORY_LOCATION:-$REGION}"
 SERVICE="valuewholesale-shopping-agent"
 REPOSITORY="valuewholesale"

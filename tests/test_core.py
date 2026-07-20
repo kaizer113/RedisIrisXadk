@@ -68,9 +68,9 @@ def test_safe_id_and_service_configuration() -> None:
         agent_memory_api_key="",
         google_agent_engine_id="",
     )
-    assert settings.google_cloud_location == "us-east4"
+    assert settings.google_cloud_location == "global"
     assert settings.google_memory_location == "us-east4"
-    assert settings.available_google_models == ("gemini-2.5-flash", "gemini-2.5-pro")
+    assert settings.available_google_models == ("gemini-3.1-flash-lite", "gemini-3.1-pro-preview")
     assert settings.valuewholesale_embedding_model == "redis/langcache-embed-v3-small"
     assert settings.valuewholesale_vector_search_enabled is True
     assert settings.semantic_router_configured is False
@@ -806,7 +806,7 @@ async def test_member_profile_reuses_application_session_cache(monkeypatch) -> N
 
 
 def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
-    agent = build_agent("gemini-2.5-flash")
+    agent = build_agent("gemini-3.1-flash-lite")
     assert agent.include_contents == "none"
     assert "{redis_short_term_context}" in agent.instruction
     assert "{redis_long_term_context}" in agent.instruction
@@ -814,7 +814,7 @@ def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
 
 
 def test_greeting_agent_reuses_profile_and_can_choose_redis_memory() -> None:
-    agent = build_greeting_agent("gemini-2.5-flash")
+    agent = build_greeting_agent("gemini-3.1-flash-lite")
     assert agent.include_contents == "none"
     assert [tool.__name__ for tool in agent.tools] == [
         "recall_redis_shopping_memory",
@@ -825,7 +825,7 @@ def test_greeting_agent_reuses_profile_and_can_choose_redis_memory() -> None:
 
 
 def test_shopping_agent_has_cache_safety_instruction() -> None:
-    agent = build_agent("gemini-2.5-flash")
+    agent = build_agent("gemini-3.1-flash-lite")
     assert "{cache_safety_context}" in agent.instruction
     assert "omit prices, availability" in agent.instruction
     assert "REQUIRED WORKFLOW for personalized purchase planning" in agent.instruction
@@ -838,8 +838,18 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     assert "never invent an additional product" in agent.instruction
 
 
+def test_shopping_agent_distinguishes_inventory_ids_from_skus() -> None:
+    instruction = build_agent("gemini-3.1-flash-lite").instruction
+
+    assert "Inventory IDs and product SKUs are different values" in instruction
+    assert 'id="portland-vh-1001"' in instruction
+    assert 'value="VH-1001"' in instruction
+    assert "Never pass a composite inventory ID" in instruction
+    assert "Invoke it through `query_context_retriever`" in instruction
+
+
 def test_shopping_agent_fetches_orders_for_broad_member_context_questions() -> None:
-    instruction = build_agent("gemini-2.5-flash").instruction
+    instruction = build_agent("gemini-3.1-flash-lite").instruction
 
     assert "not a complete\n  account overview" in instruction
     assert 'broad member-context questions such as "what do you know about me?"' in instruction
@@ -957,14 +967,14 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
             yield FakeResponseEvent()
             yield FakeEvent()
 
-    monkeypatch.setitem(api_module.greeting_runners, "gemini-2.5-flash", FakeRunner())
+    monkeypatch.setitem(api_module.greeting_runners, "gemini-3.1-flash-lite", FakeRunner())
     monkeypatch.setattr(services.context, "get_member_profile", get_profile)
     member_profile_cache.clear()
     stream = _greeting_events(
         api_module.GreetingRequest(
             member_id="member-1005",
             session_id="shopping-session",
-            model="gemini-2.5-flash",
+            model="gemini-3.1-flash-lite",
         )
     )
     events = [await anext(stream), await anext(stream)]
@@ -1029,6 +1039,12 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
     assert "fetch('/api/greeting/stream'" in html
+    assert "if(!text||chatInFlight)return" in html
+    assert "const controller=new AbortController()" in html
+    assert "signal:controller.signal" in html
+    assert "if(requestId!==chatRequest){await reader.cancel();return;}" in html
+    assert "sendButton.disabled=active" in html
+    assert "cancelActiveChat();memberId=memberSelect.value" in html
     assert (
         "await warmupOnLoad();setInterval(keepServicesWarm,KEEPALIVE_INTERVAL_MS);"
         "await selectMember()"
@@ -1100,7 +1116,7 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
 
     monkeypatch.setattr(api_module, "session_service", SlowSessionService())
     monkeypatch.setattr(api_module, "member_profile_for_session", profile)
-    monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", FakeRunner())
+    monkeypatch.setitem(api_module.runners, "gemini-3.1-flash-lite", FakeRunner())
     monkeypatch.setattr(services.memory, "short_term", lambda *_args: [{"text": "Redis turn"}])
     monkeypatch.setattr(services.memory, "recall", recall)
     monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
@@ -1124,7 +1140,7 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
                 message="What do I prefer?",
                 member_id="member-1001",
                 session_id="nonblocking-test",
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
             )
         )
     ]
@@ -1206,7 +1222,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
     async def profile(_member_id, _session_id):
         return {"context": '{"name":"Alex Rivera"}', "source": "test"}
 
-    monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", UnexpectedRunner())
+    monkeypatch.setitem(api_module.runners, "gemini-3.1-flash-lite", UnexpectedRunner())
     monkeypatch.setattr(api_module, "session_service", EmptySessionService())
     monkeypatch.setattr(api_module, "member_profile_for_session", profile)
     monkeypatch.setattr(
@@ -1238,7 +1254,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
                 message="What flavor notes does the medium roast have?",
                 member_id="member-1001",
                 session_id="scoped-cache-test",
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
             )
         )
     ]
@@ -1280,7 +1296,7 @@ async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
     def unexpected_sync(*_args, **_kwargs):
         raise AssertionError("downstream retrieval must not run for a blocked request")
 
-    monkeypatch.setitem(api_module.runners, "gemini-2.5-flash", UnexpectedRunner())
+    monkeypatch.setitem(api_module.runners, "gemini-3.1-flash-lite", UnexpectedRunner())
     monkeypatch.setattr(
         services.semantic_router,
         "route",
@@ -1317,7 +1333,7 @@ async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(
                 message="Where is Dagestan?",
                 member_id="member-1001",
                 session_id="blocked-test",
-                model="gemini-2.5-flash",
+                model="gemini-3.1-flash-lite",
             )
         )
     ]
@@ -1413,9 +1429,9 @@ def test_health_and_unconfigured_memory_comparison() -> None:
     with TestClient(app) as client:
         health = client.get("/api/health")
         assert health.status_code == 200
-        assert health.json()["cloud_run_location"] == "us-east4"
-        assert health.json()["default_model"] == "gemini-2.5-flash"
-        assert health.json()["models"] == ["gemini-2.5-flash", "gemini-2.5-pro"]
+        assert health.json()["cloud_run_location"] == "global"
+        assert health.json()["default_model"] == "gemini-3.1-flash-lite"
+        assert health.json()["models"] == ["gemini-3.1-flash-lite", "gemini-3.1-pro-preview"]
         assert "semantic_router" in health.json()["services"]
         members = client.get("/api/members")
         assert members.status_code == 200

@@ -32,7 +32,7 @@ session and long-term memory paths, deployment topology, and a rendered system d
 The deployed Compute Engine workload and Agent Platform Memory Bank are colocated in `us-east4`.
 When an Agent Engine ID is configured, ADK events are stored in Agent Platform Sessions while
 Redis Agent Memory continues receiving its independent short-term event stream. The chat offers
-two server-approved model choices: Gemini 2.5 Flash for speed and Gemini 2.5 Pro for heavier
+two server-approved model choices: Gemini 3.1 Flash-Lite for speed and Gemini 3.1 Pro for heavier
 reasoning.
 
 ## Live agent trace

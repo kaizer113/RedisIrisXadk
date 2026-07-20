@@ -16,7 +16,7 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 | Client | Browser chat UI | Selects one of five demo members and a Gemini model, sends the member/session IDs, and renders the streamed answer and live trace. Changing members starts a fresh session. |
 | Application | FastAPI | Exposes the public UI and API, validates requests, coordinates concurrent cache and memory retrieval, and streams newline-delimited JSON events. |
 | Agent runtime | Google ADK `Runner` | Runs the Vale agent, manages a session, invokes tools, calls Gemini, and triggers post-turn memory promotion. |
-| Models | Gemini 2.5 Flash / Gemini 2.5 Pro | Flash is the fast default; Pro is the slower, heavier reasoning option. The selected model chooses one of two prebuilt runners. |
+| Models | Gemini 3.1 Flash-Lite / Gemini 3.1 Pro | Flash-Lite is the fast default; Pro is the slower, heavier reasoning option. The selected model chooses one of two prebuilt runners. |
 | Commerce data | Redis database + Query Engine | Stores the checked-in catalog, policies, inventory, member, order, and cart data; supports lexical and optional vector product retrieval. |
 | Governed context | Redis Context Retriever | Exposes live member, inventory, and order entities through a governed tool surface. FastAPI hydrates and caches the signed-in profile when the member is selected, supplies it to the greeting, and silently reuses it on shopping turns. |
 | Semantic routing | RedisVL Semantic Router | Classifies reusable policy, static product-education, shopping-guide, general ecommerce, and out-of-domain prompts using a Redis vector index and the shared local `redis/langcache-embed-v3-small` model. Member-specific, live-data, and sensitive requests are deterministically bypassed first. |
@@ -65,8 +65,8 @@ a goal.
 
 The process creates one ADK `Runner` for each approved model:
 
-- `gemini-2.5-flash` — fast/default;
-- `gemini-2.5-pro` — heavier reasoning.
+- `gemini-3.1-flash-lite` — fast/default;
+- `gemini-3.1-pro-preview` — heavier reasoning.
 
 Both runners receive the same `session_service` object, `memory_service` object, ADK app name,
 member ID, and session ID. Switching models does not create a separate persisted session.
