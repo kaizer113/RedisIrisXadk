@@ -1099,6 +1099,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'class="panel side trace-panel"' in html
     assert "What flavor notes does Rain City Medium Roast Coffee have?" in html
     assert "How should I store a large bag of rolled oats after opening?" in html
+    assert "input.value=b.dataset.prompt;chatForm.requestSubmit();" in html
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
     assert "fetch('/api/greeting/stream'" in html

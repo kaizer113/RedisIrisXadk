@@ -144,7 +144,7 @@
       let memberId='member-1001',sessionId=`shopping-demo-${memberId}-${Date.now()}`;
       const messages=document.querySelector('#messages'),input=document.querySelector('#message'),modelSelect=document.querySelector('#model'),memberSelect=document.querySelector('#member'),chatForm=document.querySelector('#chat-form'),sendButton=chatForm.querySelector('.send');
       function add(text,role){const el=document.createElement('div');el.className='msg '+role;el.textContent=text;messages.appendChild(el);messages.scrollTop=messages.scrollHeight;return el;}
-      document.querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{input.value=b.dataset.prompt;input.focus();});
+      document.querySelectorAll('[data-prompt]').forEach(b=>b.onclick=()=>{if(chatInFlight)return;input.value=b.dataset.prompt;chatForm.requestSubmit();});
       const trace=document.querySelector('#trace'),traceLive=document.querySelector('#trace-live');
       function setLive(active){traceLive.classList.toggle('active',active);traceLive.querySelector('span:last-child').textContent=active?'running':'complete';}
       const seenServiceCalls=new Set();
