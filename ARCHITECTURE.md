@@ -2,8 +2,8 @@
 
 Value Wholesale is a fictional membership-warehouse shopping agent built to demonstrate how
 Google Agent Development Kit (ADK) and Redis IRIS services can work together in an ecommerce
-journey. The application is a FastAPI service with a browser chat UI. The current public demo
-runs on GCP in `us-east4`.
+journey. The application is a FastAPI service with a browser chat UI and supports deployment on
+GCP.
 
 ![Value Wholesale system architecture](docs/architecture.svg)
 
@@ -39,27 +39,20 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    context to RedisVL; the resulting context-dependent request is never cache eligible.
 3. When RedisVL matches the safe route within its configured cosine-distance threshold,
    FastAPI searches the corresponding versioned LangCache scope. No route or any routing error
-   fails closed and bypasses the cache. Required Redis reads and telemetry-only Google reads then
-   run concurrently.
+   fails closed and bypasses the cache. Independent service reads then run concurrently.
 4. Each completed read is emitted to the UI as a trace step with client-observed latency and
    retrieved snippets. Redis receives the user event independently of the ADK session backend.
-   ADK reads are explicitly marked telemetry-only.
 5. On a LangCache hit, the cached answer is returned immediately. The ADK runner, Gemini,
    Agent Platform Session update, tool calls, and Memory Bank promotion are skipped. Redis
    Agent Memory still receives both the user and cached assistant events.
 6. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
-   are added to ADK state. The runner starts without waiting for either Google telemetry read.
-   ADK session history and Memory Bank results are never added to Gemini's context.
+   are added to ADK state before the runner starts.
 7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Tool start,
    completion, result summary, and elapsed time are streamed to the UI.
 8. ADK stores the conversational turn through its shared session service. The agent's
    post-turn callback asks ADK to generate Memory Bank memories from that session.
 9. FastAPI records the assistant event in Redis Agent Memory and stores an eligible reusable
    answer in a versioned LangCache scope. Cacheable answers exclude personalized and live data.
-
-Only reads are benchmarked in the demo. Memory and cache writes are intentionally outside the
-reported comparison because this is a short workshop and cross-system write consistency is not
-a goal.
 
 ## Model selection and session sharing
 
@@ -82,7 +75,7 @@ when the process restarts and are not visible in the GCP console.
 
 ## Session and long-term memory paths
 
-The systems overlap deliberately but are not interchangeable.
+The application uses the following session and memory paths.
 
 | Concern | Redis path | Google ADK path |
 |---|---|---|
@@ -91,13 +84,8 @@ The systems overlap deliberately but are not interchangeable.
 | Independence | Redis event writes continue regardless of which ADK session service is selected. | Replacing `InMemorySessionService` with `VertexAiSessionService` changes ADK persistence, not Redis writes. |
 | Console visibility | Inspect with Redis Cloud/Redis Insight and the Agent Memory service. | Managed sessions and memories appear under Agent Platform for the configured Agent Engine and region. In-memory fallbacks do not. |
 
-The comparison endpoint, `POST /api/memory/compare`, sends the same query and member scope to
-Redis Agent Memory and ADK Memory Bank concurrently. It reports client-observed read latency,
-median latency over repeated runs, `precision@k`, and `recall@k` against optional expected terms.
-The supplied evaluation cases in `data/generated` make the accuracy comparison reproducible.
-The checked-in `member-1001` corpus includes both useful preferences and realistic distractors.
-For example, the laundry query currently returns only the relevant fact from Redis Agent Memory,
-while ADK Memory Bank's top-k retrieval also returns unrelated snack and receipt preferences.
+The optional `POST /api/memory/compare` endpoint reports client-observed latency and retrieval
+metrics against the checked-in evaluation cases.
 
 ## Data and retrieval
 

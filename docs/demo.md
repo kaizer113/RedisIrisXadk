@@ -6,11 +6,8 @@ memory paths and Gemini model selector.
 
 ## Before the session
 
-1. Open [http://34.182.213.82](http://34.182.213.82), scroll to **Presenter controls** at the
-   bottom of the page, and click **Reset demo cache**. Confirm the reset and wait for the ready
-   message. This flushes the managed LangCache so each scripted pair starts with a miss followed
-   by a semantic hit. It does not delete seeded or learned long-term memories. The Value Wholesale
-   brand at the top-left opens this guide in a new tab.
+1. Start the application, open its URL, scroll to **Presenter controls**, and click **Reset demo
+   cache**. Confirm the reset and wait for the ready message.
 2. Scroll back to the top of the page.
 3. Confirm that all eight service indicators are blue:
    Redis database, Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory,
@@ -21,23 +18,8 @@ memory paths and Gemini model selector.
 The demo uses the fictional member `member-1001`, Alex Rivera, whose home warehouse is the
 Portland Harbor location.
 
-For the high-cardinality memory scenario, switch to `member-1005`, Taylor Morgan. Taylor has
-exactly 500 pre-seeded memories: 20 durable preferences and 480 episodic distractors.
-
-During page warm-up, the application loads the shared local
-`redis/langcache-embed-v3-small` model and primes routing before Vale generates a short member
-greeting. When a member is selected, the application deterministically loads the authoritative
-member profile from Context Retriever, caches it for the new shopping session, and supplies it to
-the greeting agent. The greeting agent may optionally retrieve Redis Agent Memory; it does not
-retrieve the profile again. Wait for the greeting to finish before starting the scripted prompts.
-The first shopping turn silently reuses the cached profile, so no member-profile hydration row
-should appear in its trace. Changing the selected member clears the visible chat and creates a new
-session with its own profile hydration.
-
-The Context Retriever tool catalog is discovered once during page warm-up and cached by the
-application. Profile hydration during member selection and later agent tool selection reuse it, so
-the trace intentionally hides the redundant `discover MCP tools` step. Reload the page when you
-want to refresh the catalog.
+Wait for the member greeting to finish before starting the scripted prompts. Changing the selected
+member clears the visible chat and starts a new session.
 
 ## 1. Grounded product discovery and live inventory
 
@@ -61,10 +43,6 @@ Point to the live trace while the request runs. It should show:
 7. Two governed `get_inventory_by_id` calls, each with its own latency.
 8. `ADK Runner + Gemini` and total request time.
 
-Talk track: the model reasons about the request, but product, price, and stock claims come from
-Redis-backed tools. Inventory is accessed through the governed Context Retriever surface rather
-than being invented by the model.
-
 ## 2. Show operational context and order history
 
 Prompt:
@@ -75,9 +53,6 @@ Expected result: the agent combines Alex's membership profile with live order co
 lead with order `VH-ORD-1048`, which is ready for pickup at Portland, and may briefly mention the
 recent delivered order `VH-ORD-1026`. The trace should expose the Context Retriever order lookup
 rather than stopping after the preloaded profile or using a hidden database call.
-
-Talk track: Context Retriever gives the agent a controlled tool contract over live commerce
-entities such as members, inventory, orders, and order lines.
 
 ## 3. Demonstrate semantic response caching
 
@@ -147,27 +122,7 @@ Expected memories:
 - Alex prefers fragrance-free household and laundry products.
 - Alex prefers warehouse pickup at the Portland Harbor location.
 
-Expand both memory steps in the trace. The same query is sent to Redis Agent Memory long-term
-memory and ADK Memory Bank, and the retrieved facts and wall-clock latency are shown independently.
-Only Redis results are included in Gemini's context. ADK session and Memory Bank reads are marked
-telemetry-only and can finish after the answer because they do not block generation.
-
-Talk track:
-
-- Redis Agent Memory also holds the independent, append-only short-term event stream.
-- Agent Platform Sessions hold the ADK conversation session.
-- Redis and ADK long-term memory remain separate retrieval systems, making their behavior visible
-  in the same customer request.
-
-Then use the intentionally noisy evaluation prompt:
-
-> Which laundry detergent fits my preferences?
-
-The checked-in corpus contains the same ten Alex facts in both systems, including unrelated
-shopping and episodic memories. With the current managed services, Redis Agent Memory's
-similarity threshold returns only the fragrance-free laundry fact. ADK Memory Bank returns that
-fact plus top-k distractors such as snack and receipt preferences. Expand both trace steps to
-show the precision difference; this compares retrieval behavior, not answer quality.
+Expand the memory steps in the trace to review the returned facts and retrieval latency.
 
 ## 5. Save and recall a new preference
 
@@ -193,9 +148,8 @@ Keep the same conversation, change the composer dropdown to **Gemini 3.1 Pro**, 
 
 > Plan the best pantry purchase under $40 using my preferences and explain the trade-off.
 
-Point out that the generation trace names `gemini-3.1-pro-preview`. Both model-specific ADK runners share
-Agent Platform Sessions and ADK Memory Bank for persistence and measurement, while Redis continues
-to provide the conversation context sent to Gemini. ADK prior-session contents remain excluded.
+Point out that the generation trace names `gemini-3.1-pro-preview` and that the session remains
+available when the model changes.
 
 ## 7. Close on transparency
 

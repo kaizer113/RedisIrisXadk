@@ -15,9 +15,9 @@ set -a
 source "$SOURCE_ENV_FILE"
 set +a
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
-REGION="${VALUEWHOLESALE_DEPLOY_REGION:-us-east4}"
-ZONE="${VALUEWHOLESALE_VM_ZONE:-us-east4-c}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT before running this script}"
+REGION="${VALUEWHOLESALE_DEPLOY_REGION:?Set VALUEWHOLESALE_DEPLOY_REGION before running this script}"
+ZONE="${VALUEWHOLESALE_VM_ZONE:?Set VALUEWHOLESALE_VM_ZONE before running this script}"
 VM_NAME="${VALUEWHOLESALE_VM_NAME:-valuewholesale-demo}"
 MACHINE_TYPE="e2-standard-4"
 NETWORK="default"
@@ -26,7 +26,7 @@ FIREWALL_RULE="valuewholesale-allow-http"
 REPOSITORY="valuewholesale"
 SERVICE="valuewholesale-shopping-agent"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="owner=lionel_giavelli,app=valuewholesale,environment=demo"
+LABELS="app=valuewholesale,environment=demo"
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required"; exit 1; }
@@ -142,6 +142,7 @@ gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "
     --restart unless-stopped \
     --env-file /etc/valuewholesale.env \
     -e PORT=8080 \
+    -e WEB_CONCURRENCY=2 \
     -p 80:8080 \
     '$IMAGE'
 "

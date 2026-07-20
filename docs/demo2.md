@@ -11,9 +11,8 @@ feature-by-feature flow in [demo.md](demo.md).
 
 ## Before the session
 
-1. Open [http://34.182.213.82](http://34.182.213.82), scroll to **Presenter controls**, and click
-   **Reset demo cache**. Confirm the reset and wait for the ready message. This clears LangCache
-   but does not delete seeded or learned long-term memories.
+1. Start the application, open its URL, scroll to **Presenter controls**, and click **Reset demo
+   cache**. Confirm the reset and wait for the ready message.
 2. Return to the top and confirm that all eight service indicators are blue: Redis database,
    Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory, ADK Memory Bank,
    and ADK Agent Sessions.
@@ -42,10 +41,6 @@ Expected behavior:
 Expand the Context Retriever rows. The authoritative member profile was hydrated when Alex was
 selected, while the current order state comes from a governed order lookup. The agent should not
 pretend that identity data alone is a complete account view.
-
-Talk track: profile and order state have different freshness and access patterns. The agent reuses
-the session's profile but retrieves operational order context through the controlled commerce
-surface.
 
 ## 2. Inspect the pickup without repeating the account lookup
 
@@ -82,9 +77,6 @@ The paraphrase should hit the versioned `policy:v1` LangCache scope and skip gen
 Semantic Router and LangCache rows to show the current query, cached query, semantic match, and
 `Total request (0 llm calls)`.
 
-Talk track: reusable policy answers can be cached semantically, while the surrounding order and
-member turns remain outside the cache because they contain live or personalized data.
-
 ## 4. Ask for a personalized gap-fill
 
 Prompt:
@@ -102,16 +94,7 @@ Expected behavior:
 - Vale does not add anything to the cart because the request asked for a recommendation, not a
   cart mutation.
 
-Expand both long-term-memory rows. Redis Agent Memory and ADK Memory Bank receive the same query
-and report their facts and latency independently. Only Redis memory is included in Gemini's
-context; the ADK read is telemetry-only and can complete after the answer.
-
-Also point out that the agent can reuse the order-history snapshot already captured in Redis
-short-term session events. It should not need to repeat the broad recent-order lookup before
-searching the catalog.
-
-Talk track: personalization proposes a relevant product, but it cannot override live inventory or
-authorize a purchase.
+Expand the long-term-memory rows to review the returned facts and retrieval latency.
 
 ## 5. Recover with live stock at another warehouse
 
@@ -150,13 +133,8 @@ Keep the same conversation, switch **Model** to **Gemini 3.1 Pro**, and ask:
 
 > Summarize my pickup plan, the stock issue we found, and what is in my cart.
 
-The generation trace should name `gemini-3.1-pro-preview`. Redis short-term session events retain the
-shopping journey, and the cart tool supplies current cart state. Both model-specific ADK runners
-share Agent Platform Sessions and ADK Memory Bank for persistence and measurement; Redis remains
-the conversation context sent to Gemini.
-
-Talk track: changing the reasoning model does not force the member to restart the shopping task or
-discard grounded state.
+The generation trace should name `gemini-3.1-pro-preview`. The shopping journey and current cart
+remain available when the model changes.
 
 ## 8. Finish with the domain guardrail
 
@@ -168,17 +146,13 @@ Expected behavior: the RedisVL Semantic Router blocks the out-of-domain request 
 memory retrieval, governed commerce tools, or Gemini run. Expand the trace to show the block and
 the skipped downstream stages.
 
-Talk track: routing is not only a cache optimization. It also prevents unrelated requests from
-consuming model and retrieval work through this commerce agent.
-
 ## Close
 
 Recap the customer outcome and its evidence:
 
 - Context Retriever separated authoritative profile, order, order-item, and live inventory reads.
 - Redis session memory carried the multi-turn journey forward.
-- Redis Agent Memory personalized the recommendation while ADK Memory Bank provided an independent
-  retrieval comparison.
+- Agent memory personalized the recommendation.
 - LangCache reused a safe, grounded policy answer but bypassed personalized and volatile turns.
 - The cart changed only after an explicit instruction.
 - The model could change without losing session state.

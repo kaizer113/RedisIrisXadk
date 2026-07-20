@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     google_model: str = "gemini-3.1-flash-lite"
     google_models: str = "gemini-3.1-flash-lite gemini-3.1-pro-preview"
     google_genai_use_vertexai: bool = True
-    google_memory_location: str = "us-east4"
+    google_memory_location: str = ""
     google_agent_engine_id: str = ""
     valuewholesale_vector_search_enabled: bool = True
     valuewholesale_embedding_model: str = "redis/langcache-embed-v3-small"
@@ -66,7 +66,11 @@ class Settings(BaseSettings):
 
     @property
     def vertex_memory_configured(self) -> bool:
-        return bool(self.google_cloud_project and self.google_agent_engine_id)
+        return bool(
+            self.google_cloud_project
+            and self.google_memory_location
+            and self.google_agent_engine_id
+        )
 
     @property
     def available_google_models(self) -> tuple[str, str]:

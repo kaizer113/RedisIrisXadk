@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
-REGION="${VALUEWHOLESALE_DEPLOY_REGION:-us-east4}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT before running this script}"
+REGION="${VALUEWHOLESALE_DEPLOY_REGION:?Set VALUEWHOLESALE_DEPLOY_REGION before running this script}"
 
 if ! command -v gcloud >/dev/null 2>&1; then
   echo "gcloud is not installed. Install the Google Cloud CLI, then rerun make check-gcp."

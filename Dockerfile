@@ -16,4 +16,4 @@ COPY valuewholesale_agent ./valuewholesale_agent
 COPY scripts ./scripts
 
 EXPOSE 8080
-CMD ["sh", "-c", "uv run --no-sync uvicorn valuewholesale_agent.api:app --host 0.0.0.0 --port ${PORT}"]
+CMD ["sh", "-c", "uv run --no-sync uvicorn valuewholesale_agent.api:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-1}"]

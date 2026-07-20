@@ -11,7 +11,6 @@ The agent can discover products, compare member pricing, check warehouse invento
 - [Architecture and request flow](ARCHITECTURE.md)
 - [How Temporal would affect the architecture](docs/temporal.md)
 - [Reproducible dataset](data/README.md)
-- Current public demo: [http://34.182.213.82](http://34.182.213.82)
 
 ## Architecture
 
@@ -27,21 +26,15 @@ session and long-term memory paths, deployment topology, and a rendered system d
 | Response cache | Redis LangCache | Scoped cache-aside for policies, static product education, and reusable shopping guides |
 | Memory A | Redis Agent Memory | Session events and scoped semantic/episodic preferences |
 | Memory B | Vertex AI ADK Memory Bank | ADK-managed conversation memory |
-| Hosting | Compute Engine / Cloud Run | Public web app and API in `us-east4` |
+| Hosting | Compute Engine / Cloud Run | Web app and API deployment options |
 
-The deployed Compute Engine workload and Agent Platform Memory Bank are colocated in `us-east4`.
-When an Agent Engine ID is configured, ADK events are stored in Agent Platform Sessions while
-Redis Agent Memory continues receiving its independent short-term event stream. The chat offers
-two server-approved model choices: Gemini 3.1 Flash-Lite for speed and Gemini 3.1 Pro for heavier
-reasoning.
+When an Agent Engine ID is configured, ADK events are stored in Agent Platform Sessions. The chat
+offers Gemini 3.1 Flash-Lite for speed and Gemini 3.1 Pro for heavier reasoning.
 
 ## Live agent trace
 
-Every shopping request runs RedisVL semantic routing alongside Redis Agent Memory session
-history, Redis long-term memory, Agent Platform session timing, and Vertex ADK Memory Bank
-retrieval. Redis short- and long-term results are sent to Gemini. Google session history and
-Memory Bank results are telemetry-only, excluded from Gemini context, and do not delay the model
-call. The web UI streams those steps live and offers demo-member and Gemini-model selectors.
+Every shopping request runs semantic routing, context retrieval, memory retrieval, and agent
+generation. The web UI streams those steps live and offers demo-member and Gemini-model selectors.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed
@@ -78,19 +71,15 @@ make setup-iris
 
 `make setup-iris` is the repeatable Redis setup command. It regenerates the dataset, seeds the Redis database, creates or updates the `Value Wholesale Shopping` Context Surface through `ctxctl`, imports the Value Wholesale entities, and creates a surface-scoped agent key when `.env` does not already contain one.
 
-For an optional long-term-memory scale corpus, run `make seed-scale-memory`. It writes 100
-deterministic memories for each of 100 synthetic `scale-member-*` owners to both Redis Agent
-Memory and ADK Memory Bank. These owners are deliberately absent from the commerce member dataset,
-so they never appear in the UI. Redis uses 100-record bulk writes; ADK writes each owner-scoped
-memory separately and takes about 125 minutes at the configured 80 writes/minute quota. Preview
-the corpus without external writes with
-`uv run python -m scripts.seed_scale_memories --dry-run`.
+Once every managed-service ID is present in `.env` and GCP authentication is active,
+`make deploy-all` performs the Redis setup and deploys the Cloud Run service. Production
+deployments should use a dedicated least-privilege service identity and Secret Manager.
 
-Once every managed-service ID is present in `.env` and GCP authentication is active, `make deploy-all` performs the Redis setup and deploys the public Cloud Run service in one command. This demo path uses the project's existing default Cloud Run identity and revision environment variables, so it does not create service accounts or change project IAM. Production deployments should use a dedicated least-privilege service identity and Secret Manager.
+If Cloud Run public-invoker permissions are unavailable, `make deploy-vm` deploys the UI and API
+to the configured Compute Engine region and zone. The command prints the deployment URL when its
+health check succeeds.
 
-If Cloud Run public-invoker permissions are unavailable, `make deploy-vm` deploys the complete UI and API to a public `e2-standard-4` VM in `us-east4-c`. The VM uses Premium Tier networking, gVNIC, a balanced persistent disk, and a firewall tag that exposes only HTTP port 80. The command prints the public IP URL when its health check succeeds.
-
-## Redeploy the public demo
+## Deploy to Compute Engine
 
 The checked-in deployment path is idempotent and does not add project IAM bindings. From a
 machine with `gcloud`, `uv`, and access to the target GCP project:
@@ -99,14 +88,15 @@ machine with `gcloud`, `uv`, and access to the target GCP project:
 cp .env.example .env                 # first deployment only; add your service credentials
 gcloud auth login
 gcloud auth application-default login
-gcloud config set project central-beach-194106
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export VALUEWHOLESALE_DEPLOY_REGION="your-region"
+export VALUEWHOLESALE_VM_ZONE="your-zone"
 make deploy-vm
 ```
 
 `make deploy-vm` regenerates and seeds the demo data, updates Context Retriever, creates or
 reuses the ADK Memory Bank, seeds both long-term memory providers, builds the container, and
-updates the existing `valuewholesale-demo` VM in `us-east4-c`. It prints the public URL after the
-health check passes.
+updates the configured VM. It prints the deployment URL after the health check passes.
 
 For a code-only redeploy that leaves the managed-service data unchanged:
 
@@ -114,17 +104,20 @@ For a code-only redeploy that leaves the managed-service data unchanged:
 ./scripts/deploy_vm.sh
 ```
 
-Verify the deployment:
+The VM deployment runs two Uvicorn workers. Other container targets default to one worker and
+can override the count with `WEB_CONCURRENCY`.
+
+Verify the deployment using the URL printed by the command:
 
 ```bash
-curl -fsS http://34.182.213.82/api/health
+curl -fsS "https://your-deployment.example/api/health"
 ```
 
 The expected response reports both Gemini models and all Redis/Google integrations as `true`.
 Stop the VM when the demo is not needed:
 
 ```bash
-gcloud compute instances stop valuewholesale-demo --zone us-east4-c
+gcloud compute instances stop valuewholesale-demo --zone "$VALUEWHOLESALE_VM_ZONE"
 ```
 
 The deterministic JSONL dataset lives in [`data/generated`](data/generated) and includes products, warehouses, inventory, members, normalized orders, policies, identical memory seeds, and labeled retrieval-evaluation cases. See [`data/README.md`](data/README.md) for its schema and Redis key model.
@@ -139,15 +132,14 @@ Redis search remains the fail-open fallback.
 
 ## GCP deployment
 
-The target project is `central-beach-194106` (display name `redislabs-sales-project`). Resource labels use `owner=lionel_giavelli`, plus app/environment labels where supported.
-
 ```bash
 gcloud auth application-default login
-export GOOGLE_CLOUD_PROJECT=central-beach-194106
+export GOOGLE_CLOUD_PROJECT="your-project-id"
+export VALUEWHOLESALE_DEPLOY_REGION="your-region"
+export GOOGLE_MEMORY_LOCATION="your-region"
 make check-gcp
 
-# Memory Bank is colocated with the application.
-uv run python scripts/create_memory_bank.py --project "$GOOGLE_CLOUD_PROJECT" --location us-east4
+uv run python scripts/create_memory_bank.py
 export GOOGLE_AGENT_ENGINE_ID=<id printed above>
 
 make deploy
@@ -166,8 +158,6 @@ make configure-secrets
 ```
 
 That script creates or versions labeled Secret Manager secrets without putting secret values in command arguments, then binds them to Cloud Run. Service endpoints and IDs are configured as ordinary environment variables.
-
-Some GCP resource types, including service accounts and API enablement records, do not support user labels. The owner label is applied to every created resource type that supports labels.
 
 ## Workshop flow
 

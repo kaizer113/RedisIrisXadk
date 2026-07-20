@@ -8,13 +8,13 @@ if [[ -f .env ]]; then
   set +a
 fi
 
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-central-beach-194106}"
-REGION="${VALUEWHOLESALE_DEPLOY_REGION:-us-east4}"
+PROJECT_ID="${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT before running this script}"
+REGION="${VALUEWHOLESALE_DEPLOY_REGION:?Set VALUEWHOLESALE_DEPLOY_REGION before running this script}"
 MEMORY_REGION="${GOOGLE_MEMORY_LOCATION:-$REGION}"
 SERVICE="valuewholesale-shopping-agent"
 REPOSITORY="valuewholesale"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="owner=lionel_giavelli,app=valuewholesale,environment=demo"
+LABELS="app=valuewholesale,environment=demo"
 ACCESS_FLAGS=(--no-invoker-iam-check)
 if [[ "${PUBLIC_ACCESS:-true}" == "false" ]]; then
   ACCESS_FLAGS=()

@@ -69,7 +69,7 @@ def test_safe_id_and_service_configuration() -> None:
         google_agent_engine_id="",
     )
     assert settings.google_cloud_location == "global"
-    assert settings.google_memory_location == "us-east4"
+    assert settings.google_memory_location == ""
     assert settings.available_google_models == ("gemini-3.1-flash-lite", "gemini-3.1-pro-preview")
     assert settings.valuewholesale_embedding_model == "redis/langcache-embed-v3-small"
     assert settings.valuewholesale_vector_search_enabled is True

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from pathlib import Path
 
 import vertexai
@@ -49,10 +50,14 @@ def save_env_id(path: Path, memory_bank_id: str) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Create the Value Wholesale Vertex Memory Bank.")
-    parser.add_argument("--project", default="central-beach-194106")
-    parser.add_argument("--location", default="us-east4")
+    parser.add_argument("--project", default=os.getenv("GOOGLE_CLOUD_PROJECT"))
+    parser.add_argument("--location", default=os.getenv("GOOGLE_MEMORY_LOCATION"))
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     args = parser.parse_args()
+    if not args.project:
+        parser.error("--project or GOOGLE_CLOUD_PROJECT is required")
+    if not args.location:
+        parser.error("--location or GOOGLE_MEMORY_LOCATION is required")
 
     client = vertexai.Client(project=args.project, location=args.location)
     memory_bank = next(
@@ -68,7 +73,7 @@ def main() -> None:
             config={
                 "display_name": DISPLAY_NAME,
                 "description": "ADK memory for the Value Wholesale shopping agent.",
-                "labels": {"owner": "lionel_giavelli", "app": "valuewholesale"},
+                "labels": {"app": "valuewholesale"},
                 **memory_bank_config(),
             }
         )
@@ -78,7 +83,7 @@ def main() -> None:
             config={
                 "display_name": DISPLAY_NAME,
                 "description": "ADK memory for the Value Wholesale shopping agent.",
-                "labels": {"owner": "lionel_giavelli", "app": "valuewholesale"},
+                "labels": {"app": "valuewholesale"},
                 **memory_bank_config(),
             },
         )
