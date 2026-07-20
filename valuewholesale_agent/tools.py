@@ -95,11 +95,16 @@ def search_catalog(
                 "products": copy.deepcopy(cached[1]),
                 "identical_search_reused": True,
                 "redisvl_duration_ms": 0.0,
+                "embedding_duration_ms": None,
+                "embedding_cache_hit": None,
             }
 
-    products, redisvl_duration_ms = services.catalog.search_products_with_timing(
-        query, category, normalized_limit
-    )
+    (
+        products,
+        redisvl_duration_ms,
+        embedding_duration_ms,
+        embedding_cache_hit,
+    ) = services.catalog.search_products_with_timing(query, category, normalized_limit)
     with _catalog_cache_lock:
         if len(_catalog_cache) >= 256:
             _catalog_cache.clear()
@@ -111,6 +116,8 @@ def search_catalog(
         "products": products,
         "identical_search_reused": False,
         "redisvl_duration_ms": redisvl_duration_ms,
+        "embedding_duration_ms": embedding_duration_ms,
+        "embedding_cache_hit": embedding_cache_hit,
     }
 
 

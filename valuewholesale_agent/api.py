@@ -214,9 +214,18 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
         summary = f"{len(products)} products found"
         if payload.get("identical_search_reused"):
             summary += " · identical search reused"
-        return summary, [
+        details = [
             str(product.get("name", product.get("sku", "product"))) for product in products[:5]
         ]
+        embedding_duration_ms = payload.get("embedding_duration_ms")
+        if isinstance(embedding_duration_ms, (int, float)):
+            details.append(f"Local embedding: {embedding_duration_ms} ms")
+            cache_hit = payload.get("embedding_cache_hit")
+            details.append(
+                "Embedding cache: "
+                + ("Hit" if cache_hit is True else "Miss" if cache_hit is False else "Unavailable")
+            )
+        return summary, details
     if name == "check_warehouse_inventory" and isinstance(payload, dict):
         quantity = payload.get("quantity", 0)
         availability = str(payload.get("availability", "checked")).replace("_", " ")

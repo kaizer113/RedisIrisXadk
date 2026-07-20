@@ -135,6 +135,7 @@ gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "
     'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"access_token\"])')
   printf '%s' \"\$token\" | sudo docker login -u oauth2accesstoken --password-stdin https://$REGION-docker.pkg.dev
+  sudo docker image prune -f >/dev/null
   sudo docker pull '$IMAGE'
   sudo docker rm -f valuewholesale-agent >/dev/null 2>&1 || true
   sudo docker run -d \
@@ -145,6 +146,7 @@ gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "
     -e WEB_CONCURRENCY=2 \
     -p 80:8080 \
     '$IMAGE'
+  sudo docker image prune -f >/dev/null
 "
 
 PUBLIC_IP="$(gcloud compute instances describe "$VM_NAME" --zone "$ZONE" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')"

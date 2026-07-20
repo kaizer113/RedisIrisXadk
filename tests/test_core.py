@@ -113,7 +113,12 @@ def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
 
     def search(query, category, limit):
         calls.append((query, category, limit))
-        return ([{"sku": "VH-6001", "name": "Lightly Salted Tortilla Chips"}], 1.25)
+        return (
+            [{"sku": "VH-6001", "name": "Lightly Salted Tortilla Chips"}],
+            1.25,
+            2.5,
+            True,
+        )
 
     _catalog_cache.clear()
     monkeypatch.setattr(services.catalog, "search_products_with_timing", search)
@@ -123,8 +128,12 @@ def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
 
     assert first["identical_search_reused"] is False
     assert first["redisvl_duration_ms"] == 1.25
+    assert first["embedding_duration_ms"] == 2.5
+    assert first["embedding_cache_hit"] is True
     assert second["identical_search_reused"] is True
     assert second["redisvl_duration_ms"] == 0.0
+    assert second["embedding_duration_ms"] is None
+    assert second["embedding_cache_hit"] is None
     assert calls == [("lightly salted snacks", "pantry", 5)]
     _catalog_cache.clear()
 
@@ -134,7 +143,7 @@ def test_catalog_search_clamps_limit_to_one_through_six(monkeypatch) -> None:
 
     def search(query, category, limit):
         calls.append(limit)
-        return [], 0.5
+        return [], 0.5, 1.0, False
 
     _catalog_cache.clear()
     monkeypatch.setattr(services.catalog, "search_products_with_timing", search)
@@ -280,13 +289,20 @@ def test_catalog_search_timing_covers_only_redisvl_query(monkeypatch) -> None:
     catalog = CatalogService(Settings(_env_file=None), FakeEmbeddings())
     catalog.redis = SimpleNamespace()
     catalog._product_index = FakeIndex()
-    clock = iter([10.0, 10.01234])
+    clock = iter([10.0, 10.01234, 20.0, 20.00125])
     monkeypatch.setattr("valuewholesale_agent.services.time.perf_counter", lambda: next(clock))
 
-    products, redisvl_duration_ms = catalog.search_products_with_timing("olive oil")
+    (
+        products,
+        redisvl_duration_ms,
+        embedding_duration_ms,
+        embedding_cache_hit,
+    ) = catalog.search_products_with_timing("olive oil")
 
     assert products[0]["sku"] == "VH-1001"
-    assert redisvl_duration_ms == 12.34
+    assert redisvl_duration_ms == 1.25
+    assert embedding_duration_ms == 12.34
+    assert embedding_cache_hit is None
 
 
 def test_policy_search_uses_redisvl_vector_query() -> None:
@@ -1074,6 +1090,12 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert '<details class="panel side service-panel" open>' in html
     assert "<summary><h2>Redis Iris services</h2></summary>" in html
     assert "embedding_cache:'Embedding Cache'" in html
+    assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
+    assert "key==='redis_database'?card.querySelector('.service-operation-time')" in html
+    assert (
+        "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
+        in html
+    )
     assert 'class="panel side trace-panel"' in html
     assert "What flavor notes does Rain City Medium Roast Coffee have?" in html
     assert "How should I store a large bag of rolled oats after opening?" in html
@@ -1406,6 +1428,22 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
     assert _tool_label("search_catalog", {}) == (
         'RedisVL Search Catalog · "" · all categories · limit 5'
     )
+    summary, details = _tool_summary(
+        "search_catalog",
+        {
+            "result": {
+                "products": [{"name": "Clear Tide Laundry Pods"}],
+                "embedding_duration_ms": 3.25,
+                "embedding_cache_hit": True,
+            }
+        },
+    )
+    assert summary == "1 products found"
+    assert details == [
+        "Clear Tide Laundry Pods",
+        "Local embedding: 3.25 ms",
+        "Embedding cache: Hit",
+    ]
     assert (
         _tool_label("search_member_policies", {"query": "How long can I return a laptop?"})
         == 'RedisVL Search Policies · "How long can I return a laptop?"'
