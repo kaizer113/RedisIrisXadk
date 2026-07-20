@@ -91,6 +91,7 @@ gcloud auth application-default login
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export VALUEWHOLESALE_DEPLOY_REGION="your-region"
 export VALUEWHOLESALE_VM_ZONE="your-zone"
+export VALUEWHOLESALE_VM_REDIS_HOST="your-private-redis-hostname"
 make deploy-vm
 ```
 

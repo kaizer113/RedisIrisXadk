@@ -361,7 +361,15 @@ class CatalogService:
     def search_products(
         self, query: str, category: str = "", limit: int = 5
     ) -> list[dict[str, Any]]:
+        products, _ = self.search_products_with_timing(query, category, limit)
+        return products
+
+    def search_products_with_timing(
+        self, query: str, category: str = "", limit: int = 5
+    ) -> tuple[list[dict[str, Any]], float | None]:
+        """Search products and time only the RedisVL index query execution."""
         limit = max(1, min(limit, 10))
+        redisvl_duration_ms: float | None = None
         if self.redis is not None:
             try:
                 vector = self._embed(query)
@@ -393,8 +401,14 @@ class CatalogService:
                         return_score=False,
                         stopwords=None,
                     )
+                product_index = self._get_product_index()
+                redisvl_started = time.perf_counter()
+                raw_docs = product_index.query(redisvl_query)
+                redisvl_duration_ms = round(
+                    (time.perf_counter() - redisvl_started) * 1000, 2
+                )
                 docs = []
-                for mapped in self._get_product_index().query(redisvl_query):
+                for mapped in raw_docs:
                     mapped.pop("id", None)
                     if "vector_distance" in mapped:
                         mapped["score"] = mapped.pop("vector_distance")
@@ -403,7 +417,7 @@ class CatalogService:
                             mapped[field] = float(mapped[field])
                     docs.append(mapped)
                 if docs:
-                    return docs
+                    return docs, redisvl_duration_ms
             except Exception as exc:
                 log.warning("Redis product search unavailable; using fixtures: %s", exc)
 
@@ -418,7 +432,7 @@ class CatalogService:
             score = sum(1 for word in words if word in haystack)
             ranked.append((score, product))
         ranked.sort(key=lambda item: (-item[0], item[1]["member_price"]))
-        return [dict(product) for _, product in ranked[:limit]]
+        return [dict(product) for _, product in ranked[:limit]], redisvl_duration_ms
 
     def search_policies(self, query: str, limit: int = 3) -> list[dict[str, Any]]:
         limit = max(1, min(limit, 5))

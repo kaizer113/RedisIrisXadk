@@ -94,9 +94,12 @@ def search_catalog(
             return {
                 "products": copy.deepcopy(cached[1]),
                 "identical_search_reused": True,
+                "redisvl_duration_ms": 0.0,
             }
 
-    products = services.catalog.search_products(query, category, normalized_limit)
+    products, redisvl_duration_ms = services.catalog.search_products_with_timing(
+        query, category, normalized_limit
+    )
     with _catalog_cache_lock:
         if len(_catalog_cache) >= 256:
             _catalog_cache.clear()
@@ -104,7 +107,11 @@ def search_catalog(
             now + _CATALOG_CACHE_TTL_SECONDS,
             copy.deepcopy(products),
         )
-    return {"products": products, "identical_search_reused": False}
+    return {
+        "products": products,
+        "identical_search_reused": False,
+        "redisvl_duration_ms": redisvl_duration_ms,
+    }
 
 
 def check_warehouse_inventory(sku: str, warehouse_id: str) -> dict[str, Any]:

@@ -19,6 +19,7 @@ from valuewholesale_agent.api import (
     _chat_events,
     _context_result_session_event,
     _greeting_events,
+    _tool_duration,
     _tool_label,
     _tool_summary,
     app,
@@ -112,16 +113,18 @@ def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
 
     def search(query, category, limit):
         calls.append((query, category, limit))
-        return [{"sku": "VH-6001", "name": "Lightly Salted Tortilla Chips"}]
+        return ([{"sku": "VH-6001", "name": "Lightly Salted Tortilla Chips"}], 1.25)
 
     _catalog_cache.clear()
-    monkeypatch.setattr(services.catalog, "search_products", search)
+    monkeypatch.setattr(services.catalog, "search_products_with_timing", search)
 
     first = search_catalog("lightly salted snacks", "pantry", 5)
     second = search_catalog("lightly salted snacks", "pantry", 5)
 
     assert first["identical_search_reused"] is False
+    assert first["redisvl_duration_ms"] == 1.25
     assert second["identical_search_reused"] is True
+    assert second["redisvl_duration_ms"] == 0.0
     assert calls == [("lightly salted snacks", "pantry", 5)]
     _catalog_cache.clear()
 
@@ -131,10 +134,10 @@ def test_catalog_search_clamps_limit_to_one_through_six(monkeypatch) -> None:
 
     def search(query, category, limit):
         calls.append(limit)
-        return []
+        return [], 0.5
 
     _catalog_cache.clear()
-    monkeypatch.setattr(services.catalog, "search_products", search)
+    monkeypatch.setattr(services.catalog, "search_products_with_timing", search)
 
     search_catalog("pantry staples", "pantry", 10)
     search_catalog("paper goods", "household", 0)
@@ -254,6 +257,36 @@ def test_catalog_search_uses_shared_local_vectorizer() -> None:
     assert query._vector == b"local-vector"
     assert products[0]["score"] == 0.12
     assert PRODUCT_INDEX_NAME == "idx:valuewholesale:products-v2"
+
+
+def test_catalog_search_timing_covers_only_redisvl_query(monkeypatch) -> None:
+    class FakeEmbeddings:
+        def embed(self, text, *, as_buffer=False):
+            return b"local-vector"
+
+    class FakeIndex:
+        def query(self, query):
+            return [
+                {
+                    "sku": "VH-1001",
+                    "name": "Olive Oil Twin Pack",
+                    "category": "pantry",
+                    "price": "24.99",
+                    "member_price": "21.99",
+                    "description": "Cold-pressed olive oil.",
+                }
+            ]
+
+    catalog = CatalogService(Settings(_env_file=None), FakeEmbeddings())
+    catalog.redis = SimpleNamespace()
+    catalog._product_index = FakeIndex()
+    clock = iter([10.0, 10.01234])
+    monkeypatch.setattr("valuewholesale_agent.services.time.perf_counter", lambda: next(clock))
+
+    products, redisvl_duration_ms = catalog.search_products_with_timing("olive oil")
+
+    assert products[0]["sku"] == "VH-1001"
+    assert redisvl_duration_ms == 12.34
 
 
 def test_policy_search_uses_redisvl_vector_query() -> None:
@@ -1034,6 +1067,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
     assert 'id="reset-demo"' in html
+    assert 'id="redis-endpoint"' in html
+    assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert '<details class="panel side service-panel" open>' in html
@@ -1375,6 +1410,11 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
         _tool_label("search_member_policies", {"query": "How long can I return a laptop?"})
         == 'RedisVL Search Policies · "How long can I return a laptop?"'
     )
+    assert _tool_duration(
+        "search_catalog", {"result": {"redisvl_duration_ms": 2.75}}, 167.54
+    ) == 2.75
+    assert _tool_duration("search_catalog", {"result": {}}, 167.54) == 0.0
+    assert _tool_duration("search_member_policies", {}, 8.5) == 8.5
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200
 
@@ -1438,6 +1478,7 @@ def test_health_and_unconfigured_memory_comparison() -> None:
         assert health.json()["cloud_run_location"] == "global"
         assert health.json()["default_model"] == "gemini-3.1-flash-lite"
         assert health.json()["models"] == ["gemini-3.1-flash-lite", "gemini-3.1-pro-preview"]
+        assert "redis_endpoint" in health.json()
         assert "semantic_router" in health.json()["services"]
         members = client.get("/api/members")
         assert members.status_code == 200

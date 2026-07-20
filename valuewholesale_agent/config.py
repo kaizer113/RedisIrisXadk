@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -49,6 +50,16 @@ class Settings(BaseSettings):
     @property
     def redis_configured(self) -> bool:
         return bool(self.redis_url)
+
+    @property
+    def redis_endpoint(self) -> str:
+        """Return the configured Redis host and port without credentials."""
+        if not self.redis_url:
+            return ""
+        parsed = urlparse(self.redis_url)
+        if not parsed.hostname:
+            return ""
+        return f"{parsed.hostname}:{parsed.port}" if parsed.port else parsed.hostname
 
     @property
     def langcache_configured(self) -> bool:

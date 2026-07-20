@@ -248,6 +248,17 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
     return "Completed", [compact[:300]] if compact and compact != "{}" else []
 
 
+def _tool_duration(name: str, response: dict[str, Any], elapsed_ms: float) -> float:
+    """Use operation-specific timing when a tool reports a narrower boundary."""
+    payload = response.get("result", response)
+    if name == "search_catalog" and isinstance(payload, dict):
+        redisvl_duration_ms = payload.get("redisvl_duration_ms")
+        if isinstance(redisvl_duration_ms, (int, float)):
+            return float(redisvl_duration_ms)
+        return 0.0
+    return elapsed_ms
+
+
 def _context_result_session_event(
     name: str,
     arguments: dict[str, Any],
@@ -699,12 +710,14 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                         call_id,
                         (time.perf_counter(), str(response.name or "tool"), {}, True),
                     )
-                    duration = round((time.perf_counter() - started) * 1000, 2)
-                    summary, details = _tool_summary(name, dict(response.response or {}))
+                    response_data = dict(response.response or {})
+                    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+                    duration = _tool_duration(name, response_data, elapsed_ms)
+                    summary, details = _tool_summary(name, response_data)
                     session_event = _context_result_session_event(
                         name,
                         arguments,
-                        dict(response.response or {}),
+                        response_data,
                     )
                     if session_event is not None:
                         event_text_value, event_metadata = session_event
@@ -985,6 +998,7 @@ async def health() -> dict[str, Any]:
         "memory_bank_location": settings.google_memory_location,
         "default_model": settings.google_model,
         "embedding_model": settings.valuewholesale_embedding_model,
+        "redis_endpoint": settings.redis_endpoint,
         "models": settings.available_google_models,
         "services": {
             "redis_database": settings.redis_configured,
