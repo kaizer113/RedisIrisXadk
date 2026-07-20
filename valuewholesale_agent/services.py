@@ -203,6 +203,21 @@ class LocalEmbeddingService:
         with self._inference_lock:
             return vectorizer.embed_many(texts, as_buffer=as_buffer)
 
+    def is_cached(self, text: str) -> bool | None:
+        """Report an embedding-cache hit when the cache can be inspected."""
+        if self.embedding_cache is None:
+            return None
+        try:
+            return bool(
+                self.embedding_cache.exists(
+                    content=text,
+                    model_name=self.settings.valuewholesale_embedding_model,
+                )
+            )
+        except Exception as exc:
+            log.warning("Embedding cache probe failed open: %s", exc)
+            return None
+
     def cache_probe(self) -> tuple[bool, str, dict[str, Any]]:
         if self.embedding_cache is None:
             return False, "RedisVL EmbeddingsCache is not configured", {}
@@ -786,6 +801,7 @@ class SemanticRouterService:
         route_started = time.perf_counter()
         redisvl_duration_ms: float | None = None
         embedding_duration_ms: float | None = None
+        embedding_cache_hit: bool | None = None
         try:
             router = self._get_router()
             contextual_followup = bool(
@@ -798,6 +814,9 @@ class SemanticRouterService:
                 else message
             )
             embedding_started = time.perf_counter()
+            cache_probe = getattr(self.embeddings, "is_cached", None)
+            if callable(cache_probe):
+                embedding_cache_hit = cache_probe(routing_statement)
             vector = self.embeddings.embed(routing_statement)
             embedding_duration_ms = round(
                 (time.perf_counter() - embedding_started) * 1000, 2
@@ -843,6 +862,7 @@ class SemanticRouterService:
                 "decision_source": "redisvl",
                 "redisvl_duration_ms": redisvl_duration_ms,
                 "embedding_duration_ms": embedding_duration_ms,
+                "embedding_cache_hit": embedding_cache_hit,
                 "route_duration_ms": round(
                     (time.perf_counter() - route_started) * 1000, 2
                 ),
@@ -865,6 +885,7 @@ class SemanticRouterService:
                 "decision_source": "fail-safe",
                 "redisvl_duration_ms": redisvl_duration_ms,
                 "embedding_duration_ms": embedding_duration_ms,
+                "embedding_cache_hit": embedding_cache_hit,
                 "route_duration_ms": round(
                     (time.perf_counter() - route_started) * 1000, 2
                 ),

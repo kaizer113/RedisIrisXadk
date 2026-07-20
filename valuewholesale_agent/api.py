@@ -379,6 +379,10 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             f"Local embedding: {routing['embedding_duration_ms']} ms · "
             f"{settings.valuewholesale_embedding_model}"
         )
+    if routing.get("embedding_cache_hit") is not None:
+        route_details.append(
+            f"Embedding cache: {'Hit' if routing['embedding_cache_hit'] else 'Miss'}"
+        )
     if routing.get("redisvl_duration_ms") is not None:
         route_details.append(f"Redis vector classification: {routing['redisvl_duration_ms']} ms")
     if not redisvl_called:

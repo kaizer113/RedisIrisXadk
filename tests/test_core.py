@@ -417,6 +417,10 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
         def __init__(self):
             self.embedded = []
 
+        @staticmethod
+        def is_cached(message):
+            return message.startswith("Could you explain")
+
         def embed(self, message):
             self.embedded.append(message)
             return [0.1, 0.2]
@@ -444,6 +448,7 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert public["decision_source"] == "redisvl"
     assert public["distance"] == 0.31
     assert public["redisvl_duration_ms"] is not None
+    assert public["embedding_cache_hit"] is True
     assert public["cache_scope"] == "policy:v1"
 
     followup = router.route(
@@ -453,6 +458,7 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert followup["blocked"] is False
     assert followup["cache_read"] is False
     assert followup["cache_write"] is False
+    assert followup["embedding_cache_hit"] is False
     assert followup["reason"] == "contextual ecommerce follow-up"
     assert "Previous shopping conversation" in fake_embeddings.embedded[-1]
     assert "even without a receipt?" in fake_embeddings.embedded[-1]
