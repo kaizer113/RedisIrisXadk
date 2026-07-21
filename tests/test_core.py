@@ -1096,6 +1096,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "agent_platform_sessions:'ADK Agent Sessions'" not in html
     assert "gemini_adk_orchestration:'Gemini & ADK orchestration'" in html
     assert "icon:'/static/assets/gemini-icon.png'" in html
+    assert ".service-logo.gemini { width:37px; height:37px; justify-self:center; }" in html
     assert "services:['gemini_adk_orchestration'],wide:true" in html
     assert "if(id==='greeting-generation'||id==='total')add('gemini_adk_orchestration')" in html
     assert "operation.textContent=step.label" in html
@@ -1103,6 +1104,12 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
     assert '<div class="service-meta-row"><button id="context-tools-trigger"' in html
     assert "function setToolSummary(count,text=`${count} tools discovered`)" in html
+    assert "Warming services…" not in html
+    assert (
+        ".service-meta-row { display:flex; align-items:baseline; "
+        "justify-content:space-between; gap:8px; margin:3px 0 0; }"
+        in html
+    )
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
     assert "key==='redis_database'||key==='gemini_adk_orchestration'" in html
     assert (
