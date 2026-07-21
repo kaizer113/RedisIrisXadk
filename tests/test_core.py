@@ -1089,6 +1089,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert '<details class="panel side service-panel" open>' in html
     assert "<summary><h2>Redis Iris services</h2></summary>" in html
+    assert 'rel="icon" href="/static/assets/value-wholesale-favicon.svg"' in html
+    assert (api_module.STATIC_DIR / "assets" / "value-wholesale-favicon.svg").is_file()
     assert "Live integration status for this environment" in html
     assert "Per-send scoreboard · latest service latency." not in html
     assert "embedding_cache:'Embedding Cache'" in html
