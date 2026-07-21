@@ -1131,6 +1131,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "signal:controller.signal" in html
     assert "if(requestId!==chatRequest){await reader.cancel();return;}" in html
     assert "sendButton.disabled=active" in html
+    assert "promptButtons.forEach(button=>button.disabled=active)" in html
+    assert ".chip:disabled { cursor:not-allowed; opacity:.65; }" in html
     assert "cancelActiveChat();memberId=memberSelect.value" in html
     assert (
         "await warmupOnLoad();setInterval(keepServicesWarm,KEEPALIVE_INTERVAL_MS);"
