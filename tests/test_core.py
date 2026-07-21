@@ -1468,8 +1468,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
         ),
         ("Upcoming order", "What is in my upcoming order?"),
         ("Household products", "What household products have I bought?"),
-        ("Return", "How long can I return electronics for ?"),
         ("Ask a policy", "What is the electronics return policy?"),
+        ("Return", "How long can I return electronics for ?"),
         (
             "Learn a product",
             "What flavor notes does Rain City Medium Roast Coffee have?",
@@ -1482,7 +1482,10 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert html.count('class="chip" data-prompt=') == 8
     for label, prompt in shortcuts:
         assert f'data-prompt="{prompt}">{label}</button>' in html
-    assert ".chips { display:grid; grid-template-columns:repeat(4,minmax(0,1fr));" in html
+    shortcut_positions = [html.index(f'>{label}</button>') for label, _ in shortcuts]
+    assert shortcut_positions == sorted(shortcut_positions)
+    assert ".chips { display:grid; grid-template-columns:repeat(4,max-content); gap:6px; }" in html
+    assert ".chip { padding:6px 10px;" in html
     assert "input.value=b.dataset.prompt;chatForm.requestSubmit();" in html
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
