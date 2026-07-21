@@ -1092,11 +1092,16 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "embedding_cache:'Embedding Cache'" in html
     assert "agent_platform_sessions:'ADK VertexAISession'" in html
     assert "agent_platform_sessions:'ADK Agent Sessions'" not in html
+    assert "gemini_adk_orchestration:'Gemini & ADK orchestration'" in html
+    assert "icon:'/static/assets/gemini-icon.png'" in html
+    assert "services:['gemini_adk_orchestration'],wide:true" in html
+    assert "if(id==='greeting-generation'||id==='total')add('gemini_adk_orchestration')" in html
+    assert "operation.textContent=step.label" in html
     assert ".service-time:not(:empty) { display:block; }" in html
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
     assert "<span class=\"service-time\"></span></div>`" in html
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
-    assert "key==='redis_database'?card.querySelector('.service-operation-time')" in html
+    assert "key==='redis_database'||key==='gemini_adk_orchestration'" in html
     assert (
         "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
         in html
@@ -1108,6 +1113,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
     assert "fetch('/api/greeting/stream'" in html
+    assert (api_module.STATIC_DIR / "assets" / "gemini-icon.png").is_file()
     assert "if(!text||chatInFlight)return" in html
     assert "const controller=new AbortController()" in html
     assert "signal:controller.signal" in html
