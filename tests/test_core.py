@@ -1099,7 +1099,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "operation.textContent=step.label" in html
     assert ".service-time:not(:empty) { display:block; }" in html
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
-    assert "<span class=\"service-time\"></span></div>`" in html
+    assert '<div class="service-meta-row"><button id="context-tools-trigger"' in html
+    assert "function setToolSummary(count,text=`${count} tools discovered`)" in html
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
     assert "key==='redis_database'||key==='gemini_adk_orchestration'" in html
     assert (
