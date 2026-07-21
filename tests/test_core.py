@@ -917,13 +917,45 @@ async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) 
     assert refreshed == [{"name": "tool_version_2"}]
     assert refreshed_cached is False
     assert calls == 2
-    assert result == {"result": "get_inventory"}
+    assert result["result"] == "get_inventory"
+    assert result["operation_duration_ms"] >= 0
     assert len(clients) == 1
 
     await context.close()
 
     assert exits == 1
     assert context._client is None
+
+
+async def test_context_retriever_reports_each_parallel_http_duration(monkeypatch) -> None:
+    class FakeUnifiedClient:
+        async def query_tool(self, *, arguments, **_kwargs):
+            await asyncio.sleep(arguments["delay_ms"] / 1_000)
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps({"sku": arguments["sku"], "quantity": 1}),
+                    }
+                ]
+            }
+
+    context = ContextRetrieverService(Settings(_env_file=None, mcp_agent_key="test"))
+    monkeypatch.setattr(context, "_get_client", lambda: asyncio.sleep(0, FakeUnifiedClient()))
+
+    fast, slow = await asyncio.gather(
+        context.call("get_inventory_by_id", {"sku": "VH-FAST", "delay_ms": 10}),
+        context.call("get_inventory_by_id", {"sku": "VH-SLOW", "delay_ms": 40}),
+    )
+
+    assert fast["sku"] == "VH-FAST"
+    assert slow["sku"] == "VH-SLOW"
+    assert slow["operation_duration_ms"] - fast["operation_duration_ms"] >= 15
+    assert api_module._tool_duration(
+        "query_context_retriever",
+        {"result": fast},
+        267.7,
+    ) == fast["operation_duration_ms"]
 
 
 async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> None:

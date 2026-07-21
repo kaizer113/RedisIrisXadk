@@ -1271,22 +1271,44 @@ class ContextRetrieverService:
     async def call(self, tool_name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if not self.agent_key:
             return {"ok": False, "error": "context_retriever_not_configured"}
+        operation_started: float | None = None
         try:
             client = await self._get_client()
+            operation_started = time.perf_counter()
             raw = await client.query_tool(
                 agent_key=self.agent_key,
                 tool_name=tool_name,
                 arguments=arguments,
             )
+            operation_duration_ms = round(
+                (time.perf_counter() - operation_started) * 1000,
+                2,
+            )
             if isinstance(raw, dict):
                 content = raw.get("content", [])
                 if content and content[0].get("type") == "text":
-                    return json.loads(content[0].get("text", "{}"))
-                return raw
-            return {"result": str(raw)}
+                    result = json.loads(content[0].get("text", "{}"))
+                else:
+                    result = raw
+                if isinstance(result, dict):
+                    return {**result, "operation_duration_ms": operation_duration_ms}
+                return {
+                    "result": result,
+                    "operation_duration_ms": operation_duration_ms,
+                }
+            return {
+                "result": str(raw),
+                "operation_duration_ms": operation_duration_ms,
+            }
         except Exception as exc:
             log.warning("Context Retriever call failed open: %s", exc)
-            return {"ok": False, "error": str(exc)}
+            result: dict[str, Any] = {"ok": False, "error": str(exc)}
+            if operation_started is not None:
+                result["operation_duration_ms"] = round(
+                    (time.perf_counter() - operation_started) * 1000,
+                    2,
+                )
+            return result
 
     async def get_member_profile(self, member_id: str) -> dict[str, Any]:
         """Discover and call the governed member lookup tool."""
