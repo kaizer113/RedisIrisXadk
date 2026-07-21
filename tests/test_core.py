@@ -1109,7 +1109,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "Warming services…" not in html
     assert (
         ".service-meta-row { display:flex; align-items:baseline; "
-        "justify-content:space-between; gap:8px; margin:3px 0 0; }"
+        "justify-content:space-between; gap:8px; margin:3px 3px 0 -3px; }"
         in html
     )
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
