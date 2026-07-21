@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     agent_memory_similarity_threshold: float = Field(default=0.30, ge=0, le=1)
 
     valuewholesale_agent_timeout_seconds: float = Field(default=90, ge=5, le=120)
+    valuewholesale_warmup_on_startup: bool = False
 
     port: int = 8080
     log_level: str = "INFO"

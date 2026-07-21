@@ -47,7 +47,10 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    Agent Memory still receives both the user and cached assistant events.
 6. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
    are added to ADK state before the runner starts.
-7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Tool start,
+7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Successful Context
+   Retriever results other than inventory are cached in ADK state for the browser session, keyed
+   by normalized tool name and arguments. Identical later calls reuse that result; inventory is
+   only deduplicated within one ADK invocation so availability remains live. Tool start,
    completion, result summary, and elapsed time are streamed to the UI.
 8. ADK stores the conversational turn through its shared session service. The agent's
    post-turn callback asks ADK to generate Memory Bank memories from that session.
@@ -72,6 +75,9 @@ With managed configuration, the shared services are `VertexAiSessionService` and
 to process-local `InMemorySessionService` and `InMemoryMemoryService`. The two local runners
 still share those same in-process instances, but all local session and memory contents disappear
 when the process restarts and are not visible in the GCP console.
+
+The browser creates a new session ID on each page load. Consequently, a full page refresh starts
+with an empty Context Retriever result cache without clearing caches belonging to other sessions.
 
 ## Session and long-term memory paths
 

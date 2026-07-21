@@ -680,6 +680,8 @@ def test_langcache_demo_default_accepts_documented_paraphrases() -> None:
 
 
 async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
+    memory_reads = []
+
     async def list_tools(*, force_refresh=False):
         assert force_refresh is True
         return [{"name": "get_inventory", "description": "Inventory lookup"}]
@@ -689,6 +691,14 @@ async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
 
     async def ping_memory():
         return True
+
+    def read_short_term(session_id, limit):
+        memory_reads.append(("short", session_id, limit))
+        return []
+
+    def read_long_term(member_id, query, limit):
+        memory_reads.append(("long", member_id, query, limit))
+        return []
 
     monkeypatch.setattr(services.catalog, "ping", lambda: True)
     monkeypatch.setattr(
@@ -718,6 +728,8 @@ async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
     )
     monkeypatch.setattr(services.langcache, "warmup", warm_langcache)
     monkeypatch.setattr(services.memory, "ping", ping_memory)
+    monkeypatch.setattr(services.memory, "short_term", read_short_term)
+    monkeypatch.setattr(services.memory, "recall", read_long_term)
 
     result = await warmup_redis_services()
 
@@ -733,6 +745,14 @@ async def test_warmup_pings_six_redis_services(monkeypatch) -> None:
     assert result["services"]["context_retriever"]["tools"][0]["name"] == "get_inventory"
     assert result["services"]["semantic_router"]["embedding"]["dimensions"] == 384
     assert result["services"]["embedding_cache"]["ok"] is True
+    memory_result = result["services"]["redis_agent_memory"]
+    assert memory_result["health_ms"] >= 0
+    assert memory_result["short_term_ms"] >= 0
+    assert memory_result["long_term_ms"] >= 0
+    assert sorted(memory_reads) == [
+        ("long", "member-1001", "shopping preferences", 1),
+        ("short", "shopping-demo-1", 1),
+    ]
 
 
 async def test_keepalive_returns_compact_warmup_result(monkeypatch) -> None:
@@ -746,6 +766,24 @@ async def test_keepalive_returns_compact_warmup_result(monkeypatch) -> None:
     monkeypatch.setattr(api_module, "warmup_redis_services", fake_warmup)
 
     assert await api_module.keepalive() == {"ok": True, "duration_ms": 12.5}
+
+
+async def test_container_lifespan_warms_each_worker_when_enabled(monkeypatch) -> None:
+    calls = []
+
+    async def fake_warmup():
+        calls.append(True)
+        return {"ok": True, "duration_ms": 12.5, "services": {}}
+
+    monkeypatch.setattr(api_module.settings, "valuewholesale_warmup_on_startup", True)
+    monkeypatch.setattr(api_module, "warmup_redis_services", fake_warmup)
+    monkeypatch.setattr(api_module, "runners", {})
+    monkeypatch.setattr(api_module, "greeting_runners", {})
+
+    async with api_module.lifespan(app):
+        pass
+
+    assert calls == [True]
 
 
 async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) -> None:
@@ -842,6 +880,57 @@ async def test_identical_inventory_calls_share_one_result_per_turn(monkeypatch) 
         '{"id":"portland-vh-1001"}',
         SimpleNamespace(custom_metadata={}),
     )
+    assert calls == 2
+
+
+async def test_non_inventory_context_calls_are_cached_for_adk_session(monkeypatch) -> None:
+    calls = 0
+
+    async def call(tool_name, arguments):
+        nonlocal calls
+        calls += 1
+        return {"orders": [{"order_id": arguments["member_id"]}]}
+
+    monkeypatch.setattr(services.context, "call", call)
+    session_state = {"member_id": "member-1001"}
+
+    first = await query_context_retriever(
+        "filter_order_by_member_id",
+        '{"member_id":"member-1001"}',
+        SimpleNamespace(custom_metadata={}, state=session_state),
+    )
+    second = await query_context_retriever(
+        "filter_order_by_member_id",
+        '{"member_id": "member-1001"}',
+        SimpleNamespace(custom_metadata={}, state=session_state),
+    )
+
+    assert first == second == {"orders": [{"order_id": "member-1001"}]}
+    assert calls == 1
+
+    await query_context_retriever(
+        "filter_order_by_member_id",
+        '{"member_id":"member-1001"}',
+        SimpleNamespace(custom_metadata={}, state={"member_id": "member-1001"}),
+    )
+    assert calls == 2
+
+
+async def test_failed_context_calls_are_not_cached_for_session(monkeypatch) -> None:
+    calls = 0
+
+    async def call(_tool_name, _arguments):
+        nonlocal calls
+        calls += 1
+        return {"ok": False, "error": "temporarily unavailable"}
+
+    monkeypatch.setattr(services.context, "call", call)
+    session_state = {"member_id": "member-1001"}
+    tool_context = SimpleNamespace(custom_metadata={}, state=session_state)
+
+    await query_context_retriever("get_order_by_id", '{"id":"order-1"}', tool_context)
+    await query_context_retriever("get_order_by_id", '{"id":"order-1"}', tool_context)
+
     assert calls == 2
 
 
@@ -1084,6 +1173,11 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
     assert 'id="reset-demo"' in html
     assert 'id="redis-endpoint"' in html
+    assert 'id="memory-latencies"' in html
+    assert (
+        "health ${memory.health_ms} ms · short-term ${memory.short_term_ms} ms · "
+        "long-term ${memory.long_term_ms} ms"
+    ) in html
     assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html

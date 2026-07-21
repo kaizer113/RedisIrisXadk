@@ -16,6 +16,7 @@ _CATALOG_CACHE_TTL_SECONDS = 300
 _catalog_cache: dict[tuple[str, str, int], tuple[float, list[dict[str, Any]]]] = {}
 _catalog_cache_lock = threading.Lock()
 _INVENTORY_TURN_CACHE_METADATA_KEY = "valuewholesale_inventory_turn_cache"
+_CONTEXT_RETRIEVER_SESSION_CACHE_STATE_KEY = "valuewholesale_context_retriever_cache"
 
 
 class _InventoryTurnCache:
@@ -63,6 +64,39 @@ def _is_inventory_read(tool_name: str) -> bool:
     return "inventory" in normalized and normalized.startswith(
         ("check_", "filter_", "find_", "get_", "list_", "search_")
     )
+
+
+def _context_cache_key(tool_name: str, arguments: dict[str, Any]) -> str:
+    return json.dumps(
+        [tool_name.strip().lower(), arguments],
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+
+
+def _session_context_cache(tool_context: ToolContext) -> dict[str, dict[str, Any]] | None:
+    """Return the cache stored in ADK session state, if session state is available."""
+    state = getattr(tool_context, "state", None)
+    if state is None:
+        return None
+    cache = state.get(_CONTEXT_RETRIEVER_SESSION_CACHE_STATE_KEY)
+    return cache if isinstance(cache, dict) else {}
+
+
+def _store_session_context_result(
+    tool_context: ToolContext,
+    cache: dict[str, dict[str, Any]],
+    cache_key: str,
+    result: dict[str, Any],
+) -> None:
+    """Replace the state value so ADK records the cache update in the session delta."""
+    state = getattr(tool_context, "state", None)
+    if state is None:
+        return
+    updated = dict(cache)
+    updated[cache_key] = copy.deepcopy(result)
+    state[_CONTEXT_RETRIEVER_SESSION_CACHE_STATE_KEY] = updated
 
 
 def _member_id(tool_context: ToolContext) -> str:
@@ -264,22 +298,29 @@ async def query_context_retriever(
         return {"ok": False, "error": f"invalid_arguments_json: {exc}"}
     if not isinstance(arguments, dict):
         return {"ok": False, "error": "arguments_json_must_be_an_object"}
+    cache_key = _context_cache_key(tool_name, arguments)
     if _is_inventory_read(tool_name):
         cache = tool_context.custom_metadata.get(_INVENTORY_TURN_CACHE_METADATA_KEY)
         if not isinstance(cache, _InventoryTurnCache):
             cache = _InventoryTurnCache()
             tool_context.custom_metadata[_INVENTORY_TURN_CACHE_METADATA_KEY] = cache
-        cache_key = json.dumps(
-            [tool_name.strip().lower(), arguments],
-            sort_keys=True,
-            separators=(",", ":"),
-            default=str,
-        )
         return await cache.get_or_call(
             cache_key,
             lambda: services.context.call(tool_name, arguments),
         )
-    return await services.context.call(tool_name, arguments)
+
+    session_cache = _session_context_cache(tool_context)
+    if session_cache is not None and cache_key in session_cache:
+        return copy.deepcopy(session_cache[cache_key])
+
+    result = await services.context.call(tool_name, arguments)
+    if (
+        session_cache is not None
+        and isinstance(result, dict)
+        and result.get("ok") is not False
+    ):
+        _store_session_context_result(tool_context, session_cache, cache_key, result)
+    return result
 
 
 ALL_TOOLS = [

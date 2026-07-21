@@ -85,6 +85,16 @@ member_profile_cache: dict[tuple[str, str], str] = {}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    if settings.valuewholesale_warmup_on_startup:
+        try:
+            result = await warmup_redis_services()
+            log.info(
+                "Worker warm-up completed in %s ms (ok=%s)",
+                result["duration_ms"],
+                result["ok"],
+            )
+        except Exception:
+            log.exception("Worker warm-up failed; starting worker without primed services")
     yield
     for model_runner in runners.values():
         await model_runner.close()
@@ -979,8 +989,37 @@ async def warmup_redis_services() -> dict[str, Any]:
         return ok, "Semantic lookup completed" if ok else "LangCache is not configured", {}
 
     async def memory_probe() -> tuple[bool, str, dict[str, Any]]:
+        health_started = time.perf_counter()
         ok = await services.memory.ping()
-        return ok, "Health check passed" if ok else "Agent Memory is not configured", {}
+        health_ms = round((time.perf_counter() - health_started) * 1000, 2)
+        if not ok:
+            return False, "Agent Memory is not configured", {"health_ms": health_ms}
+
+        async def timed_read(operation: Any) -> float:
+            read_started = time.perf_counter()
+            await asyncio.to_thread(operation)
+            return round((time.perf_counter() - read_started) * 1000, 2)
+
+        short_term_ms, long_term_ms = await asyncio.gather(
+            timed_read(
+                lambda: services.memory.short_term(
+                    settings.valuewholesale_demo_session_id,
+                    1,
+                )
+            ),
+            timed_read(
+                lambda: services.memory.recall(
+                    settings.valuewholesale_demo_member_id,
+                    "shopping preferences",
+                    1,
+                )
+            ),
+        )
+        return True, "Health check and memory reads passed", {
+            "health_ms": health_ms,
+            "short_term_ms": short_term_ms,
+            "long_term_ms": long_term_ms,
+        }
 
     results = await asyncio.gather(
         probe("redis_database", database_probe),
