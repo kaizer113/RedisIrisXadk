@@ -35,8 +35,10 @@ offers Gemini 3.1 Flash-Lite for speed and Gemini 3.1 Pro for heavier reasoning.
 
 ## Live agent trace
 
-Every shopping request runs semantic routing, context retrieval, memory retrieval, and agent
-generation. The web UI streams those steps live and offers demo-member and Gemini-model selectors.
+Every shopping request runs semantic routing, memory retrieval, and agent generation. Context
+Retriever is warmed on startup but is opt-in in the service panel, making it easy to compare the
+same journey with and without governed live context. The web UI streams those steps live and offers
+demo-member and Gemini-model selectors.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed

@@ -16,6 +16,7 @@ from scripts.seed_scale_memories import build_memories, memory_templates
 from valuewholesale_agent import api as api_module
 from valuewholesale_agent.agent import build_agent, build_greeting_agent
 from valuewholesale_agent.api import (
+    LatencyRegistry,
     _chat_events,
     _context_result_session_event,
     _greeting_events,
@@ -54,8 +55,10 @@ from valuewholesale_agent.services import (
 )
 from valuewholesale_agent.tools import (
     _catalog_cache,
+    list_context_retriever_tools,
     query_context_retriever,
     search_catalog,
+    search_product_by_text,
 )
 
 
@@ -83,8 +86,40 @@ def test_safe_id_and_service_configuration() -> None:
     assert api_module.gemini_runner_label("gemini-3.1-pro-preview") == (
         "ADK Runner + Gemini Pro"
     )
+    assert api_module.ChatRequest(message="hello").context_retriever_enabled is False
     assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
     assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
+
+
+def test_latency_registry_excludes_cold_call_and_reports_percentiles() -> None:
+    registry = LatencyRegistry()
+    registry.record("context_retriever", 100)
+    registry.record("context_retriever", 10)
+    registry.record("context_retriever", 20)
+
+    assert registry.snapshot() == {
+        "context_retriever": {
+            "count": 2,
+            "avg_ms": 15.0,
+            "p50_ms": 15.0,
+            "p95_ms": 19.5,
+            "p99_ms": 19.9,
+        }
+    }
+
+
+def test_trace_latency_separates_agent_memory_short_and_long_term(monkeypatch) -> None:
+    registry = LatencyRegistry()
+    registry.mark_cold_call_complete("redis_agent_memory_short_term")
+    registry.mark_cold_call_complete("redis_agent_memory_long_term")
+    monkeypatch.setattr(api_module, "latency_registry", registry)
+
+    trace_event("redis-short-term", "Getting Redis short-term memory", duration_ms=8)
+    trace_event("greeting-tool-memory", "Searching Redis long-term memory", duration_ms=21)
+
+    snapshot = registry.snapshot()
+    assert snapshot["redis_agent_memory_short_term"]["p50_ms"] == 8
+    assert snapshot["redis_agent_memory_long_term"]["p50_ms"] == 21
 
 
 def test_scale_memory_corpus_is_deterministic_and_hidden() -> None:
@@ -986,6 +1021,32 @@ async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> N
     assert profile["name"] == "Alex Rivera"
 
 
+async def test_disabled_context_retriever_never_calls_service(monkeypatch) -> None:
+    async def unexpected(*_args, **_kwargs):
+        raise AssertionError("disabled Context Retriever must not call the service")
+
+    monkeypatch.setattr(services.context, "get_tools", unexpected)
+    monkeypatch.setattr(services.context, "call", unexpected)
+    tool_context = SimpleNamespace(
+        state={"context_retriever_enabled": False},
+        custom_metadata={},
+    )
+
+    listed = await list_context_retriever_tools(tool_context)
+    queried = await query_context_retriever(
+        "get_inventory_by_id",
+        '{"id":"portland-vh-1001"}',
+        tool_context,
+    )
+
+    assert listed == {
+        "ok": False,
+        "error": "context_retriever_disabled",
+        "tools": [],
+    }
+    assert queried == {"ok": False, "error": "context_retriever_disabled"}
+
+
 async def test_identical_inventory_calls_share_one_result_per_turn(monkeypatch) -> None:
     calls = 0
 
@@ -1093,6 +1154,22 @@ async def test_member_profile_reuses_application_session_cache(monkeypatch) -> N
     member_profile_cache.clear()
 
 
+async def test_disabled_member_profile_ignores_cached_context(monkeypatch) -> None:
+    async def unexpected(_member_id):
+        raise AssertionError("disabled Context Retriever must not fetch a profile")
+
+    member_profile_cache[("member-1001", "session-1")] = '{"name":"Alex Rivera"}'
+    monkeypatch.setattr(services.context, "get_member_profile", unexpected)
+
+    result = await member_profile_for_session("member-1001", "session-1", False)
+
+    assert result == {
+        "context": '{"member_id": "member-1001"}',
+        "source": "context_retriever_disabled",
+    }
+    member_profile_cache.clear()
+
+
 def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
     agent = build_agent("gemini-3.1-flash-lite")
     assert agent.include_contents == "none"
@@ -1124,6 +1201,23 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     assert "single most recent\n  completed order" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
+    assert "`search_product_by_text` is a compatibility alias" in agent.instruction
+    assert "Never invent any other function name" in agent.instruction
+
+
+def test_catalog_search_compatibility_alias(monkeypatch) -> None:
+    calls = []
+
+    def fake_search(query: str, category: str = "", limit: int = 5):
+        calls.append((query, category, limit))
+        return {"products": [{"sku": "VH-1001"}]}
+
+    monkeypatch.setattr("valuewholesale_agent.tools.search_catalog", fake_search)
+
+    assert search_product_by_text("snacks", "pantry", 3) == {
+        "products": [{"sku": "VH-1001"}]
+    }
+    assert calls == [("snacks", "pantry", 3)]
 
 
 def test_shopping_agent_distinguishes_inventory_ids_from_skus() -> None:
@@ -1263,6 +1357,7 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
             member_id="member-1005",
             session_id="shopping-session",
             model="gemini-3.1-flash-lite",
+            context_retriever_enabled=True,
         )
     )
     events = [await anext(stream), await anext(stream)]
@@ -1325,8 +1420,16 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
-    assert '<details class="panel side service-panel" open>' in html
-    assert "<summary><h2>Redis Iris services</h2></summary>" in html
+    assert 'id="service-panel"' in html
+    assert 'id="service-panel-toggle"' in html
+    assert 'id="latency-stats-toggle"' in html
+    assert 'id="context-retriever-toggle"' in html
+    assert "title=\"Show p95 latency\"" in html
+    assert "`p95 · ST ${shortP95} · LT ${longP95} ms`" in html
+    assert "'No samples yet'" in html
+    assert "No warm samples yet" not in html
+    assert "toggle.onchange=()=>{contextRetrieverEnabled=toggle.checked" in html
+    assert "toggle.onchange=async()=>" not in html
     assert 'rel="icon" href="/static/assets/value-wholesale-favicon.svg"' in html
     assert (api_module.STATIC_DIR / "assets" / "value-wholesale-favicon.svg").is_file()
     assert "Live integration status for this environment" in html
@@ -1357,8 +1460,29 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
         in html
     )
     assert 'class="panel side trace-panel"' in html
-    assert "What flavor notes does Rain City Medium Roast Coffee have?" in html
-    assert "How should I store a large bag of rolled oats after opening?" in html
+    shortcuts = [
+        ("Pantry run", "Find family-size pantry staples under $30 and check Portland stock."),
+        (
+            "Laundry",
+            "what laundry option should I add to my order, and is it in stock in Portland?",
+        ),
+        ("Upcoming order", "What is in my upcoming order?"),
+        ("Household products", "What household products have I bought?"),
+        ("Return", "How long can I return electronics for ?"),
+        ("Ask a policy", "What is the electronics return policy?"),
+        (
+            "Learn a product",
+            "What flavor notes does Rain City Medium Roast Coffee have?",
+        ),
+        (
+            "Shopping guide",
+            "How should I store a large bag of rolled oats after opening?",
+        ),
+    ]
+    assert html.count('class="chip" data-prompt=') == 8
+    for label, prompt in shortcuts:
+        assert f'data-prompt="{prompt}">{label}</button>' in html
+    assert ".chips { display:grid; grid-template-columns:repeat(4,minmax(0,1fr));" in html
     assert "input.value=b.dataset.prompt;chatForm.requestSubmit();" in html
     assert "option.textContent=member.name" in html
     assert "${member.name} · ${member.member_id}" not in html
@@ -1468,6 +1592,7 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
                 member_id="member-1001",
                 session_id="nonblocking-test",
                 model="gemini-3.1-flash-lite",
+                context_retriever_enabled=True,
             )
         )
     ]
@@ -1589,6 +1714,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
                 member_id="member-1001",
                 session_id="scoped-cache-test",
                 model="gemini-3.1-flash-lite",
+                context_retriever_enabled=True,
             )
         )
     ]

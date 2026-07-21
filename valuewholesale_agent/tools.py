@@ -24,6 +24,12 @@ _INVENTORY_TURN_CACHE_METADATA_KEY = "valuewholesale_inventory_turn_cache"
 _CONTEXT_RETRIEVER_SESSION_CACHE_STATE_KEY = "valuewholesale_context_retriever_cache"
 
 
+def _context_retriever_enabled(tool_context: ToolContext) -> bool:
+    state = getattr(tool_context, "state", {})
+    value = state.get("context_retriever_enabled", True)
+    return value is True or str(value).lower() == "true"
+
+
 class _InventoryTurnCache:
     """Share identical inventory reads within one ADK invocation."""
 
@@ -160,6 +166,21 @@ def search_catalog(
     }
 
 
+def search_product_by_text(
+    query: str,
+    category: str = "",
+    limit: int = 5,
+) -> dict[str, Any]:
+    """Compatibility alias for catalog search; prefer search_catalog.
+
+    Args:
+        query: What the member wants or the need the product should satisfy.
+        category: Optional exact category: pantry, household, beverages, electronics, fresh-food.
+        limit: Maximum products to return, from 1 to 6.
+    """
+    return search_catalog(query, category, limit)
+
+
 def check_warehouse_inventory(sku: str, warehouse_id: str) -> dict[str, Any]:
     """Check current quantity and availability for a SKU at a Value Wholesale warehouse.
 
@@ -284,8 +305,10 @@ async def remember_shopping_preference(
     }
 
 
-async def list_context_retriever_tools() -> dict[str, Any]:
+async def list_context_retriever_tools(tool_context: ToolContext) -> dict[str, Any]:
     """List governed live-data tools exposed by Redis Context Retriever."""
+    if not _context_retriever_enabled(tool_context):
+        return {"ok": False, "error": "context_retriever_disabled", "tools": []}
     tools, cached = await services.context.get_tools()
     return {"tools": tools, "source": "server_cache" if cached else "context_retriever"}
 
@@ -303,6 +326,8 @@ async def query_context_retriever(
         tool_name: Exact Context Retriever tool name.
         arguments_json: JSON object matching that tool's input schema.
     """
+    if not _context_retriever_enabled(tool_context):
+        return {"ok": False, "error": "context_retriever_disabled"}
     try:
         arguments = json.loads(arguments_json)
     except json.JSONDecodeError as exc:
@@ -336,6 +361,7 @@ async def query_context_retriever(
 
 ALL_TOOLS = [
     search_catalog,
+    search_product_by_text,
     search_member_policies,
     add_item_to_cart,
     view_cart,

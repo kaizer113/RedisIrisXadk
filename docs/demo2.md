@@ -13,9 +13,9 @@ feature-by-feature flow in [demo.md](demo.md).
 
 1. Start the application, open its URL, scroll to **Presenter controls**, and click **Reset demo
    cache**. Confirm the reset and wait for the ready message.
-2. Return to the top and confirm that all eight service indicators are blue: Redis database,
-   Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory, ADK Memory Bank,
-   and ADK Agent Sessions.
+2. Return to the top, confirm the services are configured, and check **Context Retriever** in the
+   Redis service panel. It starts unchecked even though its client and governed tool catalog are
+   warmed in the background.
 3. Select **Alex Rivera** in **Shop as** and **Gemini 3.1 Flash-Lite** in **Model**.
 4. Wait for the greeting to finish before sending the first prompt.
 

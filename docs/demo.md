@@ -9,9 +9,8 @@ memory paths and Gemini model selector.
 1. Start the application, open its URL, scroll to **Presenter controls**, and click **Reset demo
    cache**. Confirm the reset and wait for the ready message.
 2. Scroll back to the top of the page.
-3. Confirm that all eight service indicators are blue:
-   Redis database, Context Retriever, Semantic Router, Embedding Cache, LangCache, Agent Memory,
-   ADK Memory Bank, and ADK Agent Sessions.
+3. Confirm the services are configured, then check **Context Retriever** in the Redis service
+   panel. It starts unchecked for before/after comparisons even though its client is already warm.
 4. Select **Alex Rivera** in the **Shop as** dropdown.
 5. Leave **Gemini 3.1 Flash-Lite** selected.
 

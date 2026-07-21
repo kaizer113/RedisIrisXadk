@@ -5,6 +5,7 @@ import json
 import logging
 import statistics
 import time
+from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -84,6 +85,52 @@ greeting_runners = {
 member_profile_cache: dict[tuple[str, str], str] = {}
 
 
+class LatencyRegistry:
+    """Keep post-cold-call service timings for the lifetime of this worker."""
+
+    def __init__(self) -> None:
+        self._cold_calls_seen: set[str] = set()
+        self._samples: dict[str, list[float]] = defaultdict(list)
+
+    def mark_cold_call_complete(self, service: str) -> None:
+        self._cold_calls_seen.add(service)
+
+    def record(self, service: str, duration_ms: float | None) -> None:
+        if duration_ms is None or duration_ms < 0:
+            return
+        if service not in self._cold_calls_seen:
+            self._cold_calls_seen.add(service)
+            return
+        self._samples[service].append(float(duration_ms))
+
+    @staticmethod
+    def _percentile(values: list[float], percentile: float) -> float:
+        ordered = sorted(values)
+        if len(ordered) == 1:
+            return ordered[0]
+        position = (len(ordered) - 1) * percentile
+        lower = int(position)
+        upper = min(lower + 1, len(ordered) - 1)
+        fraction = position - lower
+        return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+    def snapshot(self) -> dict[str, dict[str, float | int]]:
+        return {
+            service: {
+                "count": len(values),
+                "avg_ms": round(statistics.fmean(values), 2),
+                "p50_ms": round(self._percentile(values, 0.50), 2),
+                "p95_ms": round(self._percentile(values, 0.95), 2),
+                "p99_ms": round(self._percentile(values, 0.99), 2),
+            }
+            for service, values in self._samples.items()
+            if values
+        }
+
+
+latency_registry = LatencyRegistry()
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if settings.valuewholesale_warmup_on_startup:
@@ -122,6 +169,7 @@ class ChatRequest(BaseModel):
     member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
     session_id: str = Field(default=settings.valuewholesale_demo_session_id, max_length=64)
     model: str = Field(default=settings.google_model, max_length=100)
+    context_retriever_enabled: bool = False
 
     @field_validator("model")
     @classmethod
@@ -135,6 +183,7 @@ class GreetingRequest(BaseModel):
     member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
     session_id: str = Field(default=settings.valuewholesale_demo_session_id, max_length=64)
     model: str = Field(default=settings.google_model, max_length=100)
+    context_retriever_enabled: bool = False
 
     @field_validator("model")
     @classmethod
@@ -192,6 +241,41 @@ def trace_event(
     details: list[str] | None = None,
     move_to_end: bool = False,
 ) -> dict[str, Any]:
+    if status == "done" and duration_ms is not None:
+        normalized_id = step_id.lower()
+        normalized_label = label.lower()
+        normalized_summary = summary.lower()
+        service: str | None = None
+        if normalized_id == "semantic-router" and "bypassed" not in normalized_summary:
+            service = "semantic_router"
+        elif normalized_id == "langcache" and "bypassed" not in normalized_summary:
+            service = "langcache"
+        elif "redis-short-term" in normalized_id:
+            service = "redis_agent_memory_short_term"
+        elif "redis-long-term" in normalized_id or "redis long-term memory" in normalized_label:
+            service = "redis_agent_memory_long_term"
+        elif "adk-short-term" in normalized_id:
+            service = "agent_platform_sessions"
+        elif "vertex-long-term" in normalized_id:
+            service = "vertex_adk_memory_bank"
+        elif "context retriever" in normalized_label:
+            service = "context_retriever"
+        elif normalized_label.startswith("redisvl search"):
+            service = "redis_database"
+        elif (
+            normalized_id in {"generation", "greeting-generation"}
+            and "(0 llm calls)" not in normalized_label
+        ):
+            service = "gemini_adk_orchestration"
+        if service:
+            latency_registry.record(service, duration_ms)
+        for detail in details or []:
+            if detail.startswith("Local embedding:"):
+                try:
+                    embedding_ms = float(detail.split(":", 1)[1].split("ms", 1)[0].strip())
+                except ValueError:
+                    continue
+                latency_registry.record("embedding_cache", embedding_ms)
     event = {
         "type": "trace",
         "step": {
@@ -331,8 +415,17 @@ def _context_result_session_event(
     )
 
 
-async def member_profile_for_session(member_id: str, session_id: str) -> dict[str, Any]:
+async def member_profile_for_session(
+    member_id: str,
+    session_id: str,
+    context_retriever_enabled: bool = True,
+) -> dict[str, Any]:
     """Load the authoritative member profile without depending on ADK session reads."""
+    if not context_retriever_enabled:
+        return {
+            "context": json.dumps({"member_id": member_id}, sort_keys=True),
+            "source": "context_retriever_disabled",
+        }
     cache_key = (member_id, session_id)
     if existing := member_profile_cache.get(cache_key):
         return {"context": existing, "source": "application_session_cache"}
@@ -356,6 +449,7 @@ def member_profile_source_label(source: str) -> str:
         "redis_context_retriever": "",
         "application_session_cache": "Reused from application session cache",
         "member_id_fallback": "Profile unavailable; using member ID only",
+        "context_retriever_disabled": "Disabled for this session",
     }.get(source, source)
 
 
@@ -391,7 +485,9 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         ]
 
     async def fetch_member_profile() -> dict[str, Any]:
-        return await member_profile_for_session(member_id, session_id)
+        if request.context_retriever_enabled:
+            return await member_profile_for_session(member_id, session_id)
+        return await member_profile_for_session(member_id, session_id, False)
 
     async def timed(step_id: str, awaitable: Any) -> tuple[str, Any, float]:
         started = time.perf_counter()
@@ -628,7 +724,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 )
             elif step_id == "member-profile":
                 source = result.get("source", "unavailable")
-                if source != "application_session_cache":
+                if source not in {"application_session_cache", "context_retriever_disabled"}:
                     yield trace_event(
                         step_id,
                         "Context Retriever - get_member_by_id",
@@ -681,6 +777,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         "member_id": member_id,
         "user_id": member_id,
         "member_profile_context": member_profile["context"],
+        "context_retriever_enabled": request.context_retriever_enabled,
         "redis_short_term_context": "\n".join(memory_snippets(short_memories))
         or "No prior session events.",
         "redis_long_term_context": "\n".join(memory_snippets(redis_memories))
@@ -856,9 +953,13 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
 
     yield {"type": "start", "session_id": session_id}
     profile_started = time.perf_counter()
-    member_profile = await member_profile_for_session(member_id, shopping_session_id)
+    member_profile = (
+        await member_profile_for_session(member_id, shopping_session_id)
+        if request.context_retriever_enabled
+        else await member_profile_for_session(member_id, shopping_session_id, False)
+    )
     profile_source = str(member_profile.get("source", "unavailable"))
-    if profile_source != "application_session_cache":
+    if profile_source not in {"application_session_cache", "context_retriever_disabled"}:
         yield trace_event(
             "greeting-member-profile",
             "Context Retriever - get_member_by_id",
@@ -894,6 +995,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     "member_id": member_id,
                     "user_id": member_id,
                     "member_profile_context": member_profile["context"],
+                    "context_retriever_enabled": request.context_retriever_enabled,
                 },
             ):
                 if is_llm_response_event(event):
@@ -1084,6 +1186,13 @@ async def warmup_redis_services() -> dict[str, Any]:
         probe("redis_agent_memory", memory_probe),
     )
     service_results = dict(results)
+    for service_name, result in service_results.items():
+        if result["ok"]:
+            if service_name == "redis_agent_memory":
+                latency_registry.mark_cold_call_complete("redis_agent_memory_short_term")
+                latency_registry.mark_cold_call_complete("redis_agent_memory_long_term")
+            else:
+                latency_registry.mark_cold_call_complete(service_name)
     return {
         "ok": all(result["ok"] for result in service_results.values()),
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
@@ -1137,6 +1246,15 @@ async def context_tools() -> dict[str, Any]:
         "count": len(tools),
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
         "tools": tools,
+    }
+
+
+@app.get("/api/latency-stats")
+async def latency_stats() -> dict[str, Any]:
+    return {
+        "scope": "current application worker lifetime",
+        "cold_call_excluded": True,
+        "services": latency_registry.snapshot(),
     }
 
 
@@ -1202,6 +1320,10 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         async for event in _chat_events(request):
             yield json.dumps(event, default=str, separators=(",", ":")) + "\n"
+        yield json.dumps(
+            {"type": "latency_stats", "services": latency_registry.snapshot()},
+            separators=(",", ":"),
+        ) + "\n"
 
     return StreamingResponse(
         stream(),
@@ -1215,6 +1337,10 @@ async def greeting_stream(request: GreetingRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         async for event in _greeting_events(request):
             yield json.dumps(event, default=str, separators=(",", ":")) + "\n"
+        yield json.dumps(
+            {"type": "latency_stats", "services": latency_registry.snapshot()},
+            separators=(",", ":"),
+        ) + "\n"
 
     return StreamingResponse(
         stream(),
