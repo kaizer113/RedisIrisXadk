@@ -77,6 +77,12 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
     assert settings.valuewholesale_agent_timeout_seconds == 90
+    assert api_module.gemini_runner_label("gemini-3.1-flash-lite") == (
+        "ADK Runner + Gemini Flash"
+    )
+    assert api_module.gemini_runner_label("gemini-3.1-pro-preview") == (
+        "ADK Runner + Gemini Pro"
+    )
     assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
     assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
 
@@ -1518,9 +1524,7 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
         for event in events
         if event["type"] == "trace" and event["step"]["id"] == "generation"
     )
-    assert generation_trace["label"] == (
-        "ADK Runner + Gemini · gemini-3.1-flash-lite (1 llm call)"
-    )
+    assert generation_trace["label"] == "ADK Runner + Gemini Flash (1 llm call)"
     assert generation_trace["summary"] == ""
     assert total_trace["label"] == "Total request"
 
@@ -1607,7 +1611,7 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "Cached query: What does Rain City Medium Roast taste like?",
     ]
     assert traces["generation"]["summary"] == "Skipped · response served by LangCache"
-    assert traces["generation"]["label"] == "ADK Runner + Gemini (0 llm calls)"
+    assert traces["generation"]["label"] == "ADK Runner + Gemini Flash (0 llm calls)"
     assert traces["total"]["label"] == "Total request"
 
 

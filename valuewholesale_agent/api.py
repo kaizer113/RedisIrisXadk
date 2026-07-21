@@ -177,6 +177,11 @@ def llm_count_label(label: str, count: int) -> str:
     return f"{label} ({count} {unit})"
 
 
+def gemini_runner_label(model: str) -> str:
+    model_family = "Pro" if "pro" in model.lower() else "Flash"
+    return f"ADK Runner + Gemini {model_family}"
+
+
 def trace_event(
     step_id: str,
     label: str,
@@ -463,7 +468,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         yield trace_event(
             "generation",
-            llm_count_label("ADK Runner + Gemini", 0),
+            llm_count_label(gemini_runner_label(request.model), 0),
             duration_ms=0,
             summary="Skipped · blocked by Semantic Router",
         )
@@ -657,7 +662,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         yield trace_event(
             "generation",
-            llm_count_label("ADK Runner + Gemini", 0),
+            llm_count_label(gemini_runner_label(request.model), 0),
             duration_ms=0,
             summary="Skipped · response served by LangCache",
         )
@@ -796,7 +801,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         elapsed = round((time.perf_counter() - runner_started) * 1000, 2)
         yield trace_event(
             "generation",
-            llm_count_label("ADK Runner + Gemini", llm_calls),
+            llm_count_label(gemini_runner_label(request.model), llm_calls),
             status="error",
             duration_ms=elapsed,
             summary="Timed out; retry the request",
@@ -817,7 +822,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     runner_duration = round((time.perf_counter() - runner_started) * 1000, 2)
     yield trace_event(
         "generation",
-        llm_count_label(f"ADK Runner + Gemini · {request.model}", llm_calls),
+        llm_count_label(gemini_runner_label(request.model), llm_calls),
         duration_ms=runner_duration,
     )
 
