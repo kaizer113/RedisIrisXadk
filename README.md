@@ -4,6 +4,8 @@ Value Wholesale is a fictional membership-warehouse ecommerce demo. It recreates
 
 The agent can discover products, compare member pricing, check warehouse inventory, inspect recent orders, answer grounded policy questions, build a cart, and remember household shopping preferences.
 
+![Value Wholesale shopping agent showing a completed request, Redis Iris service timings, and the live agent trace](docs/assets/value-wholesale-demo.png)
+
 ## Quick links
 
 - [Recommended demo flow](docs/demo.md)
