@@ -463,14 +463,14 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         yield trace_event(
             "generation",
-            "ADK Runner + Gemini",
+            llm_count_label("ADK Runner + Gemini", 0),
             duration_ms=0,
             summary="Skipped · blocked by Semantic Router",
         )
         yield {"type": "answer", "answer": answer, "cache_hit": False, "blocked": True}
         yield trace_event(
             "total",
-            llm_count_label("Total request", 0),
+            "Total request",
             duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
             summary="Blocked outside ecommerce scope",
         )
@@ -657,7 +657,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         yield trace_event(
             "generation",
-            "ADK Runner + Gemini",
+            llm_count_label("ADK Runner + Gemini", 0),
             duration_ms=0,
             summary="Skipped · response served by LangCache",
         )
@@ -666,7 +666,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             yield telemetry_event
         yield trace_event(
             "total",
-            llm_count_label("Total request", 0),
+            "Total request",
             duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
             summary="Completed from semantic cache",
         )
@@ -796,7 +796,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         elapsed = round((time.perf_counter() - runner_started) * 1000, 2)
         yield trace_event(
             "generation",
-            "ADK Runner + Gemini",
+            llm_count_label("ADK Runner + Gemini", llm_calls),
             status="error",
             duration_ms=elapsed,
             summary="Timed out; retry the request",
@@ -817,9 +817,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     runner_duration = round((time.perf_counter() - runner_started) * 1000, 2)
     yield trace_event(
         "generation",
-        f"ADK Runner + Gemini · {request.model}",
+        llm_count_label(f"ADK Runner + Gemini · {request.model}", llm_calls),
         duration_ms=runner_duration,
-        summary="Response generated and session queued for Memory Bank",
     )
 
     await asyncio.to_thread(
@@ -833,7 +832,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         yield telemetry_event
     yield trace_event(
         "total",
-        llm_count_label("Total request", llm_calls),
+        "Total request",
         duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
         summary="Completed with generation",
     )

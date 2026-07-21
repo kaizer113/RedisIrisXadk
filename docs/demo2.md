@@ -75,7 +75,7 @@ Then ask:
 
 The paraphrase should hit the versioned `policy:v1` LangCache scope and skip generation. Expand the
 Semantic Router and LangCache rows to show the current query, cached query, semantic match, and
-`Total request (0 llm calls)`.
+`ADK Runner + Gemini (0 llm calls)`.
 
 ## 4. Ask for a personalized gap-fill
 

@@ -1300,7 +1300,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "icon:'/static/assets/gemini-icon.png'" in html
     assert ".service-logo.gemini { width:37px; height:37px; justify-self:center; }" in html
     assert "services:['gemini_adk_orchestration'],wide:true" in html
-    assert "if(id==='greeting-generation'||id==='total')add('gemini_adk_orchestration')" in html
+    assert "if(id==='generation'||id==='greeting-generation')" in html
     assert "operation.textContent=step.label" in html
     assert ".service-time:not(:empty) { display:block; }" in html
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
@@ -1481,7 +1481,16 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
         for event in events
         if event["type"] == "trace" and event["step"]["id"] == "total"
     )
-    assert total_trace["label"] == "Total request (1 llm call)"
+    generation_trace = next(
+        event["step"]
+        for event in events
+        if event["type"] == "trace" and event["step"]["id"] == "generation"
+    )
+    assert generation_trace["label"] == (
+        "ADK Runner + Gemini · gemini-3.1-flash-lite (1 llm call)"
+    )
+    assert generation_trace["summary"] == ""
+    assert total_trace["label"] == "Total request"
 
 
 async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
@@ -1566,7 +1575,8 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "Cached query: What does Rain City Medium Roast taste like?",
     ]
     assert traces["generation"]["summary"] == "Skipped · response served by LangCache"
-    assert traces["total"]["label"] == "Total request (0 llm calls)"
+    assert traces["generation"]["label"] == "ADK Runner + Gemini (0 llm calls)"
+    assert traces["total"]["label"] == "Total request"
 
 
 async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(

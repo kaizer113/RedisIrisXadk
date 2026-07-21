@@ -41,7 +41,7 @@ Point to the live trace while the request runs. It should show:
 5. ADK VertexAISession read and ADK Memory Bank search.
 6. RedisVL catalog search.
 7. Two governed `get_inventory_by_id` calls, each with its own latency.
-8. `ADK Runner + Gemini` and total request time.
+8. `ADK Runner + Gemini`, its LLM call count, and its runner latency.
 
 ## 2. Show operational context and order history
 
@@ -109,7 +109,7 @@ only policy FAQs. Guides remain generic and cannot contain member or live-commer
 
 For every cacheable example, expand the Semantic Router and LangCache trace rows. Point out the
 versioned scope, the first miss, the semantic hit, the current-versus-cached query comparison, and
-`Total request (0 llm calls)` on the hit.
+`ADK Runner + Gemini (0 llm calls)` on the hit.
 
 ## 4. Show both memory systems on every request
 
