@@ -61,11 +61,13 @@ names = [
     "LANGCACHE_CACHE_ID",
     "LANGCACHE_API_KEY",
     "LANGCACHE_SIMILARITY_THRESHOLD",
+    "LANGCACHE_HTTP_KEEPALIVE_SECONDS",
     "AGENT_MEMORY_BASE_URL",
     "AGENT_MEMORY_STORE_ID",
     "AGENT_MEMORY_API_KEY",
     "AGENT_MEMORY_NAMESPACE",
     "AGENT_MEMORY_SIMILARITY_THRESHOLD",
+    "AGENT_MEMORY_HTTP_KEEPALIVE_SECONDS",
 ]
 values = {name: os.environ[name] for name in names if os.environ.get(name)}
 with open(sys.argv[1], "w", encoding="utf-8") as stream:

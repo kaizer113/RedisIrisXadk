@@ -35,12 +35,14 @@ class Settings(BaseSettings):
     langcache_cache_id: str = ""
     langcache_api_key: str = ""
     langcache_similarity_threshold: float = Field(default=0.80, ge=0, le=1)
+    langcache_http_keepalive_seconds: float = Field(default=300, ge=5, le=3_600)
 
     agent_memory_base_url: str = ""
     agent_memory_store_id: str = ""
     agent_memory_api_key: str = ""
     agent_memory_namespace: str = "valuewholesale-shopping"
     agent_memory_similarity_threshold: float = Field(default=0.30, ge=0, le=1)
+    agent_memory_http_keepalive_seconds: float = Field(default=300, ge=5, le=3_600)
 
     valuewholesale_agent_timeout_seconds: float = Field(default=90, ge=5, le=120)
     valuewholesale_warmup_on_startup: bool = False

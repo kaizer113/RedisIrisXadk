@@ -8,6 +8,7 @@ import re
 import socket
 import threading
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any
 
@@ -36,6 +37,8 @@ POLICY_INDEX_NAME = "idx:valuewholesale:policies-v2"
 LOCAL_EMBEDDING_DIMS = 384
 EMBEDDING_CACHE_NAME = "valuewholesale-embeddings-v1"
 EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
+AGENT_MEMORY_MAX_CONNECTIONS = 40
+AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value
@@ -53,6 +56,17 @@ REDIS_CONNECTION_KWARGS: dict[str, Any] = {
     "socket_keepalive": True,
     "socket_keepalive_options": REDIS_KEEPALIVE_OPTIONS,
 }
+
+
+def call_with_timing(
+    operation: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[Any, float]:
+    """Measure a synchronous operation inside the thread that executes it."""
+    started = time.perf_counter()
+    result = operation(*args, **kwargs)
+    return result, round((time.perf_counter() - started) * 1000, 2)
 
 PUBLIC_POLICY_ROUTE = "reusable_ecommerce"
 PRODUCT_EDUCATION_ROUTE = "product_education"
@@ -935,6 +949,31 @@ class LangCacheService:
             if settings.langcache_configured
             else ""
         )
+        self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None:
+            async with self._client_lock:
+                if self._client is None:
+                    self._client = httpx.AsyncClient(
+                        timeout=8,
+                        headers={
+                            "Authorization": f"Bearer {self.settings.langcache_api_key}"
+                        },
+                        limits=httpx.Limits(
+                            max_connections=AGENT_MEMORY_MAX_CONNECTIONS,
+                            max_keepalive_connections=AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS,
+                            keepalive_expiry=self.settings.langcache_http_keepalive_seconds,
+                        ),
+                    )
+        return self._client
+
+    async def close(self) -> None:
+        """Close the shared LangCache HTTP pool owned by this worker."""
+        client, self._client = self._client, None
+        if client is not None and not client.is_closed:
+            await client.aclose()
 
     @staticmethod
     def scoped_prompt(prompt: str, scope: str) -> str:
@@ -958,13 +997,9 @@ class LangCacheService:
             "searchStrategies": ["semantic"],
         }
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                response = await client.post(
-                    f"{self.base_url}/entries/search",
-                    headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
-                    json=body,
-                )
-                response.raise_for_status()
+            client = await self._get_client()
+            response = await client.post(f"{self.base_url}/entries/search", json=body)
+            response.raise_for_status()
             entries = response.json().get("data", [])
             return entries[0] if entries else None
         except Exception as exc:
@@ -980,13 +1015,9 @@ class LangCacheService:
             "similarityThreshold": self.settings.langcache_similarity_threshold,
             "searchStrategies": ["semantic"],
         }
-        async with httpx.AsyncClient(timeout=8) as client:
-            response = await client.post(
-                f"{self.base_url}/entries/search",
-                headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
-                json=body,
-            )
-            response.raise_for_status()
+        client = await self._get_client()
+        response = await client.post(f"{self.base_url}/entries/search", json=body)
+        response.raise_for_status()
         return True
 
     async def store(self, prompt: str, answer: str, scope: str) -> bool:
@@ -997,13 +1028,9 @@ class LangCacheService:
             "response": answer,
         }
         try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                response = await client.post(
-                    f"{self.base_url}/entries",
-                    headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
-                    json=body,
-                )
-                response.raise_for_status()
+            client = await self._get_client()
+            response = await client.post(f"{self.base_url}/entries", json=body)
+            response.raise_for_status()
             return True
         except Exception as exc:
             log.warning("LangCache store failed open: %s", exc)
@@ -1013,12 +1040,9 @@ class LangCacheService:
         """Flush every entry from the configured demo cache."""
         if not self.base_url:
             return False
-        async with httpx.AsyncClient(timeout=15) as client:
-            response = await client.post(
-                f"{self.base_url}/flush",
-                headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
-            )
-            response.raise_for_status()
+        client = await self._get_client()
+        response = await client.post(f"{self.base_url}/flush", timeout=15)
+        response.raise_for_status()
         return True
 
 
@@ -1029,18 +1053,47 @@ class MemoryService:
         self.settings = settings
         self.client: Any | None = None
         self.models: Any | None = None
+        self._http_client: httpx.Client | None = None
+        self._async_http_client: httpx.AsyncClient | None = None
         if settings.memory_configured:
             try:
                 from redis_agent_memory import AgentMemory, models
 
+                def limits() -> httpx.Limits:
+                    return httpx.Limits(
+                        max_connections=AGENT_MEMORY_MAX_CONNECTIONS,
+                        max_keepalive_connections=AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS,
+                        keepalive_expiry=settings.agent_memory_http_keepalive_seconds,
+                    )
+
+                self._http_client = httpx.Client(
+                    follow_redirects=True,
+                    limits=limits(),
+                )
+                self._async_http_client = httpx.AsyncClient(
+                    follow_redirects=True,
+                    limits=limits(),
+                )
                 self.client = AgentMemory(
                     settings.agent_memory_base_url,
                     store_id=settings.agent_memory_store_id,
                     api_key=settings.agent_memory_api_key,
+                    client=self._http_client,
+                    async_client=self._async_http_client,
                 )
                 self.models = models
             except Exception as exc:
                 log.warning("Agent Memory SDK initialization failed: %s", exc)
+
+    async def close(self) -> None:
+        """Close the shared Agent Memory HTTP pools owned by this worker."""
+        self.client = None
+        async_client, self._async_http_client = self._async_http_client, None
+        http_client, self._http_client = self._http_client, None
+        if async_client is not None and not async_client.is_closed:
+            await async_client.aclose()
+        if http_client is not None and not http_client.is_closed:
+            await asyncio.to_thread(http_client.close)
 
     def add_event(
         self,
@@ -1161,6 +1214,25 @@ class ContextRetrieverService:
         self.agent_key = settings.mcp_agent_key
         self._tools_cache: list[dict[str, Any]] | None = None
         self._tools_lock = asyncio.Lock()
+        self._client: Any | None = None
+        self._client_lock = asyncio.Lock()
+
+    async def _get_client(self) -> Any:
+        if self._client is None:
+            async with self._client_lock:
+                if self._client is None:
+                    from context_surfaces import UnifiedClient
+
+                    client = UnifiedClient()
+                    await client.__aenter__()
+                    self._client = client
+        return self._client
+
+    async def close(self) -> None:
+        """Close the shared Context Retriever client owned by this worker."""
+        client, self._client = self._client, None
+        if client is not None:
+            await client.__aexit__(None, None, None)
 
     @property
     def tools_cached(self) -> bool:
@@ -1179,10 +1251,8 @@ class ContextRetrieverService:
             if self._tools_cache is not None and not force_refresh:
                 return self._tools_cache, True
             try:
-                from context_surfaces import UnifiedClient
-
-                async with UnifiedClient() as client:
-                    tools = await client.list_tools(self.agent_key)
+                client = await self._get_client()
+                tools = await client.list_tools(self.agent_key)
                 refreshed = [
                     tool if isinstance(tool, dict) else tool.model_dump() for tool in tools
                 ]
@@ -1202,14 +1272,12 @@ class ContextRetrieverService:
         if not self.agent_key:
             return {"ok": False, "error": "context_retriever_not_configured"}
         try:
-            from context_surfaces import UnifiedClient
-
-            async with UnifiedClient() as client:
-                raw = await client.query_tool(
-                    agent_key=self.agent_key,
-                    tool_name=tool_name,
-                    arguments=arguments,
-                )
+            client = await self._get_client()
+            raw = await client.query_tool(
+                agent_key=self.agent_key,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
             if isinstance(raw, dict):
                 content = raw.get("content", [])
                 if content and content[0].get("type") == "text":
@@ -1338,12 +1406,17 @@ async def compare_memory_retrieval(
     expected_terms = expected_terms or []
 
     async def redis_search() -> dict[str, Any]:
-        started = time.perf_counter()
-        memories = await asyncio.to_thread(services.memory.recall, member_id, query, 5)
+        memories, latency_ms = await asyncio.to_thread(
+            call_with_timing,
+            services.memory.recall,
+            member_id,
+            query,
+            5,
+        )
         return {
             "provider": "redis_agent_memory",
             "configured": services.memory.client is not None,
-            "latency_ms": round((time.perf_counter() - started) * 1000, 2),
+            "latency_ms": latency_ms,
             "count": len(memories),
             "memories": memories,
             **_retrieval_quality(memories, expected_terms),

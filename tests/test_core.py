@@ -391,6 +391,25 @@ def test_retrieval_quality_is_explicit_ground_truth() -> None:
     assert quality == {"precision_at_k": 1.0, "recall_at_k": 0.667}
 
 
+async def test_threaded_service_timing_excludes_executor_queue_delay(monkeypatch) -> None:
+    real_to_thread = asyncio.to_thread
+
+    async def delayed_to_thread(operation, *args):
+        await asyncio.sleep(0.03)
+        return await real_to_thread(operation, *args)
+
+    monkeypatch.setattr(api_module.asyncio, "to_thread", delayed_to_thread)
+
+    step_id, result, duration_ms = await api_module.timed_thread_call(
+        "redis-short-term",
+        lambda: "result",
+    )
+
+    assert step_id == "redis-short-term"
+    assert result == "result"
+    assert duration_ms < 10
+
+
 def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     captured = {}
 
@@ -406,6 +425,57 @@ def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     request = captured["request"]
     assert request["filter_"]["owner_id"] == {"eq": "member-1001"}
     assert request["filter_"]["memory_type"] == {"in_": ["semantic", "episodic"]}
+
+
+async def test_agent_memory_reuses_extended_http_pools_and_closes_them(monkeypatch) -> None:
+    captured = {}
+
+    class FakeHttpClient:
+        def __init__(self, **kwargs):
+            captured["sync_limits"] = kwargs["limits"]
+            self.is_closed = False
+
+        def close(self):
+            self.is_closed = True
+
+    class FakeAsyncHttpClient:
+        def __init__(self, **kwargs):
+            captured["async_limits"] = kwargs["limits"]
+            self.is_closed = False
+
+        async def aclose(self):
+            self.is_closed = True
+
+    class FakeAgentMemory:
+        def __init__(self, *_args, **kwargs):
+            captured["sdk_client"] = kwargs["client"]
+            captured["sdk_async_client"] = kwargs["async_client"]
+
+    monkeypatch.setattr("valuewholesale_agent.services.httpx.Client", FakeHttpClient)
+    monkeypatch.setattr("valuewholesale_agent.services.httpx.AsyncClient", FakeAsyncHttpClient)
+    monkeypatch.setattr("redis_agent_memory.AgentMemory", FakeAgentMemory)
+    memory = MemoryService(
+        Settings(
+            _env_file=None,
+            agent_memory_base_url="https://memory.example",
+            agent_memory_store_id="store-id",
+            agent_memory_api_key="test-key",
+            agent_memory_http_keepalive_seconds=240,
+        )
+    )
+
+    assert captured["sync_limits"].keepalive_expiry == 240
+    assert captured["async_limits"].keepalive_expiry == 240
+    assert captured["sdk_client"] is memory._http_client
+    assert captured["sdk_async_client"] is memory._async_http_client
+
+    sync_client = memory._http_client
+    async_client = memory._async_http_client
+    await memory.close()
+
+    assert sync_client.is_closed is True
+    assert async_client.is_closed is True
+    assert memory.client is None
 
 
 def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
@@ -591,6 +661,7 @@ def test_unconfigured_semantic_router_fails_safe() -> None:
 
 async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkeypatch) -> None:
     calls = []
+    clients = []
 
     class FakeResponse:
         def __init__(self, body):
@@ -603,19 +674,18 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
             return self.body
 
     class FakeAsyncClient:
-        def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+            self.is_closed = False
+            clients.append(self)
 
         async def post(self, url, **kwargs):
             calls.append((url, kwargs["json"]))
             body = {"data": [{"response": "cached"}]} if url.endswith("/search") else {}
             return FakeResponse(body)
+
+        async def aclose(self):
+            self.is_closed = True
 
     monkeypatch.setattr("valuewholesale_agent.services.httpx.AsyncClient", FakeAsyncClient)
     cache = LangCacheService(
@@ -624,6 +694,7 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
             langcache_host="https://langcache.example",
             langcache_cache_id="public-policy",
             langcache_api_key="test-key",
+            langcache_http_keepalive_seconds=240,
         )
     )
 
@@ -633,6 +704,14 @@ async def test_langcache_public_cache_does_not_send_undeclared_attributes(monkey
     assert all("attributes" not in body for _, body in calls)
     assert all(body["prompt"].startswith("scope:") for _, body in calls)
     assert calls[0][1]["prompt"] == "scope:public-policy\nReturn policy?"
+    assert len(clients) == 1
+    assert clients[0].kwargs["limits"].keepalive_expiry == 240
+    assert clients[0].kwargs["headers"] == {"Authorization": "Bearer test-key"}
+
+    await cache.close()
+
+    assert clients[0].is_closed is True
+    assert cache._client is None
 
 
 async def test_langcache_clear_flushes_configured_cache(monkeypatch) -> None:
@@ -644,17 +723,14 @@ async def test_langcache_clear_flushes_configured_cache(monkeypatch) -> None:
 
     class FakeAsyncClient:
         def __init__(self, **_kwargs):
-            pass
-
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
+            self.is_closed = False
 
         async def post(self, url, **kwargs):
             calls.append((url, kwargs))
             return FakeResponse()
+
+        async def aclose(self):
+            self.is_closed = True
 
     monkeypatch.setattr("valuewholesale_agent.services.httpx.AsyncClient", FakeAsyncClient)
     cache = LangCacheService(
@@ -670,9 +746,10 @@ async def test_langcache_clear_flushes_configured_cache(monkeypatch) -> None:
     assert calls == [
         (
             "https://langcache.example/v1/caches/demo-cache/flush",
-            {"headers": {"Authorization": "Bearer test-key"}},
+            {"timeout": 15},
         )
     ]
+    await cache.close()
 
 
 def test_langcache_demo_default_accepts_documented_paraphrases() -> None:
@@ -770,36 +847,57 @@ async def test_keepalive_returns_compact_warmup_result(monkeypatch) -> None:
 
 async def test_container_lifespan_warms_each_worker_when_enabled(monkeypatch) -> None:
     calls = []
+    closed = []
 
     async def fake_warmup():
         calls.append(True)
         return {"ok": True, "duration_ms": 12.5, "services": {}}
 
+    def fake_close(name):
+        async def close():
+            closed.append(name)
+
+        return close
+
     monkeypatch.setattr(api_module.settings, "valuewholesale_warmup_on_startup", True)
     monkeypatch.setattr(api_module, "warmup_redis_services", fake_warmup)
     monkeypatch.setattr(api_module, "runners", {})
     monkeypatch.setattr(api_module, "greeting_runners", {})
+    monkeypatch.setattr(services.langcache, "close", fake_close("langcache"))
+    monkeypatch.setattr(services.context, "close", fake_close("context"))
+    monkeypatch.setattr(services.memory, "close", fake_close("memory"))
 
     async with api_module.lifespan(app):
         pass
 
     assert calls == [True]
+    assert sorted(closed) == ["context", "langcache", "memory"]
 
 
 async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) -> None:
     calls = 0
+    clients = []
+    exits = 0
 
     class FakeUnifiedClient:
+        def __init__(self):
+            clients.append(self)
+
         async def __aenter__(self):
             return self
 
         async def __aexit__(self, *_args):
+            nonlocal exits
+            exits += 1
             return None
 
         async def list_tools(self, _agent_key):
             nonlocal calls
             calls += 1
             return [{"name": f"tool_version_{calls}"}]
+
+        async def query_tool(self, **kwargs):
+            return {"result": kwargs["tool_name"]}
 
     monkeypatch.setitem(
         sys.modules,
@@ -811,6 +909,7 @@ async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) 
     first, first_cached = await context.get_tools()
     second, second_cached = await context.get_tools()
     refreshed, refreshed_cached = await context.get_tools(force_refresh=True)
+    result = await context.call("get_inventory", {"id": "item-1"})
 
     assert first == second == [{"name": "tool_version_1"}]
     assert first_cached is False
@@ -818,6 +917,13 @@ async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) 
     assert refreshed == [{"name": "tool_version_2"}]
     assert refreshed_cached is False
     assert calls == 2
+    assert result == {"result": "get_inventory"}
+    assert len(clients) == 1
+
+    await context.close()
+
+    assert exits == 1
+    assert context._client is None
 
 
 async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> None:
@@ -1572,6 +1678,14 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
         "search_catalog", {"result": {"redisvl_duration_ms": 2.75}}, 167.54
     ) == 2.75
     assert _tool_duration("search_catalog", {"result": {}}, 167.54) == 0.0
+    assert (
+        _tool_duration(
+            "recall_redis_shopping_memory",
+            {"result": {"operation_duration_ms": 23.4}},
+            167.54,
+        )
+        == 23.4
+    )
     assert _tool_duration("search_member_policies", {}, 8.5) == 8.5
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200

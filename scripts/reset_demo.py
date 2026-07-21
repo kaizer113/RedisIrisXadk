@@ -28,7 +28,10 @@ async def reset_demo(confirmed: bool) -> None:
     if not cache.base_url:
         raise SystemExit("LangCache is not configured")
 
-    await cache.clear()
+    try:
+        await cache.clear()
+    finally:
+        await cache.close()
     print("LangCache flushed. Reload the browser to start a fresh application session.")
 
 

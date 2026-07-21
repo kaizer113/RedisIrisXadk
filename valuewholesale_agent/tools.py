@@ -10,7 +10,12 @@ from typing import Any
 
 from google.adk.tools import ToolContext
 
-from valuewholesale_agent.services import compare_memory_retrieval, memory_snippets, services
+from valuewholesale_agent.services import (
+    call_with_timing,
+    compare_memory_retrieval,
+    memory_snippets,
+    services,
+)
 
 _CATALOG_CACHE_TTL_SECONDS = 300
 _catalog_cache: dict[tuple[str, str, int], tuple[float, list[dict[str, Any]]]] = {}
@@ -220,13 +225,17 @@ async def recall_redis_shopping_memory(
     Args:
         query: The kind of member preference or shopping context useful for the greeting.
     """
-    memories = await asyncio.to_thread(
+    memories, duration_ms = await asyncio.to_thread(
+        call_with_timing,
         services.memory.recall,
         _member_id(tool_context),
         query,
         5,
     )
-    return {"memories": memory_snippets(memories)}
+    return {
+        "memories": memory_snippets(memories),
+        "operation_duration_ms": duration_ms,
+    }
 
 
 async def compare_memory_systems(
@@ -260,7 +269,8 @@ async def remember_shopping_preference(
         topics_csv: Comma-separated tags such as dietary,pickup,brand,household.
     """
     topics = [topic.strip() for topic in topics_csv.split(",") if topic.strip()]
-    ok = await asyncio.to_thread(
+    ok, duration_ms = await asyncio.to_thread(
+        call_with_timing,
         services.memory.remember,
         _member_id(tool_context),
         preference,
@@ -270,6 +280,7 @@ async def remember_shopping_preference(
         "redis_agent_memory_saved": ok,
         "vertex_memory_bank": "conversation_promotion_queued_after_turn",
         "preference": preference,
+        "operation_duration_ms": duration_ms,
     }
 
 

@@ -23,6 +23,7 @@ from valuewholesale_agent.agent import build_agent, build_greeting_agent
 from valuewholesale_agent.config import get_settings
 from valuewholesale_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
 from valuewholesale_agent.services import (
+    call_with_timing,
     compare_memory_retrieval,
     memory_snippets,
     safe_id,
@@ -100,6 +101,11 @@ async def lifespan(_: FastAPI):
         await model_runner.close()
     for model_runner in greeting_runners.values():
         await model_runner.close()
+    await asyncio.gather(
+        services.langcache.close(),
+        services.context.close(),
+        services.memory.close(),
+    )
 
 
 app = FastAPI(
@@ -197,6 +203,16 @@ def trace_event(
     return event
 
 
+async def timed_thread_call(
+    step_id: str,
+    operation: Any,
+    *args: Any,
+) -> tuple[str, Any, float]:
+    """Run and time a synchronous operation within its executor thread."""
+    result, duration_ms = await asyncio.to_thread(call_with_timing, operation, *args)
+    return step_id, result, duration_ms
+
+
 def _tool_label(name: str, arguments: dict[str, Any]) -> str:
     if name == "recall_redis_shopping_memory":
         return "Searching Redis long-term memory"
@@ -275,6 +291,10 @@ def _tool_duration(name: str, response: dict[str, Any], elapsed_ms: float) -> fl
         if isinstance(redisvl_duration_ms, (int, float)):
             return float(redisvl_duration_ms)
         return 0.0
+    if isinstance(payload, dict):
+        operation_duration_ms = payload.get("operation_duration_ms")
+        if isinstance(operation_duration_ms, (int, float)):
+            return float(operation_duration_ms)
     return elapsed_ms
 
 
@@ -342,12 +362,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
     yield {"type": "start", "session_id": session_id}
 
-    async def fetch_short_term() -> list[dict[str, Any]]:
-        return await asyncio.to_thread(services.memory.short_term, session_id, 5)
-
-    async def fetch_redis_long_term() -> list[dict[str, Any]]:
-        return await asyncio.to_thread(services.memory.recall, member_id, request.message, 4)
-
     async def fetch_vertex_long_term() -> list[dict[str, Any]]:
         return await services.vertex_memory.recall(member_id, request.message)
 
@@ -382,7 +396,12 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     prefetched_short_term: tuple[str, Any, float] | None = None
     routing_context = ""
     if services.semantic_router.is_contextual_followup(request.message):
-        prefetched_short_term = await timed("redis-short-term", fetch_short_term())
+        prefetched_short_term = await timed_thread_call(
+            "redis-short-term",
+            services.memory.short_term,
+            session_id,
+            5,
+        )
         routing_context = "\n".join(memory_snippets(prefetched_short_term[1]))
     route_args = (request.message, routing_context) if routing_context else (request.message,)
     routing = await asyncio.to_thread(services.semantic_router.route, *route_args)
@@ -465,9 +484,22 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         asyncio.create_task(
             prefetched_short_term_result()
             if prefetched_short_term is not None
-            else timed("redis-short-term", fetch_short_term())
+            else timed_thread_call(
+                "redis-short-term",
+                services.memory.short_term,
+                session_id,
+                5,
+            )
         ),
-        asyncio.create_task(timed("redis-long-term", fetch_redis_long_term())),
+        asyncio.create_task(
+            timed_thread_call(
+                "redis-long-term",
+                services.memory.recall,
+                member_id,
+                request.message,
+                4,
+            )
+        ),
         asyncio.create_task(timed("member-profile", fetch_member_profile())),
     }
     if cache_read:
@@ -955,16 +987,23 @@ async def warmup_redis_services() -> dict[str, Any]:
         except Exception as exc:
             log.warning("Warm-up probe failed for %s: %s", name, exc)
             ok, summary, details = False, f"Unavailable ({type(exc).__name__})", {}
+        measured_duration_ms = details.pop("_operation_duration_ms", None)
         return name, {
             "ok": ok,
-            "duration_ms": round((time.perf_counter() - probe_started) * 1000, 2),
+            "duration_ms": (
+                measured_duration_ms
+                if measured_duration_ms is not None
+                else round((time.perf_counter() - probe_started) * 1000, 2)
+            ),
             "summary": summary,
             **details,
         }
 
     async def database_probe() -> tuple[bool, str, dict[str, Any]]:
-        ok = await asyncio.to_thread(services.catalog.ping)
-        return ok, "Redis PING succeeded" if ok else "Database is not configured", {}
+        ok, duration_ms = await asyncio.to_thread(call_with_timing, services.catalog.ping)
+        return ok, "Redis PING succeeded" if ok else "Database is not configured", {
+            "_operation_duration_ms": duration_ms
+        }
 
     async def context_probe() -> tuple[bool, str, dict[str, Any]]:
         tools = await services.context.list_tools(force_refresh=True)
@@ -972,17 +1011,29 @@ async def warmup_redis_services() -> dict[str, Any]:
         return bool(count), f"{count} governed tools discovered", {"tools": tools}
 
     async def router_probe() -> tuple[bool, str, dict[str, Any]]:
-        embedding = await asyncio.to_thread(services.embeddings.warmup)
-        decision = await asyncio.to_thread(
-            services.semantic_router.route,
-            "What is the electronics return policy?",
+        def warm_router() -> tuple[dict[str, Any], dict[str, Any]]:
+            return (
+                services.embeddings.warmup(),
+                services.semantic_router.route("What is the electronics return policy?"),
+            )
+
+        (embedding, decision), duration_ms = await asyncio.to_thread(
+            call_with_timing,
+            warm_router,
         )
         ok = decision.get("decision_source") == "redisvl"
         route = decision.get("route") or "no route"
-        return ok, f"Semantic route ready · {route}", {"embedding": embedding}
+        return ok, f"Semantic route ready · {route}", {
+            "embedding": embedding,
+            "_operation_duration_ms": duration_ms,
+        }
 
     async def embedding_cache_probe() -> tuple[bool, str, dict[str, Any]]:
-        return await asyncio.to_thread(services.embeddings.cache_probe)
+        (ok, summary, details), duration_ms = await asyncio.to_thread(
+            call_with_timing,
+            services.embeddings.cache_probe,
+        )
+        return ok, summary, {**details, "_operation_duration_ms": duration_ms}
 
     async def langcache_probe() -> tuple[bool, str, dict[str, Any]]:
         ok = await services.langcache.warmup("What is the electronics return policy?")
@@ -996,9 +1047,8 @@ async def warmup_redis_services() -> dict[str, Any]:
             return False, "Agent Memory is not configured", {"health_ms": health_ms}
 
         async def timed_read(operation: Any) -> float:
-            read_started = time.perf_counter()
-            await asyncio.to_thread(operation)
-            return round((time.perf_counter() - read_started) * 1000, 2)
+            _, duration_ms = await asyncio.to_thread(call_with_timing, operation)
+            return duration_ms
 
         short_term_ms, long_term_ms = await asyncio.gather(
             timed_read(
