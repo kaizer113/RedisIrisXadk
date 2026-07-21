@@ -1090,6 +1090,11 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert '<details class="panel side service-panel" open>' in html
     assert "<summary><h2>Redis Iris services</h2></summary>" in html
     assert "embedding_cache:'Embedding Cache'" in html
+    assert "agent_platform_sessions:'ADK VertexAISession'" in html
+    assert "agent_platform_sessions:'ADK Agent Sessions'" not in html
+    assert ".service-time:not(:empty) { display:block; }" in html
+    assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
+    assert "<span class=\"service-time\"></span></div>`" in html
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
     assert "key==='redis_database'?card.querySelector('.service-operation-time')" in html
     assert (
