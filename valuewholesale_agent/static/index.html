@@ -63,13 +63,15 @@
       .service-logo.gemini { width:37px; height:37px; justify-self:center; }
       .service-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
       .service-grid.wide { grid-template-columns:1fr; }
-      .service { position:relative; min-width:0; padding:9px; border:1px solid var(--line); border-radius:11px; background:#fff; font-size:12px; transition:background .2s,border-color .2s,box-shadow .2s,transform .2s; }
+      .service { position:relative; min-width:0; padding:7px; border:1px solid var(--line); border-radius:11px; background:#fff; font-size:12px; transition:background .2s,border-color .2s,box-shadow .2s,transform .2s; }
       .service-line { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; }
       .service-toggle { width:14px; height:14px; margin:0 6px 0 0; padding:0; accent-color:var(--blue); cursor:pointer; }
       .service-name { min-width:0; line-height:1.2; white-space:normal; }
       .service-time { display:none; margin:4px 0 0; color:var(--muted); text-align:right; font:10px ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
       .service-time:not(:empty) { display:block; }
       .service-operation { display:none; align-items:center; justify-content:space-between; gap:8px; margin:4px 0 0 14px; color:var(--blue); font-size:10px; }
+      .service[data-service="redis_database"] .service-operation { margin-top:2px; line-height:1.15; }
+      .service[data-service="redis_database"] .tool-cache-operation { margin-top:0; }
       .service-operation-time { color:var(--muted); font:10px ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
       .service-result { position:absolute; top:-6px; right:-5px; display:none; padding:1px 5px; border-radius:999px; color:#fff; background:#16825d; font-size:8px; font-weight:900; letter-spacing:.08em; box-shadow:0 2px 8px #0003; }
       .service.used { border-color:#6ea0d3; background:#edf6ff; box-shadow:inset 0 0 0 1px #174a8717; }

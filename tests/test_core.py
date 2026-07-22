@@ -1680,6 +1680,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     )
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
     assert '<span>Tool call cache</span><span class="service-operation-time"></span>' in html
+    assert '.service { position:relative; min-width:0; padding:7px;' in html
+    assert '.service[data-service="redis_database"] .service-operation { margin-top:2px;' in html
+    assert '.service[data-service="redis_database"] .tool-cache-operation { margin-top:0;' in html
     assert "if(step.cache?.read_duration_ms!=null)add('redis_database','','tool_cache')" in html
     assert "cache.textContent=`Tool call cache ${status}`" in html
     assert (
