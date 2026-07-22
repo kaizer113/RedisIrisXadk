@@ -76,8 +76,9 @@ Then ask:
 The second request should show a semantic LangCache hit and skip `ADK Runner + Gemini`. Explain
 that the RedisVL Semantic Router allows reusable ecommerce answers into LangCache while
 personalized and live-data requests bypass it. Out-of-domain requests are blocked before cache,
-memory, or model execution. Expand the LangCache hit to compare the current query with the cached
-query that matched it.
+memory, or model execution. A hit also skips the Redis and ADK short- and long-term memory rows
+because that context would not be used. Expand the LangCache hit to compare the current query with
+the cached query that matched it.
 
 ### Product-education scope
 

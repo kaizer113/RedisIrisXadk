@@ -6,12 +6,12 @@ flowchart TB
         direction TB
         subgraph run["Public application · FastAPI"]
             direction LR
-            api["Chat API"] --> prefetch["Required Redis context<br/>+ parallel ADK timing"]
-            prefetch --> route{"Semantic Router match?"}
+            api["Chat API"] --> route{"Semantic Router match?"}
             route -->|cache eligible| gate{"LangCache hit?"}
-            gate -->|hit| cached["Cached response<br/>skip ADK + Gemini"]
-            gate -->|miss| runners["Shared ADK services<br/>Flash Runner · Pro Runner"]
-            route -->|bypass| runners
+            gate -->|hit| cached["Cached response<br/>skip retrieval + ADK + Gemini"]
+            gate -->|miss| prefetch["Required Redis context<br/>+ parallel ADK timing"]
+            route -->|bypass| prefetch
+            prefetch --> runners["Shared ADK services<br/>Flash Runner · Pro Runner"]
             runners --> tools["Commerce, context,<br/>cart and memory tools"]
         end
 
@@ -50,6 +50,7 @@ flowchart TB
 
     runners --> gemini
     runners -->|persist · history excluded| sessions
+    api -->|canonical events · transcript session ID| sessions
     runners -->|post-turn promotion| bank
     tools --> context
     tools --> database

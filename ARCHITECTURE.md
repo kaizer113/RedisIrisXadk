@@ -39,15 +39,18 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    context to RedisVL; the resulting context-dependent request is never cache eligible.
 3. When RedisVL matches the safe route within its configured cosine-distance threshold,
    FastAPI searches the corresponding versioned LangCache scope. No route or any routing error
-   fails closed and bypasses the cache. Independent service reads then run concurrently.
-4. Each completed read is emitted to the UI as a trace step with client-observed latency and
+   fails closed and bypasses the cache.
+4. On a LangCache hit, the cached answer is returned immediately without reading the member
+   profile, Redis short- or long-term memory, the ADK transcript, or ADK Memory Bank. The ADK
+   Runner, Gemini, tool calls, native Runner session update, and Memory Bank promotion are also
+   skipped. Both canonical working-memory transcripts still receive the user and cached assistant
+   events.
+5. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
+   are fetched concurrently and added to ADK state before the Runner starts. ADK transcript and
+   Memory Bank comparison reads run in parallel for telemetry only.
+6. Each completed read is emitted to the UI as a trace step with client-observed latency and
    retrieved snippets. FastAPI writes identical user text to Redis Agent Memory and a dedicated
    ADK transcript session.
-5. On a LangCache hit, the cached answer is returned immediately. The ADK runner, Gemini,
-   Agent Platform Session update, tool calls, and Memory Bank promotion are skipped. Redis
-   Both canonical working-memory transcripts still receive the user and cached assistant events.
-6. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
-   are added to ADK state before the runner starts.
 7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Before each read-only
    call, a session-scoped Redis String cache checks the normalized tool name and arguments. A
    successful miss is cached for 12 hours. Inventory and mutations bypass the cache, and a
@@ -88,7 +91,7 @@ The application uses the following session and memory paths.
 
 | Concern | Redis path | Google ADK path |
 |---|---|---|
-| Short-term conversation | FastAPI writes only user prompts and final assistant answers, then sends retrieved recent events to Gemini on the next turn. | FastAPI writes the identical prompt/answer transcript to a dedicated `VertexAiSessionService` app. A parallel transcript read is timed, but its events are excluded from Gemini context. The Runner's raw orchestration session remains separate. |
+| Short-term conversation | FastAPI writes only user prompts and final assistant answers, then sends retrieved recent events to Gemini on the next cache miss or bypass. | FastAPI writes the identical prompt/answer transcript under the distinct `{session_id}-transcript` backend session ID. A parallel transcript read is timed only after a cache miss or bypass, and its events are excluded from Gemini context. The Runner's raw orchestration session uses the original session ID. |
 | Long-term memory | Explicit preferences are written to Redis Agent Memory; semantic recall is required and sent to Gemini before each generated turn. | The callback promotes the ADK session to Memory Bank. Search is timed in parallel, never sent to Gemini, and never blocks generation. |
 | Independence | Redis event writes continue regardless of which ADK session service is selected. | Replacing `InMemorySessionService` with `VertexAiSessionService` changes ADK persistence, not Redis writes. |
 | Console visibility | Inspect with Redis Cloud/Redis Insight and the Agent Memory service. | Managed sessions and memories appear under Agent Platform for the configured Agent Engine and region. In-memory fallbacks do not. |

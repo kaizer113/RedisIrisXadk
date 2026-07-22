@@ -37,16 +37,18 @@ offers Gemini 3.1 Flash-Lite for speed and Gemini 3.1 Pro for heavier reasoning.
 
 ## Live agent trace
 
-Every shopping request runs semantic routing, memory retrieval, and agent generation. Context
-Retriever is warmed on startup but is opt-in in the service panel, making it easy to compare the
-same journey with and without governed live context. The web UI streams those steps live and offers
-demo-member and Gemini-model selectors.
+Every shopping request runs semantic routing. A LangCache hit returns before memory retrieval and
+agent generation; cache misses and bypasses retrieve the required context and run the agent.
+Context Retriever is warmed on startup but is opt-in in the service panel, making it easy to
+compare the same journey with and without governed live context. The web UI streams those steps
+live and offers demo-member and Gemini-model selectors.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed
 long-term memory providers. New conversation turns dual-write the same prompt/answer transcript
-to Redis Agent Memory and a dedicated ADK session while the Runner's native event stream continues
-to feed ADK Memory Bank generation independently.
+to Redis Agent Memory and a dedicated ADK session using the `{session_id}-transcript` backend ID,
+while the Runner's native session keeps the original ID and continues to feed ADK Memory Bank
+generation independently.
 
 ## Local start
 

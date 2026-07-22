@@ -1375,7 +1375,7 @@ async def test_working_memory_dual_writes_identical_prompt_and_answer(monkeypatc
         async def get_session(self, *, app_name, user_id, session_id):
             assert app_name == TRANSCRIPT_APP_NAME
             assert user_id == "member-1001"
-            assert session_id == "session-1"
+            assert session_id == "session-1-transcript"
             return self.session
 
         async def create_session(self, *, app_name, user_id, session_id):
@@ -2018,15 +2018,15 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
             "response": "Cocoa and caramel notes.",
         }
 
-    async def empty_vertex_recall(_member_id, _query):
-        return []
+    async def unexpected_async(*_args, **_kwargs):
+        raise AssertionError("memory retrieval must not run on a LangCache hit")
 
-    async def profile(_member_id, _session_id):
-        return {"context": '{"name":"Alex Rivera"}', "source": "test"}
+    def unexpected_sync(*_args, **_kwargs):
+        raise AssertionError("memory retrieval must not run on a LangCache hit")
 
     monkeypatch.setitem(api_module.runners, "gemini-3.1-flash-lite", UnexpectedRunner())
     monkeypatch.setattr(api_module, "session_service", EmptySessionService())
-    monkeypatch.setattr(api_module, "member_profile_for_session", profile)
+    monkeypatch.setattr(api_module, "member_profile_for_session", unexpected_async)
     monkeypatch.setattr(
         services.semantic_router,
         "route",
@@ -2044,10 +2044,10 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         },
     )
     monkeypatch.setattr(services.langcache, "search", cache_search)
-    monkeypatch.setattr(services.memory, "short_term", lambda *_args: [])
-    monkeypatch.setattr(services.memory, "recall", lambda *_args: [])
+    monkeypatch.setattr(services.memory, "short_term", unexpected_sync)
+    monkeypatch.setattr(services.memory, "recall", unexpected_sync)
     monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
-    monkeypatch.setattr(services.vertex_memory, "recall", empty_vertex_recall)
+    monkeypatch.setattr(services.vertex_memory, "recall", unexpected_async)
 
     events = [
         event
@@ -2082,6 +2082,13 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
     assert traces["generation"]["summary"] == "Skipped · response served by LangCache"
     assert traces["generation"]["label"] == "ADK Runner + Gemini Flash (0 llm calls)"
     assert traces["total"]["label"] == "Total request"
+    assert not {
+        "redis-short-term",
+        "redis-long-term",
+        "member-profile",
+        "adk-short-term",
+        "vertex-long-term",
+    }.intersection(traces)
 
 
 async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(

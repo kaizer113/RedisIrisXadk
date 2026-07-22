@@ -230,6 +230,11 @@ def recent_adk_transcript_events(
     return events[-max(1, limit) :]
 
 
+def adk_transcript_session_id(session_id: str) -> str:
+    """Keep the canonical transcript separate from the Runner's native session."""
+    return f"{session_id}-transcript"
+
+
 async def append_adk_transcript_event(
     member_id: str,
     session_id: str,
@@ -241,20 +246,20 @@ async def append_adk_transcript_event(
         session = await session_service.get_session(
             app_name=TRANSCRIPT_APP_NAME,
             user_id=member_id,
-            session_id=session_id,
+            session_id=adk_transcript_session_id(session_id),
         )
         if session is None:
             try:
                 session = await session_service.create_session(
                     app_name=TRANSCRIPT_APP_NAME,
                     user_id=member_id,
-                    session_id=session_id,
+                    session_id=adk_transcript_session_id(session_id),
                 )
             except Exception:
                 session = await session_service.get_session(
                     app_name=TRANSCRIPT_APP_NAME,
                     user_id=member_id,
-                    session_id=session_id,
+                    session_id=adk_transcript_session_id(session_id),
                 )
         if session is None:
             return False
@@ -525,7 +530,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             session = await session_service.get_session(
                 app_name=TRANSCRIPT_APP_NAME,
                 user_id=member_id,
-                session_id=session_id,
+                session_id=adk_transcript_session_id(session_id),
             )
         except Exception as exc:
             log.warning("ADK session telemetry read failed open: %s", exc)
@@ -629,6 +634,58 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         return
 
+    cached: dict[str, Any] | None = None
+    if cache_read:
+        _, cached, cache_duration = await timed(
+            "langcache",
+            services.langcache.search(request.message, cache_scope),
+        )
+        hit = bool(cached and cached.get("response"))
+        cached_prompt = (
+            services.langcache.display_prompt(str(cached.get("prompt", "")))
+            if hit
+            else ""
+        )
+        yield trace_event(
+            "langcache",
+            "Checking Redis LangCache",
+            duration_ms=cache_duration,
+            summary=("Hit" if hit else "Miss"),
+            details=(
+                [
+                    f"Current query: {request.message}",
+                    f"Cached query: {cached_prompt}",
+                ]
+                if cached_prompt
+                else []
+            ),
+        )
+        if hit:
+            answer = str(cached["response"])
+            await append_working_memory_event(member_id, session_id, "USER", request.message)
+            await append_working_memory_event(member_id, session_id, "ASSISTANT", answer)
+            yield trace_event(
+                "generation",
+                llm_count_label(gemini_runner_label(request.model), 0),
+                duration_ms=0,
+                summary="Skipped · response served by LangCache",
+            )
+            yield {"type": "answer", "answer": answer, "cache_hit": True}
+            yield trace_event(
+                "total",
+                "Total request",
+                duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
+                summary="Completed from semantic cache",
+            )
+            return
+    else:
+        yield trace_event(
+            "langcache",
+            "Checking Redis LangCache",
+            duration_ms=0,
+            summary=f"Bypassed · {routing.get('reason', 'router policy')}",
+        )
+
     async def prefetched_short_term_result() -> tuple[str, Any, float]:
         assert prefetched_short_term is not None
         return prefetched_short_term
@@ -655,22 +712,6 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         ),
         asyncio.create_task(timed("member-profile", fetch_member_profile())),
     }
-    if cache_read:
-        required_tasks.add(
-            asyncio.create_task(
-                timed(
-                    "langcache",
-                    services.langcache.search(request.message, cache_scope),
-                )
-            )
-        )
-    else:
-        yield trace_event(
-            "langcache",
-            "Checking Redis LangCache",
-            duration_ms=0,
-            summary=f"Bypassed · {routing.get('reason', 'router policy')}",
-        )
     adk_telemetry_tasks = {
         asyncio.create_task(timed("adk-short-term", fetch_adk_short_term())),
         asyncio.create_task(timed("vertex-long-term", fetch_vertex_long_term())),
@@ -740,26 +781,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
             pending_required.remove(task)
             results[step_id] = result
-            if step_id == "langcache":
-                hit = bool(result and result.get("response"))
-                cached_prompt = (
-                    services.langcache.display_prompt(str(result.get("prompt", ""))) if hit else ""
-                )
-                yield trace_event(
-                    "langcache",
-                    "Checking Redis LangCache",
-                    duration_ms=duration,
-                    summary=("Hit" if hit else "Miss"),
-                    details=(
-                        [
-                            f"Current query: {request.message}",
-                            f"Cached query: {cached_prompt}",
-                        ]
-                        if cached_prompt
-                        else []
-                    ),
-                )
-            elif step_id == "redis-short-term":
+            if step_id == "redis-short-term":
                 snippets = memory_snippets(result, SHORT_TERM_MEMORY_LIMIT)
                 yield trace_event(
                     step_id,
@@ -796,33 +818,12 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
     short_memories = results.get("redis-short-term", [])
     redis_memories = results.get("redis-long-term", [])
-    cached = results.get("langcache")
     member_profile = results.get(
         "member-profile",
         {"context": json.dumps({"member_id": member_id}, sort_keys=True)},
     )
 
     await append_working_memory_event(member_id, session_id, "USER", request.message)
-
-    if cached and cached.get("response"):
-        answer = str(cached["response"])
-        await append_working_memory_event(member_id, session_id, "ASSISTANT", answer)
-        yield trace_event(
-            "generation",
-            llm_count_label(gemini_runner_label(request.model), 0),
-            duration_ms=0,
-            summary="Skipped · response served by LangCache",
-        )
-        yield {"type": "answer", "answer": answer, "cache_hit": True}
-        async for telemetry_event in drain_adk_telemetry():
-            yield telemetry_event
-        yield trace_event(
-            "total",
-            "Total request",
-            duration_ms=round((time.perf_counter() - total_started) * 1000, 2),
-            summary="Completed from semantic cache",
-        )
-        return
 
     state_delta = {
         "member_id": member_id,
