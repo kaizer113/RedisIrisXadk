@@ -17,14 +17,14 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 | Application | FastAPI | Exposes the public UI and API, validates requests, coordinates concurrent cache and memory retrieval, and streams newline-delimited JSON events. |
 | Agent runtime | Google ADK `Runner` | Runs the Vale agent, manages a session, invokes tools, calls Gemini, and triggers post-turn memory promotion. |
 | Models | Gemini 3.1 Flash-Lite / Gemini 3.1 Pro | Flash-Lite is the fast default; Pro is the slower, heavier reasoning option. The selected model chooses one of two prebuilt runners. |
-| Commerce data | Redis database + Query Engine | Stores the checked-in catalog, policies, inventory, member, order, and cart data; supports lexical and optional vector product retrieval. |
+| Commerce data | Redis database + Query Engine | Stores the checked-in catalog, policies, inventory, member, order, and cart data; supports lexical and optional vector product retrieval. It also stores session-scoped exact tool-result cache entries with a 12-hour TTL. |
 | Governed context | Redis Context Retriever | Exposes live member, inventory, and order entities through a governed tool surface. The UI enables it per browser session; when enabled, FastAPI hydrates and caches the signed-in profile, supplies it to the greeting, and silently reuses it on shopping turns. The client is warmed even while the capability is unchecked. |
 | Semantic routing | RedisVL Semantic Router | Classifies reusable policy, static product-education, shopping-guide, general ecommerce, and out-of-domain prompts using a Redis vector index and the shared local `redis/langcache-embed-v3-small` model. Member-specific, live-data, and sensitive requests are deterministically bypassed first. |
 | Semantic cache | Redis LangCache | Serves semantically similar policy, static product-education, and reusable shopping-guide answers without invoking ADK or Gemini. Personalized and live-data requests are not cache eligible. |
 | Redis memory | Redis Agent Memory | Receives explicit user and assistant session events and stores/retrieves durable member preference memories. |
 | Source systems | Commerce, warehouse, and master-data stores | Persistent systems of record for orders, inventory and fulfillment, products, pricing, and members. |
 | Data integration | Redis Data Integration (RDI) | Captures database changes from the source systems and continuously synchronizes the application-ready data model into Redis. |
-| Google sessions | Agent Platform Sessions | Persists ADK session events when `VertexAiSessionService` is configured. Sessions are visible under Agent Platform in the GCP console. |
+| Google sessions | Agent Platform Sessions | Persists the ADK Runner's native orchestration events and a separate canonical working-memory transcript containing only user prompts and final assistant answers. Sessions are visible under Agent Platform in the GCP console. |
 | Google memory | ADK Memory Bank | Retrieves long-term memories and generates new memories from the completed ADK session after a model-generated turn. |
 
 ## One chat request
@@ -41,21 +41,24 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    FastAPI searches the corresponding versioned LangCache scope. No route or any routing error
    fails closed and bypasses the cache. Independent service reads then run concurrently.
 4. Each completed read is emitted to the UI as a trace step with client-observed latency and
-   retrieved snippets. Redis receives the user event independently of the ADK session backend.
+   retrieved snippets. FastAPI writes identical user text to Redis Agent Memory and a dedicated
+   ADK transcript session.
 5. On a LangCache hit, the cached answer is returned immediately. The ADK runner, Gemini,
    Agent Platform Session update, tool calls, and Memory Bank promotion are skipped. Redis
-   Agent Memory still receives both the user and cached assistant events.
+   Both canonical working-memory transcripts still receive the user and cached assistant events.
 6. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
    are added to ADK state before the runner starts.
-7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Successful Context
-   Retriever results other than inventory are cached in ADK state for the browser session, keyed
-   by normalized tool name and arguments. Identical later calls reuse that result; inventory is
-   only deduplicated within one ADK invocation so availability remains live. Tool start,
-   completion, result summary, and elapsed time are streamed to the UI.
-8. ADK stores the conversational turn through its shared session service. The agent's
+7. ADK may invoke catalog, policy, cart, memory, or Context Retriever tools. Before each read-only
+   call, a session-scoped Redis String cache checks the normalized tool name and arguments. A
+   successful miss is cached for 12 hours. Inventory and mutations bypass the cache, and a
+   successful mutation invalidates that session's cached reads. Each tool trace reports cache
+   hit/miss status and Redis read latency; the Database service card shows that timing separately
+   from vector search.
+8. ADK stores native orchestration events through the Runner session. The agent's
    post-turn callback asks ADK to generate Memory Bank memories from that session.
-9. FastAPI records the assistant event in Redis Agent Memory and stores an eligible reusable
-   answer in a versioned LangCache scope. Cacheable answers exclude personalized and live data.
+9. FastAPI writes identical assistant text to Redis Agent Memory and the dedicated ADK transcript,
+   then stores an eligible reusable answer in a versioned LangCache scope. Cacheable answers
+   exclude personalized and live data.
 
 ## Model selection and session sharing
 
@@ -77,7 +80,7 @@ still share those same in-process instances, but all local session and memory co
 when the process restarts and are not visible in the GCP console.
 
 The browser creates a new session ID on each page load. Consequently, a full page refresh starts
-with an empty Context Retriever result cache without clearing caches belonging to other sessions.
+with an empty tool-result cache without clearing cache entries belonging to other sessions.
 
 ## Session and long-term memory paths
 
@@ -85,7 +88,7 @@ The application uses the following session and memory paths.
 
 | Concern | Redis path | Google ADK path |
 |---|---|---|
-| Short-term conversation | FastAPI writes user and assistant events, then sends retrieved recent events to Gemini on the next turn. | The selected runner persists events through `VertexAiSessionService`. A parallel session read is timed, but prior ADK events are excluded from Gemini context. |
+| Short-term conversation | FastAPI writes only user prompts and final assistant answers, then sends retrieved recent events to Gemini on the next turn. | FastAPI writes the identical prompt/answer transcript to a dedicated `VertexAiSessionService` app. A parallel transcript read is timed, but its events are excluded from Gemini context. The Runner's raw orchestration session remains separate. |
 | Long-term memory | Explicit preferences are written to Redis Agent Memory; semantic recall is required and sent to Gemini before each generated turn. | The callback promotes the ADK session to Memory Bank. Search is timed in parallel, never sent to Gemini, and never blocks generation. |
 | Independence | Redis event writes continue regardless of which ADK session service is selected. | Replacing `InMemorySessionService` with `VertexAiSessionService` changes ADK persistence, not Redis writes. |
 | Console visibility | Inspect with Redis Cloud/Redis Insight and the Agent Memory service. | Managed sessions and memories appear under Agent Platform for the configured Agent Engine and region. In-memory fallbacks do not. |

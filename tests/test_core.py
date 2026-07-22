@@ -14,16 +14,23 @@ from scripts import seed_managed_memories as managed_seed
 from scripts.generate_dataset import records
 from scripts.seed_scale_memories import build_memories, memory_templates
 from valuewholesale_agent import api as api_module
-from valuewholesale_agent.agent import build_agent, build_greeting_agent
+from valuewholesale_agent.agent import (
+    build_agent,
+    build_greeting_agent,
+    read_tool_call_cache,
+    store_tool_call_cache,
+)
 from valuewholesale_agent.api import (
+    TRANSCRIPT_APP_NAME,
     LatencyRegistry,
     _chat_events,
-    _context_result_session_event,
     _greeting_events,
     _tool_duration,
     _tool_label,
     _tool_summary,
     app,
+    append_working_memory_event,
+    event_text,
     member_profile_cache,
     member_profile_for_session,
     trace_event,
@@ -42,19 +49,20 @@ from valuewholesale_agent.services import (
     PUBLIC_POLICY_ROUTE,
     REDIS_CONNECTION_KWARGS,
     SHOPPING_GUIDE_ROUTE,
+    TOOL_CALL_CACHE_METADATA_KEY,
     CatalogService,
     ContextRetrieverService,
     LangCacheService,
     LocalEmbeddingService,
     MemoryService,
     SemanticRouterService,
+    ToolCallCache,
     _retrieval_quality,
     memory_snippets,
     safe_id,
     services,
 )
 from valuewholesale_agent.tools import (
-    _catalog_cache,
     list_context_retriever_tools,
     query_context_retriever,
     search_catalog,
@@ -76,6 +84,7 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.google_memory_location == ""
     assert settings.available_google_models == ("gemini-3.1-flash-lite", "gemini-3.1-pro-preview")
     assert settings.valuewholesale_embedding_model == "redis/langcache-embed-v3-small"
+    assert settings.valuewholesale_tool_cache_ttl_seconds == 43_200
     assert settings.valuewholesale_vector_search_enabled is True
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
@@ -122,6 +131,22 @@ def test_trace_latency_separates_agent_memory_short_and_long_term(monkeypatch) -
     assert snapshot["redis_agent_memory_long_term"]["p50_ms"] == 21
 
 
+def test_trace_records_tool_call_cache_read_latency(monkeypatch) -> None:
+    registry = LatencyRegistry()
+    registry.mark_cold_call_complete("tool_call_cache")
+    monkeypatch.setattr(api_module, "latency_registry", registry)
+
+    event = trace_event(
+        "tool-1",
+        "RedisVL Search Catalog",
+        duration_ms=4.5,
+        cache={"status": "miss", "read_duration_ms": 1.25},
+    )
+
+    assert event["step"]["cache"] == {"status": "miss", "read_duration_ms": 1.25}
+    assert registry.snapshot()["tool_call_cache"]["p50_ms"] == 1.25
+
+
 def test_scale_memory_corpus_is_deterministic_and_hidden() -> None:
     templates = memory_templates()
     memories = build_memories(
@@ -149,7 +174,7 @@ def test_fixture_catalog_search_and_inventory() -> None:
     assert inventory["availability"] == "out_of_stock"
 
 
-def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
+def test_catalog_search_returns_operation_timings(monkeypatch) -> None:
     calls = []
 
     def search(query, category, limit):
@@ -161,22 +186,14 @@ def test_identical_catalog_searches_reuse_results(monkeypatch) -> None:
             True,
         )
 
-    _catalog_cache.clear()
     monkeypatch.setattr(services.catalog, "search_products_with_timing", search)
 
-    first = search_catalog("lightly salted snacks", "pantry", 5)
-    second = search_catalog("lightly salted snacks", "pantry", 5)
+    result = search_catalog("lightly salted snacks", "pantry", 5)
 
-    assert first["identical_search_reused"] is False
-    assert first["redisvl_duration_ms"] == 1.25
-    assert first["embedding_duration_ms"] == 2.5
-    assert first["embedding_cache_hit"] is True
-    assert second["identical_search_reused"] is True
-    assert second["redisvl_duration_ms"] == 0.0
-    assert second["embedding_duration_ms"] is None
-    assert second["embedding_cache_hit"] is None
+    assert result["redisvl_duration_ms"] == 1.25
+    assert result["embedding_duration_ms"] == 2.5
+    assert result["embedding_cache_hit"] is True
     assert calls == [("lightly salted snacks", "pantry", 5)]
-    _catalog_cache.clear()
 
 
 def test_catalog_search_clamps_limit_to_one_through_six(monkeypatch) -> None:
@@ -186,14 +203,159 @@ def test_catalog_search_clamps_limit_to_one_through_six(monkeypatch) -> None:
         calls.append(limit)
         return [], 0.5, 1.0, False
 
-    _catalog_cache.clear()
     monkeypatch.setattr(services.catalog, "search_products_with_timing", search)
 
     search_catalog("pantry staples", "pantry", 10)
     search_catalog("paper goods", "household", 0)
 
     assert calls == [6, 1]
-    _catalog_cache.clear()
+
+
+def test_tool_call_cache_is_session_scoped_and_uses_twelve_hour_ttl() -> None:
+    class FakeRedis:
+        def __init__(self):
+            self.values = {}
+            self.expirations = {}
+
+        def get(self, key):
+            return self.values.get(key)
+
+        def set(self, key, value, ex):
+            self.values[key] = value.encode()
+            self.expirations[key] = ex
+            return True
+
+    fake = FakeRedis()
+    cache = ToolCallCache(
+        Settings(_env_file=None, valuewholesale_tool_cache_ttl_seconds=43_200),
+        fake,
+    )
+    arguments = {"member_id": "member-1001", "limit": 5}
+
+    assert cache.get("member-1001", "session-a", "get_orders", arguments)[0] is None
+    assert (
+        cache.set(
+            "member-1001",
+            "session-a",
+            "get_orders",
+            arguments,
+            {"orders": ["one"]},
+        )
+        is True
+    )
+    cached, duration_ms = cache.get(
+        "member-1001",
+        "session-a",
+        "get_orders",
+        {"limit": 5, "member_id": "member-1001"},
+    )
+
+    assert cached == {"orders": ["one"]}
+    assert duration_ms >= 0
+    assert cache.get("member-1001", "session-b", "get_orders", arguments)[0] is None
+    assert cache.get("member-1002", "session-a", "get_orders", arguments)[0] is None
+    assert list(fake.expirations.values()) == [43_200]
+
+
+async def test_tool_cache_callbacks_report_miss_then_hit(monkeypatch) -> None:
+    writes = []
+    context = SimpleNamespace(
+        invocation_id="invocation-1",
+        function_call_id="call-1",
+        user_id="member-1001",
+        session=SimpleNamespace(id="session-1"),
+    )
+    tool = SimpleNamespace(name="search_catalog")
+
+    monkeypatch.setattr(services.tool_cache, "get", lambda *_args: (None, 1.25))
+    monkeypatch.setattr(
+        services.tool_cache,
+        "set",
+        lambda *args: writes.append(args) or True,
+    )
+
+    assert await read_tool_call_cache(tool, {"query": "oats"}, context) is None
+    miss = await store_tool_call_cache(
+        tool,
+        {"query": "oats"},
+        context,
+        {"products": [{"sku": "VH-1001"}]},
+    )
+    assert miss[TOOL_CALL_CACHE_METADATA_KEY] == {
+        "status": "miss",
+        "read_duration_ms": 1.25,
+        "ttl_seconds": 43_200,
+        "stored": True,
+    }
+    assert len(writes) == 1
+
+    context.function_call_id = "call-2"
+    monkeypatch.setattr(
+        services.tool_cache,
+        "get",
+        lambda *_args: ({"products": [{"sku": "VH-1001"}]}, 0.75),
+    )
+    hit = await read_tool_call_cache(tool, {"query": "oats"}, context)
+    assert hit == {
+        "products": [{"sku": "VH-1001"}],
+        TOOL_CALL_CACHE_METADATA_KEY: {
+            "status": "hit",
+            "read_duration_ms": 0.75,
+            "ttl_seconds": 43_200,
+        },
+    }
+
+
+async def test_tool_cache_bypasses_inventory_and_invalidates_after_mutation(monkeypatch) -> None:
+    cleared = []
+    monkeypatch.setattr(
+        services.tool_cache,
+        "get",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("cache read must be bypassed")),
+    )
+    monkeypatch.setattr(
+        services.tool_cache,
+        "clear_session",
+        lambda owner_id, session_id: cleared.append((owner_id, session_id)) or 2,
+    )
+    context = SimpleNamespace(
+        invocation_id="invocation-2",
+        function_call_id="inventory-call",
+        user_id="member-1001",
+        session=SimpleNamespace(id="session-2"),
+    )
+    context_tool = SimpleNamespace(name="query_context_retriever")
+
+    assert (
+        await read_tool_call_cache(
+            context_tool,
+            {"tool_name": "get_inventory_by_id", "arguments_json": '{}'},
+            context,
+        )
+        is None
+    )
+    inventory = await store_tool_call_cache(
+        context_tool,
+        {"tool_name": "get_inventory_by_id", "arguments_json": '{}'},
+        context,
+        {"quantity": 12},
+    )
+    assert inventory[TOOL_CALL_CACHE_METADATA_KEY] == {
+        "status": "bypass",
+        "reason": "inventory is always live",
+    }
+
+    context.function_call_id = "mutation-call"
+    mutation_tool = SimpleNamespace(name="add_item_to_cart")
+    assert await read_tool_call_cache(mutation_tool, {"sku": "VH-1001"}, context) is None
+    mutation = await store_tool_call_cache(
+        mutation_tool,
+        {"sku": "VH-1001"},
+        context,
+        {"ok": True},
+    )
+    assert mutation[TOOL_CALL_CACHE_METADATA_KEY]["reason"] == "mutation"
+    assert cleared == [("member-1001", "session-2")]
 
 
 def test_catalog_product_embedding_text_includes_retrieval_signals() -> None:
@@ -1047,7 +1209,7 @@ async def test_disabled_context_retriever_never_calls_service(monkeypatch) -> No
     assert queried == {"ok": False, "error": "context_retriever_disabled"}
 
 
-async def test_identical_inventory_calls_share_one_result_per_turn(monkeypatch) -> None:
+async def test_inventory_context_calls_are_always_live(monkeypatch) -> None:
     calls = 0
 
     async def call(tool_name, arguments):
@@ -1078,17 +1240,17 @@ async def test_identical_inventory_calls_share_one_result_per_turn(monkeypatch) 
     )
 
     assert first == second == third
-    assert calls == 1
+    assert calls == 3
 
     await query_context_retriever(
         "get_inventory_by_id",
         '{"id":"portland-vh-1001"}',
         SimpleNamespace(custom_metadata={}),
     )
-    assert calls == 2
+    assert calls == 4
 
 
-async def test_non_inventory_context_calls_are_cached_for_adk_session(monkeypatch) -> None:
+async def test_context_wrapper_delegates_cacheable_reads_to_the_service(monkeypatch) -> None:
     calls = 0
 
     async def call(tool_name, arguments):
@@ -1111,14 +1273,14 @@ async def test_non_inventory_context_calls_are_cached_for_adk_session(monkeypatc
     )
 
     assert first == second == {"orders": [{"order_id": "member-1001"}]}
-    assert calls == 1
+    assert calls == 2
 
     await query_context_retriever(
         "filter_order_by_member_id",
         '{"member_id":"member-1001"}',
         SimpleNamespace(custom_metadata={}, state={"member_id": "member-1001"}),
     )
-    assert calls == 2
+    assert calls == 3
 
 
 async def test_failed_context_calls_are_not_cached_for_session(monkeypatch) -> None:
@@ -1154,6 +1316,60 @@ async def test_member_profile_reuses_application_session_cache(monkeypatch) -> N
     member_profile_cache.clear()
 
 
+async def test_working_memory_dual_writes_identical_prompt_and_answer(monkeypatch) -> None:
+    redis_events = []
+
+    class TranscriptSessionService:
+        def __init__(self):
+            self.session = None
+
+        async def get_session(self, *, app_name, user_id, session_id):
+            assert app_name == TRANSCRIPT_APP_NAME
+            assert user_id == "member-1001"
+            assert session_id == "session-1"
+            return self.session
+
+        async def create_session(self, *, app_name, user_id, session_id):
+            self.session = SimpleNamespace(
+                app_name=app_name,
+                user_id=user_id,
+                id=session_id,
+                events=[],
+            )
+            return self.session
+
+        async def append_event(self, session, event):
+            session.events.append(event)
+            return event
+
+    transcript_service = TranscriptSessionService()
+    monkeypatch.setattr(api_module, "session_service", transcript_service)
+    monkeypatch.setattr(
+        services.memory,
+        "add_event",
+        lambda member_id, session_id, role, text: redis_events.append(
+            (member_id, session_id, role, text)
+        )
+        or True,
+    )
+
+    assert await append_working_memory_event(
+        "member-1001", "session-1", "USER", "Where is my order?"
+    ) == (True, True)
+    assert await append_working_memory_event(
+        "member-1001", "session-1", "ASSISTANT", "It is ready for pickup."
+    ) == (True, True)
+
+    assert redis_events == [
+        ("member-1001", "session-1", "USER", "Where is my order?"),
+        ("member-1001", "session-1", "ASSISTANT", "It is ready for pickup."),
+    ]
+    assert [event_text(event) for event in transcript_service.session.events] == [
+        "Where is my order?",
+        "It is ready for pickup.",
+    ]
+
+
 async def test_disabled_member_profile_ignores_cached_context(monkeypatch) -> None:
     async def unexpected(_member_id):
         raise AssertionError("disabled Context Retriever must not fetch a profile")
@@ -1173,6 +1389,8 @@ async def test_disabled_member_profile_ignores_cached_context(monkeypatch) -> No
 def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
     agent = build_agent("gemini-3.1-flash-lite")
     assert agent.include_contents == "none"
+    assert agent.before_tool_callback is read_tool_call_cache
+    assert agent.after_tool_callback is store_tool_call_cache
     assert "{redis_short_term_context}" in agent.instruction
     assert "{redis_long_term_context}" in agent.instruction
     assert "vertex_long_term_context" not in agent.instruction
@@ -1238,32 +1456,6 @@ def test_shopping_agent_fetches_orders_for_broad_member_context_questions() -> N
     assert "call the\n  appropriate order lookup for the signed-in member" in instruction
     assert "Summarize any active or\n  pending fulfillment first" in instruction
     assert "A narrow request for one profile field" in instruction
-
-
-def test_context_order_result_becomes_invisible_session_context() -> None:
-    result = _context_result_session_event(
-        "query_context_retriever",
-        {"tool_name": "filter_order_by_member_id"},
-        {"result": {"orders": [{"order_id": "VH-ORD-1048"}]}},
-    )
-
-    assert result is not None
-    text, metadata = result
-    assert "Context Retriever order-history snapshot" in text
-    assert "VH-ORD-1048" in text
-    assert metadata == {
-        "kind": "context_retriever_order_history",
-        "tool_name": "filter_order_by_member_id",
-        "visibility": "agent_context_only",
-    }
-    assert (
-        _context_result_session_event(
-            "query_context_retriever",
-            {"tool_name": "get_inventory_by_id"},
-            {"result": {"quantity": 31}},
-        )
-        is None
-    )
 
 
 async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None:
@@ -1442,7 +1634,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert ".service-logo.gemini { width:37px; height:37px; justify-self:center; }" in html
     assert "services:['gemini_adk_orchestration'],wide:true" in html
     assert "if(id==='generation'||id==='greeting-generation')" in html
-    assert "operation.textContent=step.label" in html
+    assert "label.textContent=step.label" in html
     assert ".service-time:not(:empty) { display:block; }" in html
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
     assert '<div class="service-meta-row"><button id="context-tools-trigger"' in html
@@ -1454,7 +1646,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
         in html
     )
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
-    assert "key==='redis_database'||key==='gemini_adk_orchestration'" in html
+    assert '<span>Tool call cache</span><span class="service-operation-time"></span>' in html
+    assert "if(step.cache?.read_duration_ms!=null)add('redis_database','','tool_cache')" in html
+    assert "cache.textContent=`Tool call cache ${status}`" in html
     assert (
         "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
         in html

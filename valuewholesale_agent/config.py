@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     valuewholesale_embedding_model: str = "redis/langcache-embed-v3-small"
     valuewholesale_embedding_device: str = "cpu"
     valuewholesale_embedding_cache_ttl_seconds: int = Field(default=86_400, ge=60)
+    valuewholesale_tool_cache_ttl_seconds: int = Field(default=43_200, ge=60)
 
     valuewholesale_demo_member_id: str = "member-1001"
     valuewholesale_demo_session_id: str = "shopping-demo-1"

@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk import Runner
+from google.adk.events import Event
 from google.adk.memory import InMemoryMemoryService, VertexAiMemoryBankService
 from google.adk.sessions import InMemorySessionService, VertexAiSessionService
 from google.genai import types
@@ -24,6 +25,7 @@ from valuewholesale_agent.agent import build_agent, build_greeting_agent
 from valuewholesale_agent.config import get_settings
 from valuewholesale_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
 from valuewholesale_agent.services import (
+    TOOL_CALL_CACHE_METADATA_KEY,
     call_with_timing,
     compare_memory_retrieval,
     memory_snippets,
@@ -37,6 +39,7 @@ logging.basicConfig(level=settings.log_level)
 
 APP_NAME = "valuewholesale-shopping-agent"
 GREETING_APP_NAME = "valuewholesale-greeting-agent"
+TRANSCRIPT_APP_NAME = "valuewholesale-working-memory"
 STATIC_DIR = Path(__file__).with_name("static")
 
 
@@ -209,6 +212,67 @@ def event_text(event: Any) -> str:
     ).strip()
 
 
+async def append_adk_transcript_event(
+    member_id: str,
+    session_id: str,
+    role: str,
+    text: str,
+) -> bool:
+    """Append one canonical prompt or answer to the dedicated ADK transcript."""
+    try:
+        session = await session_service.get_session(
+            app_name=TRANSCRIPT_APP_NAME,
+            user_id=member_id,
+            session_id=session_id,
+        )
+        if session is None:
+            try:
+                session = await session_service.create_session(
+                    app_name=TRANSCRIPT_APP_NAME,
+                    user_id=member_id,
+                    session_id=session_id,
+                )
+            except Exception:
+                session = await session_service.get_session(
+                    app_name=TRANSCRIPT_APP_NAME,
+                    user_id=member_id,
+                    session_id=session_id,
+                )
+        if session is None:
+            return False
+        normalized_role = role.upper()
+        await session_service.append_event(
+            session,
+            Event(
+                invocation_id=f"transcript-{time.time_ns()}",
+                author=member_id if normalized_role == "USER" else "valuewholesale-agent",
+                content=types.Content(
+                    role="user" if normalized_role == "USER" else "model",
+                    parts=[types.Part(text=text)],
+                ),
+                custom_metadata={"kind": "working_memory_transcript"},
+            ),
+        )
+        return True
+    except Exception as exc:
+        log.warning("ADK transcript write failed open: %s", exc)
+        return False
+
+
+async def append_working_memory_event(
+    member_id: str,
+    session_id: str,
+    role: str,
+    text: str,
+) -> tuple[bool, bool]:
+    """Dual-write identical prompt/answer text to Redis and ADK working memory."""
+    redis_result, adk_result = await asyncio.gather(
+        asyncio.to_thread(services.memory.add_event, member_id, session_id, role, text),
+        append_adk_transcript_event(member_id, session_id, role, text),
+    )
+    return bool(redis_result), bool(adk_result)
+
+
 def is_llm_response_event(event: Any) -> bool:
     """Return whether an ADK event represents one completed logical LLM call."""
     content = getattr(event, "content", None)
@@ -239,6 +303,7 @@ def trace_event(
     duration_ms: float | None = None,
     summary: str = "",
     details: list[str] | None = None,
+    cache: dict[str, Any] | None = None,
     move_to_end: bool = False,
 ) -> dict[str, Any]:
     if status == "done" and duration_ms is not None:
@@ -276,6 +341,8 @@ def trace_event(
                 except ValueError:
                     continue
                 latency_registry.record("embedding_cache", embedding_ms)
+        if cache and cache.get("read_duration_ms") is not None:
+            latency_registry.record("tool_call_cache", float(cache["read_duration_ms"]))
     event = {
         "type": "trace",
         "step": {
@@ -285,6 +352,7 @@ def trace_event(
             "duration_ms": duration_ms,
             "summary": summary,
             "details": details or [],
+            "cache": cache,
         },
     }
     if move_to_end:
@@ -327,8 +395,6 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
     if name == "search_catalog" and isinstance(payload, dict):
         products = payload.get("products", [])
         summary = f"{len(products)} products found"
-        if payload.get("identical_search_reused"):
-            summary += " · identical search reused"
         details = [
             str(product.get("name", product.get("sku", "product"))) for product in products[:5]
         ]
@@ -387,34 +453,6 @@ def _tool_duration(name: str, response: dict[str, Any], elapsed_ms: float) -> fl
     return elapsed_ms
 
 
-def _context_result_session_event(
-    name: str,
-    arguments: dict[str, Any],
-    response: dict[str, Any],
-) -> tuple[str, dict[str, Any]] | None:
-    """Turn governed order reads into invisible Redis session working context."""
-    if name != "query_context_retriever":
-        return None
-    tool_name = str(arguments.get("tool_name", "")).strip()
-    normalized = tool_name.lower()
-    if "order" not in normalized or not normalized.startswith(
-        ("get_", "list_", "search_", "find_", "filter_")
-    ):
-        return None
-    payload = response.get("result", response)
-    if not isinstance(payload, dict) or payload.get("ok") is False:
-        return None
-    compact = json.dumps(payload, default=str, sort_keys=True, separators=(",", ":"))
-    return (
-        f"Context Retriever order-history snapshot from {tool_name}: {compact[:4_000]}",
-        {
-            "kind": "context_retriever_order_history",
-            "tool_name": tool_name,
-            "visibility": "agent_context_only",
-        },
-    )
-
-
 async def member_profile_for_session(
     member_id: str,
     session_id: str,
@@ -467,7 +505,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     async def fetch_adk_short_term() -> list[dict[str, Any]]:
         try:
             session = await session_service.get_session(
-                app_name=APP_NAME,
+                app_name=TRANSCRIPT_APP_NAME,
                 user_id=member_id,
                 session_id=session_id,
             )
@@ -657,7 +695,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 step_id,
                 "ADK VertexAISession read",
                 duration_ms=duration,
-                summary=f"{len(result)} prior events",
+                summary=f"{len(result)} recent transcript events",
                 details=snippets,
             )
         return trace_event(
@@ -747,15 +785,11 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         {"context": json.dumps({"member_id": member_id}, sort_keys=True)},
     )
 
-    await asyncio.to_thread(
-        services.memory.add_event, member_id, session_id, "USER", request.message
-    )
+    await append_working_memory_event(member_id, session_id, "USER", request.message)
 
     if cached and cached.get("response"):
         answer = str(cached["response"])
-        await asyncio.to_thread(
-            services.memory.add_event, member_id, session_id, "ASSISTANT", answer
-        )
+        await append_working_memory_event(member_id, session_id, "ASSISTANT", answer)
         yield trace_event(
             "generation",
             llm_count_label(gemini_runner_label(request.model), 0),
@@ -841,9 +875,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     name = str(call.name or "tool")
                     arguments = dict(call.args or {})
                     call_id = str(call.id or name)
-                    trace_visible = not (
-                        name == "list_context_retriever_tools" and services.context.tools_cached
-                    )
+                    trace_visible = True
                     tool_starts[call_id] = (
                         time.perf_counter(),
                         name,
@@ -864,24 +896,14 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                         (time.perf_counter(), str(response.name or "tool"), {}, True),
                     )
                     response_data = dict(response.response or {})
+                    cache_info = response_data.pop(TOOL_CALL_CACHE_METADATA_KEY, None)
                     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-                    duration = _tool_duration(name, response_data, elapsed_ms)
-                    summary, details = _tool_summary(name, response_data)
-                    session_event = _context_result_session_event(
-                        name,
-                        arguments,
-                        response_data,
+                    duration = (
+                        float(cache_info.get("read_duration_ms", elapsed_ms))
+                        if cache_info and cache_info.get("status") == "hit"
+                        else _tool_duration(name, response_data, elapsed_ms)
                     )
-                    if session_event is not None:
-                        event_text_value, event_metadata = session_event
-                        await asyncio.to_thread(
-                            services.memory.add_event,
-                            member_id,
-                            session_id,
-                            "SYSTEM",
-                            event_text_value,
-                            event_metadata,
-                        )
+                    summary, details = _tool_summary(name, response_data)
                     if trace_visible:
                         yield trace_event(
                             f"tool-{call_id}",
@@ -889,6 +911,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                             duration_ms=duration,
                             summary=summary,
                             details=details,
+                            cache=cache_info,
                         )
                 if event.is_final_response():
                     final_answer = event_text(event)
@@ -923,9 +946,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         duration_ms=runner_duration,
     )
 
-    await asyncio.to_thread(
-        services.memory.add_event, member_id, session_id, "ASSISTANT", final_answer
-    )
+    await append_working_memory_event(member_id, session_id, "ASSISTANT", final_answer)
     if cache_write:
         await services.langcache.store(request.message, final_answer, cache_scope)
 
@@ -1004,9 +1025,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     name = str(call.name or "tool")
                     arguments = dict(call.args or {})
                     call_id = str(call.id or name)
-                    trace_visible = not (
-                        name == "list_context_retriever_tools" and services.context.tools_cached
-                    )
+                    trace_visible = True
                     tool_starts[call_id] = (
                         time.perf_counter(),
                         name,
@@ -1026,7 +1045,9 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                         call_id,
                         (time.perf_counter(), str(response.name or "tool"), {}, True),
                     )
-                    summary, details = _tool_summary(name, dict(response.response or {}))
+                    response_data = dict(response.response or {})
+                    cache_info = response_data.pop(TOOL_CALL_CACHE_METADATA_KEY, None)
+                    summary, details = _tool_summary(name, response_data)
                     source = {
                         "recall_redis_shopping_memory": "Redis Agent Memory",
                         "list_context_retriever_tools": "Context Retriever catalog",
@@ -1037,12 +1058,21 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     if source:
                         context_details.append(f"{source}: {summary}")
                     if trace_visible:
+                        tool_duration = round(
+                            (time.perf_counter() - call_started) * 1000,
+                            2,
+                        )
+                        if cache_info and cache_info.get("status") == "hit":
+                            tool_duration = float(
+                                cache_info.get("read_duration_ms", tool_duration)
+                            )
                         yield trace_event(
                             f"greeting-tool-{call_id}",
                             _tool_label(name, arguments),
-                            duration_ms=round((time.perf_counter() - call_started) * 1000, 2),
+                            duration_ms=tool_duration,
                             summary=summary,
                             details=details,
+                            cache=cache_info,
                         )
                 if event.is_final_response():
                     final_greeting = event_text(event)

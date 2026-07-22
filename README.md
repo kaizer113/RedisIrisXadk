@@ -26,8 +26,10 @@ session and long-term memory paths, deployment topology, and a rendered system d
 | Live commerce context | Redis Context Retriever | Governed access to inventory/order entities |
 | Cache routing | RedisVL Semantic Router | Safe semantic classification of reusable policy, product-education, and shopping-guide prompts |
 | Response cache | Redis LangCache | Scoped cache-aside for policies, static product education, and reusable shopping guides |
-| Memory A | Redis Agent Memory | Session events and scoped semantic/episodic preferences |
-| Memory B | Vertex AI ADK Memory Bank | ADK-managed conversation memory |
+| Tool call cache | Redis database | Session-scoped exact read-tool results with a 12-hour TTL; inventory and mutations bypass it |
+| Working memory A | Redis Agent Memory | Canonical user prompts and final assistant answers |
+| Working memory B | Vertex AI Agent Platform Sessions | The identical canonical prompt/answer transcript in a dedicated ADK session |
+| Long-term memory | Redis Agent Memory + Vertex AI ADK Memory Bank | Scoped semantic/episodic preferences and comparison telemetry |
 | Hosting | Compute Engine / Cloud Run | Web app and API deployment options |
 
 When an Agent Engine ID is configured, ADK events are stored in Agent Platform Sessions. The chat
@@ -42,8 +44,9 @@ demo-member and Gemini-model selectors.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed
-long-term memory providers. New conversation turns continue to feed Redis session memory and
-ADK Memory Bank generation independently.
+long-term memory providers. New conversation turns dual-write the same prompt/answer transcript
+to Redis Agent Memory and a dedicated ADK session while the Runner's native event stream continues
+to feed ADK Memory Bank generation independently.
 
 ## Local start
 

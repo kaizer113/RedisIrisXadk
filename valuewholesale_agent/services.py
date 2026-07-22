@@ -39,6 +39,7 @@ EMBEDDING_CACHE_NAME = "valuewholesale-embeddings-v1"
 EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
 AGENT_MEMORY_MAX_CONNECTIONS = 40
 AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
+TOOL_CALL_CACHE_METADATA_KEY = "_tool_call_cache"
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value
@@ -261,6 +262,100 @@ class LocalEmbeddingService:
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
             "cache": EMBEDDING_CACHE_NAME if self.embedding_cache else None,
         }
+
+
+class ToolCallCache:
+    """Session-scoped exact-match cache for successful read-only tool results."""
+
+    KEY_PREFIX = "valuewholesale:tool-cache:v1"
+
+    def __init__(self, settings: Settings, client: redis.Redis | None) -> None:
+        self.settings = settings
+        self.redis = client
+
+    @staticmethod
+    def _canonical_arguments(arguments: dict[str, Any]) -> str:
+        return json.dumps(arguments, sort_keys=True, separators=(",", ":"), default=str)
+
+    def key(
+        self,
+        owner_id: str,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> str:
+        material = f"{tool_name.strip().lower()}\n{self._canonical_arguments(arguments)}"
+        digest = hashlib.sha256(material.encode()).hexdigest()
+        owner = safe_id(owner_id, "anonymous")
+        session = safe_id(session_id, "shopping-session")
+        return f"{self.KEY_PREFIX}:{owner}:{session}:{digest}"
+
+    def get(
+        self,
+        owner_id: str,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+    ) -> tuple[dict[str, Any] | None, float]:
+        """Return a cached result and client-observed Redis read latency."""
+        started = time.perf_counter()
+        if self.redis is None:
+            return None, round((time.perf_counter() - started) * 1000, 2)
+        try:
+            raw = self.redis.get(self.key(owner_id, session_id, tool_name, arguments))
+            duration_ms = round((time.perf_counter() - started) * 1000, 2)
+            if raw is None:
+                return None, duration_ms
+            if isinstance(raw, bytes):
+                raw = raw.decode()
+            result = json.loads(raw)
+            return (result if isinstance(result, dict) else None), duration_ms
+        except Exception as exc:
+            log.warning("Tool call cache read failed open: %s", exc)
+            return None, round((time.perf_counter() - started) * 1000, 2)
+
+    def set(
+        self,
+        owner_id: str,
+        session_id: str,
+        tool_name: str,
+        arguments: dict[str, Any],
+        result: dict[str, Any],
+    ) -> bool:
+        if self.redis is None:
+            return False
+        cache_value = {
+            key: value for key, value in result.items() if key != TOOL_CALL_CACHE_METADATA_KEY
+        }
+        try:
+            return bool(
+                self.redis.set(
+                    self.key(owner_id, session_id, tool_name, arguments),
+                    json.dumps(cache_value, default=str, separators=(",", ":")),
+                    ex=self.settings.valuewholesale_tool_cache_ttl_seconds,
+                )
+            )
+        except Exception as exc:
+            log.warning("Tool call cache write failed open: %s", exc)
+            return False
+
+    def clear_session(self, owner_id: str, session_id: str) -> int:
+        """Invalidate cached reads after a successful session mutation."""
+        if self.redis is None:
+            return 0
+        owner = safe_id(owner_id, "anonymous")
+        session = safe_id(session_id, "shopping-session")
+        try:
+            keys = list(
+                self.redis.scan_iter(
+                    match=f"{self.KEY_PREFIX}:{owner}:{session}:*",
+                    count=100,
+                )
+            )
+            return int(self.redis.delete(*keys)) if keys else 0
+        except Exception as exc:
+            log.warning("Tool call cache invalidation failed open: %s", exc)
+            return 0
 
 
 class CatalogService:
@@ -1475,6 +1570,7 @@ class Services:
         self.settings = settings or get_settings()
         self.embeddings = LocalEmbeddingService(self.settings)
         self.catalog = CatalogService(self.settings, self.embeddings)
+        self.tool_cache = ToolCallCache(self.settings, self.catalog.redis)
         self.cart = CartService(self.settings)
         self.semantic_router = SemanticRouterService(
             self.settings,

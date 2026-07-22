@@ -1,12 +1,124 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
+import threading
+from typing import Any
+
 from google.adk.agents import Agent
 from google.adk.agents.callback_context import CallbackContext
+from google.adk.agents.context import Context
+from google.adk.tools import BaseTool
 
 from valuewholesale_agent.config import get_settings
+from valuewholesale_agent.services import TOOL_CALL_CACHE_METADATA_KEY, services
 from valuewholesale_agent.tools import ALL_TOOLS, GREETING_TOOLS
 
 settings = get_settings()
+
+_TOOL_CACHE_MUTATIONS = {"add_item_to_cart", "remember_shopping_preference"}
+_TOOL_CACHE_WRITE_PREFIXES = ("add_", "create_", "delete_", "remove_", "set_", "update_")
+_pending_tool_cache_reads: dict[tuple[str, str], dict[str, Any]] = {}
+_pending_tool_cache_lock = threading.Lock()
+
+
+def _tool_call_identity(tool: BaseTool, args: dict[str, Any], context: Context) -> tuple[str, str]:
+    call_id = context.function_call_id
+    if not call_id:
+        material = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
+        call_id = f"{tool.name}:{hashlib.sha256(material.encode()).hexdigest()}"
+    return context.invocation_id, call_id
+
+
+def _tool_cache_bypass_reason(tool_name: str, args: dict[str, Any]) -> str:
+    normalized = tool_name.strip().lower()
+    governed_name = (
+        str(args.get("tool_name", "")).strip().lower()
+        if normalized == "query_context_retriever"
+        else normalized
+    )
+    if "inventory" in governed_name:
+        return "inventory is always live"
+    if normalized in _TOOL_CACHE_MUTATIONS or governed_name.startswith(
+        _TOOL_CACHE_WRITE_PREFIXES
+    ):
+        return "mutation"
+    return ""
+
+
+async def read_tool_call_cache(
+    tool: BaseTool,
+    args: dict[str, Any],
+    tool_context: Context,
+) -> dict[str, Any] | None:
+    """Return a cached read result before ADK invokes the underlying tool."""
+    identity = _tool_call_identity(tool, args, tool_context)
+    bypass_reason = _tool_cache_bypass_reason(tool.name, args)
+    if bypass_reason:
+        with _pending_tool_cache_lock:
+            _pending_tool_cache_reads[identity] = {
+                "status": "bypass",
+                "reason": bypass_reason,
+            }
+        return None
+
+    cached, duration_ms = await asyncio.to_thread(
+        services.tool_cache.get,
+        tool_context.user_id,
+        tool_context.session.id,
+        tool.name,
+        args,
+    )
+    cache_info = {
+        "status": "hit" if cached is not None else "miss",
+        "read_duration_ms": duration_ms,
+        "ttl_seconds": settings.valuewholesale_tool_cache_ttl_seconds,
+    }
+    if cached is not None:
+        return {**cached, TOOL_CALL_CACHE_METADATA_KEY: cache_info}
+    with _pending_tool_cache_lock:
+        _pending_tool_cache_reads[identity] = cache_info
+    return None
+
+
+async def store_tool_call_cache(
+    tool: BaseTool,
+    args: dict[str, Any],
+    tool_context: Context,
+    tool_response: dict[str, Any],
+) -> dict[str, Any]:
+    """Cache successful read results and attach lookup telemetry to the response."""
+    if TOOL_CALL_CACHE_METADATA_KEY in tool_response:
+        return tool_response
+    identity = _tool_call_identity(tool, args, tool_context)
+    with _pending_tool_cache_lock:
+        cache_info = _pending_tool_cache_reads.pop(identity, None)
+    if cache_info is None:
+        return tool_response
+
+    response = dict(tool_response)
+    if cache_info["status"] == "miss" and response.get("ok") is not False:
+        cache_info["stored"] = await asyncio.to_thread(
+            services.tool_cache.set,
+            tool_context.user_id,
+            tool_context.session.id,
+            tool.name,
+            args,
+            response,
+        )
+    elif (
+        cache_info["status"] == "bypass"
+        and cache_info.get("reason") == "mutation"
+        and response.get("ok") is not False
+    ):
+        await asyncio.to_thread(
+            services.tool_cache.clear_session,
+            tool_context.user_id,
+            tool_context.session.id,
+        )
+    response[TOOL_CALL_CACHE_METADATA_KEY] = cache_info
+    return response
 
 
 async def promote_adk_session_to_memory(callback_context: CallbackContext) -> None:
@@ -52,9 +164,10 @@ Operating rules:
   such as "remember that I prefer..." or "save this preference".
 - For live member, warehouse inventory, and order data, always use Context Retriever: list its
   governed MCP tools first, then call only exact returned tool names and schemas.
-- Context Retriever results other than inventory are cached for the current browser session. If
-  you repeat an identical call, the tool wrapper returns the session-cached result without another
-  governed service request. Inventory is deliberately excluded because its values are live.
+- Successful read-only tool results other than inventory are cached for this browser session for
+  up to 12 hours. Always call the appropriate tool normally; the deterministic Redis tool cache
+  returns an identical cached result when one is valid. Inventory is never cached because it is
+  live. Mutation tools are never cached and invalidate the session's cached reads.
 - REQUIRED WORKFLOW for broad member-context questions such as "what do you know about me?",
   "give me an account overview", or "what activity do I have?": answer from the supplied profile
   for identity and membership fields, AND list the governed Context Retriever tools and call the
@@ -64,10 +177,9 @@ Operating rules:
   asks what an order contained. A narrow request for one profile field, such as reward balance or
   membership tier, does not require an order lookup.
 - REQUIRED WORKFLOW for personalized purchase planning or recommendations, including requests that
-  say "using my preferences": first inspect Redis short-term session events for text beginning
-  `Context Retriever order-history snapshot`. If that exact snapshot is present, reuse it and do
-  not call Context Retriever again. If it is absent, you MUST list the governed Context Retriever
-  tools and call the appropriate recent-order lookup before calling search_catalog. Redis long-term
+  say "using my preferences": you MUST list the governed Context Retriever tools and call the
+  appropriate recent-order lookup before calling search_catalog. The deterministic tool cache may
+  satisfy an identical prior lookup without another governed service request. Redis long-term
   preferences are not a substitute for order history. If the returned orders do not identify the
   purchased products or SKUs, call the governed order-item tool for only the single most recent
   completed order; do not fetch item details for multiple orders.
@@ -117,6 +229,8 @@ def build_agent(model: str) -> Agent:
         instruction=INSTRUCTION,
         include_contents="none",
         tools=ALL_TOOLS,
+        before_tool_callback=read_tool_call_cache,
+        after_tool_callback=store_tool_call_cache,
         after_agent_callback=promote_adk_session_to_memory,
     )
 
@@ -147,6 +261,8 @@ def build_greeting_agent(model: str) -> Agent:
         instruction=GREETING_INSTRUCTION,
         include_contents="none",
         tools=GREETING_TOOLS,
+        before_tool_callback=read_tool_call_cache,
+        after_tool_callback=store_tool_call_cache,
     )
 
 
