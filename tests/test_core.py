@@ -1645,7 +1645,12 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="latency-stats-toggle"' in html
     assert 'id="context-retriever-toggle"' in html
     assert "title=\"Show p95 latency\"" in html
-    assert "`p95 · ST ${shortP95} · LT ${longP95} ms`" in html
+    assert "renderAggregatePair(target,'ST',shortP95,'LT',longP95)" in html
+    assert "renderAggregatePair(target,'Vector'" in html
+    assert (
+        ".service-aggregate-pair { grid-template-columns:max-content max-content minmax(0,1fr);"
+        in html
+    )
     assert "'No samples yet'" in html
     assert "No warm samples yet" not in html
     assert "toggle.onchange=()=>{contextRetrieverEnabled=toggle.checked" in html
