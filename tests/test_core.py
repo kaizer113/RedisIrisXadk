@@ -1468,6 +1468,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
         ),
         ("Upcoming order", "What is in my upcoming order?"),
         ("Household products", "What household products have I bought?"),
+        ("Tide Pods", "When did i last bought 'Tide Laundry Pods'?"),
         ("Ask a policy", "What is the electronics return policy?"),
         ("Return", "How long can I return electronics for ?"),
         (
@@ -1479,12 +1480,12 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
             "How should I store a large bag of rolled oats after opening?",
         ),
     ]
-    assert html.count('class="chip" data-prompt=') == 8
+    assert html.count('class="chip" data-prompt=') == 9
     for label, prompt in shortcuts:
         assert f'data-prompt="{prompt}">{label}</button>' in html
     shortcut_positions = [html.index(f'>{label}</button>') for label, _ in shortcuts]
     assert shortcut_positions == sorted(shortcut_positions)
-    assert ".chips { display:grid; grid-template-columns:repeat(4,max-content); gap:6px; }" in html
+    assert ".chips { display:grid; grid-template-columns:repeat(5,max-content); gap:6px; }" in html
     assert ".chip { padding:6px 10px;" in html
     assert "input.value=b.dataset.prompt;chatForm.requestSubmit();" in html
     assert "option.textContent=member.name" in html
