@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import json
 import logging
 import re
@@ -41,6 +42,7 @@ AGENT_MEMORY_MAX_CONNECTIONS = 40
 AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
 TOOL_CALL_CACHE_METADATA_KEY = "_tool_call_cache"
 VERTEX_MEMORY_APP_NAME = "valuewholesale-shopping-agent"
+MEMORY_INVENTORY_LIMIT = 20
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value
@@ -1330,6 +1332,36 @@ class MemoryService:
             log.warning("Agent Memory direct write failed open: %s", exc)
             return False
 
+    def list_long_term(
+        self,
+        member_id: str,
+        limit: int = MEMORY_INVENTORY_LIMIT,
+    ) -> dict[str, Any]:
+        """List a bounded member inventory without performing semantic retrieval."""
+        if self.client is None or self.models is None:
+            raise RuntimeError("Redis Agent Memory is not configured")
+
+        display_limit = max(1, min(limit, MEMORY_INVENTORY_LIMIT))
+        response = self.client.search_long_term_memory(
+            request={
+                "filter_op": self.models.FilterConjunction.ALL,
+                "filter_": {
+                    "owner_id": {"eq": safe_id(member_id, "anonymous")},
+                    "namespace": {"eq": self.settings.agent_memory_namespace},
+                },
+                "limit": display_limit + 1,
+            }
+        )
+        records = [
+            item.model_dump(mode="json") if hasattr(item, "model_dump") else dict(item)
+            for item in response.items
+        ]
+        return {
+            "count": min(len(records), display_limit),
+            "truncated": len(records) > display_limit,
+            "memories": records[:display_limit],
+        }
+
     def reset_long_term(
         self,
         member_id: str,
@@ -1560,6 +1592,53 @@ class VertexMemoryService:
         except Exception as exc:
             log.warning("Vertex Memory Bank search failed open: %s", exc)
             return []
+
+    def list_long_term(
+        self,
+        member_id: str,
+        limit: int = MEMORY_INVENTORY_LIMIT,
+    ) -> dict[str, Any]:
+        """List a bounded member inventory through the underlying Vertex client."""
+        if self.client is None:
+            raise RuntimeError("Vertex ADK Memory Bank is not configured")
+
+        import vertexai
+
+        display_limit = max(1, min(limit, MEMORY_INVENTORY_LIMIT))
+        scope = {
+            "app_name": VERTEX_MEMORY_APP_NAME,
+            "user_id": safe_id(member_id, "anonymous"),
+        }
+        resource_name = (
+            f"projects/{self.settings.google_cloud_project}"
+            f"/locations/{self.settings.google_memory_location}"
+            f"/reasoningEngines/{self.settings.google_agent_engine_id}"
+        )
+        client = vertexai.Client(
+            project=self.settings.google_cloud_project,
+            location=self.settings.google_memory_location,
+            http_options={"timeout": 60_000},
+        )
+        scope_json = json.dumps(scope, separators=(",", ":"))
+        scope_filter = f"scope = {json.dumps(scope_json)}"
+        records = list(
+            itertools.islice(
+                client.agent_engines.memories.list(
+                    name=resource_name,
+                    config={
+                        "page_size": display_limit + 1,
+                        "filter": scope_filter,
+                        "order_by": "update_time desc",
+                    },
+                ),
+                display_limit + 1,
+            )
+        )
+        return {
+            "count": min(len(records), display_limit),
+            "truncated": len(records) > display_limit,
+            "memories": [self._serialize(item) for item in records[:display_limit]],
+        }
 
     def reset_long_term(
         self,

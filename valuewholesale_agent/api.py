@@ -1458,6 +1458,49 @@ async def reset_member_memory(request: MemoryResetRequest) -> dict[str, Any]:
     }
 
 
+@app.get("/api/member-memory")
+async def member_memory(member_id: str) -> dict[str, Any]:
+    """Return bounded presenter-only inventories without joining the prompt path."""
+    if member_id not in MEMBERS:
+        raise HTTPException(status_code=404, detail="Demo member not found")
+
+    async def inventory(provider: str, operation: Any) -> tuple[str, dict[str, Any]]:
+        if operation is None:
+            return provider, {
+                "available": False,
+                "count": 0,
+                "truncated": False,
+                "memories": [],
+            }
+        try:
+            result = await asyncio.to_thread(operation, member_id)
+            return provider, {"available": True, **result}
+        except Exception as exc:
+            log.warning("%s memory inventory failed for %s: %s", provider, member_id, exc)
+            return provider, {
+                "available": False,
+                "count": 0,
+                "truncated": False,
+                "memories": [],
+            }
+
+    redis_operation = (
+        services.memory.list_long_term if services.memory.client is not None else None
+    )
+    vertex_operation = (
+        services.vertex_memory.list_long_term
+        if services.vertex_memory.client is not None
+        else None
+    )
+    providers = dict(
+        await asyncio.gather(
+            inventory("redis_agent_memory", redis_operation),
+            inventory("vertex_adk_memory_bank", vertex_operation),
+        )
+    )
+    return {"ok": True, "member_id": member_id, "providers": providers}
+
+
 @app.get("/api/context/tools")
 async def context_tools() -> dict[str, Any]:
     started = time.perf_counter()

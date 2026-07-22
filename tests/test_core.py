@@ -709,6 +709,42 @@ def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     assert request["filter_"]["memory_type"] == {"in_": ["semantic", "episodic"]}
 
 
+def test_agent_memory_inventory_is_scoped_and_bounded() -> None:
+    captured = {}
+
+    class FakeMemoryClient:
+        def search_long_term_memory(self, *, request):
+            captured.update(request)
+            return SimpleNamespace(
+                items=[
+                    SimpleNamespace(
+                        id=f"memory-{index}",
+                        text=f"Fact {index}",
+                        model_dump=lambda mode, index=index: {
+                            "id": f"memory-{index}",
+                            "text": f"Fact {index}",
+                        },
+                    )
+                    for index in range(21)
+                ]
+            )
+
+    memory = MemoryService(Settings(_env_file=None))
+    memory.client = FakeMemoryClient()
+    memory.models = models
+
+    result = memory.list_long_term("member-1001")
+
+    assert result["count"] == 20
+    assert result["truncated"] is True
+    assert len(result["memories"]) == 20
+    assert captured["limit"] == 21
+    assert captured["filter_"] == {
+        "owner_id": {"eq": "member-1001"},
+        "namespace": {"eq": "valuewholesale-shopping"},
+    }
+
+
 async def test_agent_memory_reuses_extended_http_pools_and_closes_them(monkeypatch) -> None:
     captured = {}
 
@@ -929,6 +965,57 @@ def test_vertex_memory_reset_preserves_seed_facts_and_deletes_only_new(monkeypat
     assert created[0]["scope"] == scope
     assert created[0]["config"]["metadata"]["valuewholesale_origin"] == {
         "string_value": "demo-seed"
+    }
+
+
+def test_vertex_memory_inventory_uses_server_side_scope_filter(monkeypatch) -> None:
+    captured = {}
+
+    class FakeMemories:
+        def list(self, *, name, config):
+            captured["name"] = name
+            captured["config"] = config
+            return iter(
+                [
+                    SimpleNamespace(
+                        name=f"memory/{index}",
+                        fact=f"Fact {index}",
+                        scope={
+                            "app_name": "valuewholesale-shopping-agent",
+                            "user_id": "member-1001",
+                        },
+                    )
+                    for index in range(21)
+                ]
+            )
+
+    fake_client = SimpleNamespace(
+        agent_engines=SimpleNamespace(memories=FakeMemories())
+    )
+    monkeypatch.setattr("vertexai.Client", lambda **_kwargs: fake_client)
+    memory = VertexMemoryService(
+        Settings(
+            _env_file=None,
+            google_cloud_project="project-id",
+            google_memory_location="us-east4",
+            google_agent_engine_id="engine-id",
+        )
+    )
+    memory.client = object()
+
+    result = memory.list_long_term("member-1001")
+
+    assert result["count"] == 20
+    assert result["truncated"] is True
+    assert len(result["memories"]) == 20
+    assert captured["name"].endswith("/reasoningEngines/engine-id")
+    assert captured["config"] == {
+        "page_size": 21,
+        "filter": (
+            'scope = "{\\"app_name\\":\\"valuewholesale-shopping-agent\\",'
+            '\\"user_id\\":\\"member-1001\\"}"'
+        ),
+        "order_by": "update_time desc",
     }
 
 
@@ -1982,6 +2069,13 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert "fetch('/api/reset-member-memory'" in html
+    assert 'id="redis-memory-trigger"' in html
+    assert 'id="adk-memory-trigger"' in html
+    assert 'id="memory-modal"' in html
+    assert "fetch(`/api/member-memory?member_id=${encodeURIComponent(requestedMember)}`)" in html
+    assert "scheduleMemoryInventory(1500)" in html
+    assert "if(!chatInFlight)void loadMemoryInventory()" in html
+    assert ".memory-columns { display:grid; grid-template-columns:1fr 1fr;" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert 'id="service-panel"' in html
     assert 'id="service-panel-toggle"' in html
@@ -2076,7 +2170,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "sendButton.disabled=active" in html
     assert "promptButtons.forEach(button=>button.disabled=active)" in html
     assert ".chip:disabled { cursor:not-allowed; opacity:.65; }" in html
-    assert "cancelActiveChat();memberId=memberSelect.value" in html
+    assert "cancelActiveChat();cancelMemoryInventory();memberId=memberSelect.value" in html
     assert (
         "await warmupOnLoad();setInterval(keepServicesWarm,KEEPALIVE_INTERVAL_MS);"
         "await selectMember()"
@@ -2142,6 +2236,52 @@ def test_member_memory_reset_restores_selected_demo_member(monkeypatch) -> None:
             json={"member_id": "member-1005"},
         )
     assert forbidden.status_code == 403
+
+
+def test_member_memory_inventory_reads_providers_concurrently_and_tolerates_failure(
+    monkeypatch,
+) -> None:
+    def list_redis(member_id):
+        assert member_id == "member-1001"
+        return {
+            "count": 2,
+            "truncated": False,
+            "memories": [{"text": "Redis fact 1"}, {"text": "Redis fact 2"}],
+        }
+
+    def list_vertex(member_id):
+        assert member_id == "member-1001"
+        raise RuntimeError("temporary failure")
+
+    monkeypatch.setattr(services.memory, "client", object())
+    monkeypatch.setattr(services.memory, "list_long_term", list_redis)
+    monkeypatch.setattr(services.vertex_memory, "client", object())
+    monkeypatch.setattr(services.vertex_memory, "list_long_term", list_vertex)
+
+    with TestClient(app) as client:
+        response = client.get("/api/member-memory?member_id=member-1001")
+        missing = client.get("/api/member-memory?member_id=missing")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "member_id": "member-1001",
+        "providers": {
+            "redis_agent_memory": {
+                "available": True,
+                "count": 2,
+                "truncated": False,
+                "memories": [{"text": "Redis fact 1"}, {"text": "Redis fact 2"}],
+            },
+            "vertex_adk_memory_bank": {
+                "available": False,
+                "count": 0,
+                "truncated": False,
+                "memories": [],
+            },
+        },
+    }
+    assert missing.status_code == 404
 
 
 async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch) -> None:
