@@ -6,6 +6,7 @@ import sys
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from google.adk.events import Event
 from google.genai import types
 from redis_agent_memory import models
 from redisvl.query import TextQuery, VectorQuery
@@ -21,6 +22,7 @@ from valuewholesale_agent.agent import (
     store_tool_call_cache,
 )
 from valuewholesale_agent.api import (
+    SHORT_TERM_MEMORY_LIMIT,
     TRANSCRIPT_APP_NAME,
     LatencyRegistry,
     _chat_events,
@@ -33,6 +35,7 @@ from valuewholesale_agent.api import (
     event_text,
     member_profile_cache,
     member_profile_for_session,
+    recent_adk_transcript_events,
     trace_event,
     warmup_redis_services,
 )
@@ -1368,6 +1371,31 @@ async def test_working_memory_dual_writes_identical_prompt_and_answer(monkeypatc
         "Where is my order?",
         "It is ready for pickup.",
     ]
+
+
+def test_adk_transcript_returns_ten_latest_non_empty_events() -> None:
+    events = [
+        Event(
+            invocation_id=f"transcript-{index}",
+            author="member-1001" if index % 2 == 0 else "valuewholesale-agent",
+            content=types.Content(role="user", parts=[types.Part(text=f"event {index}")]),
+        )
+        for index in range(12)
+    ]
+    events.insert(
+        10,
+        Event(
+            invocation_id="empty-event",
+            author="valuewholesale-agent",
+            content=types.Content(role="model", parts=[]),
+        ),
+    )
+
+    result = recent_adk_transcript_events(SimpleNamespace(events=events))
+
+    assert SHORT_TERM_MEMORY_LIMIT == 10
+    assert len(result) == 10
+    assert [item["text"] for item in result] == [f"event {index}" for index in range(2, 12)]
 
 
 async def test_disabled_member_profile_ignores_cached_context(monkeypatch) -> None:

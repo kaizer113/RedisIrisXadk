@@ -1233,7 +1233,7 @@ class MemoryService:
         await self.client.health_async(timeout_ms=5_000)
         return True
 
-    def short_term(self, session_id: str, limit: int = 5) -> list[dict[str, Any]]:
+    def short_term(self, session_id: str, limit: int = 10) -> list[dict[str, Any]]:
         """Return the most recent Redis Agent Memory session events."""
         if self.client is None:
             return []

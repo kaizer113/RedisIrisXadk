@@ -40,6 +40,7 @@ logging.basicConfig(level=settings.log_level)
 APP_NAME = "valuewholesale-shopping-agent"
 GREETING_APP_NAME = "valuewholesale-greeting-agent"
 TRANSCRIPT_APP_NAME = "valuewholesale-working-memory"
+SHORT_TERM_MEMORY_LIMIT = 10
 STATIC_DIR = Path(__file__).with_name("static")
 
 
@@ -210,6 +211,23 @@ def event_text(event: Any) -> str:
     return "\n".join(
         part.text for part in (content.parts or []) if getattr(part, "text", None)
     ).strip()
+
+
+def recent_adk_transcript_events(
+    session: Any, limit: int = SHORT_TERM_MEMORY_LIMIT
+) -> list[dict[str, str]]:
+    """Return the latest displayable prompt/answer events from the ADK transcript."""
+    events = []
+    for event in getattr(session, "events", None) or []:
+        text = event_text(event)
+        if text:
+            events.append(
+                {
+                    "text": text,
+                    "author": str(getattr(event, "author", "")),
+                }
+            )
+    return events[-max(1, limit) :]
 
 
 async def append_adk_transcript_event(
@@ -514,13 +532,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             return []
         if session is None:
             return []
-        return [
-            {
-                "text": event_text(event),
-                "author": str(getattr(event, "author", "")),
-            }
-            for event in (getattr(session, "events", None) or [])[-5:]
-        ]
+        return recent_adk_transcript_events(session)
 
     async def fetch_member_profile() -> dict[str, Any]:
         if request.context_retriever_enabled:
@@ -539,9 +551,11 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
             "redis-short-term",
             services.memory.short_term,
             session_id,
-            5,
+            SHORT_TERM_MEMORY_LIMIT,
         )
-        routing_context = "\n".join(memory_snippets(prefetched_short_term[1]))
+        routing_context = "\n".join(
+            memory_snippets(prefetched_short_term[1], SHORT_TERM_MEMORY_LIMIT)
+        )
     route_args = (request.message, routing_context) if routing_context else (request.message,)
     routing = await asyncio.to_thread(services.semantic_router.route, *route_args)
     route_duration = routing.get("route_duration_ms", routing.get("redisvl_duration_ms"))
@@ -627,7 +641,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                 "redis-short-term",
                 services.memory.short_term,
                 session_id,
-                5,
+                SHORT_TERM_MEMORY_LIMIT,
             )
         ),
         asyncio.create_task(
@@ -689,7 +703,10 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     def adk_telemetry_event(
         step_id: str, result: list[dict[str, Any]], duration: float
     ) -> dict[str, Any]:
-        snippets = memory_snippets(result)
+        snippets = memory_snippets(
+            result,
+            SHORT_TERM_MEMORY_LIMIT if step_id == "adk-short-term" else 5,
+        )
         if step_id == "adk-short-term":
             return trace_event(
                 step_id,
@@ -743,12 +760,12 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     ),
                 )
             elif step_id == "redis-short-term":
-                snippets = memory_snippets(result)
+                snippets = memory_snippets(result, SHORT_TERM_MEMORY_LIMIT)
                 yield trace_event(
                     step_id,
                     "Getting Redis short-term memory",
                     duration_ms=duration,
-                    summary=f"{len(result)} recent session events",
+                    summary=f"{len(snippets)} recent session events",
                     details=snippets,
                 )
             elif step_id == "redis-long-term":
@@ -812,7 +829,9 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         "user_id": member_id,
         "member_profile_context": member_profile["context"],
         "context_retriever_enabled": request.context_retriever_enabled,
-        "redis_short_term_context": "\n".join(memory_snippets(short_memories))
+        "redis_short_term_context": "\n".join(
+            memory_snippets(short_memories, SHORT_TERM_MEMORY_LIMIT)
+        )
         or "No prior session events.",
         "redis_long_term_context": "\n".join(memory_snippets(redis_memories))
         or "No relevant Redis long-term memories.",
