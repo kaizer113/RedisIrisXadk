@@ -133,6 +133,8 @@ class LatencyRegistry:
 
 
 latency_registry = LatencyRegistry()
+working_memory_tasks: set[asyncio.Task[tuple[bool, bool]]] = set()
+working_memory_tails: dict[tuple[str, str], asyncio.Task[tuple[bool, bool]]] = {}
 
 
 @asynccontextmanager
@@ -148,6 +150,7 @@ async def lifespan(_: FastAPI):
         except Exception:
             log.exception("Worker warm-up failed; starting worker without primed services")
     yield
+    await drain_working_memory_tasks()
     for model_runner in runners.values():
         await model_runner.close()
     for model_runner in greeting_runners.values():
@@ -294,6 +297,62 @@ async def append_working_memory_event(
         append_adk_transcript_event(member_id, session_id, role, text),
     )
     return bool(redis_result), bool(adk_result)
+
+
+def queue_working_memory_event(
+    member_id: str,
+    session_id: str,
+    role: str,
+    text: str,
+) -> None:
+    """Persist one canonical event in the background, ordered within its session."""
+    key = (member_id, session_id)
+    previous = working_memory_tails.get(key)
+
+    async def persist_after_previous() -> tuple[bool, bool]:
+        if previous is not None:
+            try:
+                await previous
+            except Exception:
+                # The done callback logs the original failure; later events must still persist.
+                pass
+        return await append_working_memory_event(member_id, session_id, role, text)
+
+    task = asyncio.create_task(
+        persist_after_previous(),
+        name=f"working-memory-{member_id}-{session_id}-{role.lower()}",
+    )
+    working_memory_tasks.add(task)
+    working_memory_tails[key] = task
+
+    def complete(completed: asyncio.Task[tuple[bool, bool]]) -> None:
+        working_memory_tasks.discard(completed)
+        if working_memory_tails.get(key) is completed:
+            working_memory_tails.pop(key, None)
+        if completed.cancelled():
+            log.warning("Working-memory background write was cancelled")
+            return
+        if exc := completed.exception():
+            log.error(
+                "Working-memory background write failed",
+                exc_info=(type(exc), exc, exc.__traceback__),
+            )
+            return
+        redis_ok, adk_ok = completed.result()
+        if not redis_ok or not adk_ok:
+            log.warning(
+                "Working-memory background write incomplete (redis=%s, adk=%s)",
+                redis_ok,
+                adk_ok,
+            )
+
+    task.add_done_callback(complete)
+
+
+async def drain_working_memory_tasks() -> None:
+    """Wait for queued transcript writes before closing shared service clients."""
+    while working_memory_tasks:
+        await asyncio.gather(*tuple(working_memory_tasks), return_exceptions=True)
 
 
 def is_llm_response_event(event: Any) -> bool:
@@ -662,8 +721,8 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         if hit:
             answer = str(cached["response"])
-            await append_working_memory_event(member_id, session_id, "USER", request.message)
-            await append_working_memory_event(member_id, session_id, "ASSISTANT", answer)
+            queue_working_memory_event(member_id, session_id, "USER", request.message)
+            queue_working_memory_event(member_id, session_id, "ASSISTANT", answer)
             yield trace_event(
                 "generation",
                 llm_count_label(gemini_runner_label(request.model), 0),
@@ -823,7 +882,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         {"context": json.dumps({"member_id": member_id}, sort_keys=True)},
     )
 
-    await append_working_memory_event(member_id, session_id, "USER", request.message)
+    queue_working_memory_event(member_id, session_id, "USER", request.message)
 
     state_delta = {
         "member_id": member_id,
@@ -966,7 +1025,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         duration_ms=runner_duration,
     )
 
-    await append_working_memory_event(member_id, session_id, "ASSISTANT", final_answer)
+    queue_working_memory_event(member_id, session_id, "ASSISTANT", final_answer)
     if cache_write:
         await services.langcache.store(request.message, final_answer, cache_scope)
 

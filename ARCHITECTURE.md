@@ -43,8 +43,8 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 4. On a LangCache hit, the cached answer is returned immediately without reading the member
    profile, Redis short- or long-term memory, the ADK transcript, or ADK Memory Bank. The ADK
    Runner, Gemini, tool calls, native Runner session update, and Memory Bank promotion are also
-   skipped. Both canonical working-memory transcripts still receive the user and cached assistant
-   events.
+   skipped. The response is emitted immediately, while a per-session ordered background queue
+   writes the user and cached assistant events to both canonical working-memory transcripts.
 5. On a cache miss or bypass, the authoritative profile and Redis short- and long-term results
    are fetched concurrently and added to ADK state before the Runner starts. ADK transcript and
    Memory Bank comparison reads run in parallel for telemetry only.
@@ -59,9 +59,10 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    from vector search.
 8. ADK stores native orchestration events through the Runner session. The agent's
    post-turn callback asks ADK to generate Memory Bank memories from that session.
-9. FastAPI writes identical assistant text to Redis Agent Memory and the dedicated ADK transcript,
-   then stores an eligible reusable answer in a versioned LangCache scope. Cacheable answers
-   exclude personalized and live data.
+9. FastAPI queues identical assistant text for Redis Agent Memory and the dedicated ADK transcript,
+   then stores an eligible reusable answer in a versioned LangCache scope. The queue preserves
+   event order within each application worker and is drained during graceful shutdown. Cacheable
+   answers exclude personalized and live data.
 
 ## Model selection and session sharing
 
@@ -91,7 +92,7 @@ The application uses the following session and memory paths.
 
 | Concern | Redis path | Google ADK path |
 |---|---|---|
-| Short-term conversation | FastAPI writes only user prompts and final assistant answers, then sends retrieved recent events to Gemini on the next cache miss or bypass. | FastAPI writes the identical prompt/answer transcript under the distinct `{session_id}-transcript` backend session ID. A parallel transcript read is timed only after a cache miss or bypass, and its events are excluded from Gemini context. The Runner's raw orchestration session uses the original session ID. |
+| Short-term conversation | FastAPI queues only user prompts and final assistant answers without delaying the response, then sends retrieved recent events to Gemini on the next cache miss or bypass. Writes are eventually consistent. | The same background queue writes the identical prompt/answer transcript under the distinct `{session_id}-transcript` backend session ID. A parallel transcript read is timed only after a cache miss or bypass, and its events are excluded from Gemini context. The Runner's raw orchestration session uses the original session ID. |
 | Long-term memory | Explicit preferences are written to Redis Agent Memory; semantic recall is required and sent to Gemini before each generated turn. | The callback promotes the ADK session to Memory Bank. Search is timed in parallel, never sent to Gemini, and never blocks generation. |
 | Independence | Redis event writes continue regardless of which ADK session service is selected. | Replacing `InMemorySessionService` with `VertexAiSessionService` changes ADK persistence, not Redis writes. |
 | Console visibility | Inspect with Redis Cloud/Redis Insight and the Agent Memory service. | Managed sessions and memories appear under Agent Platform for the configured Agent Engine and region. In-memory fallbacks do not. |

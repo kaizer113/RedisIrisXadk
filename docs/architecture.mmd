@@ -50,13 +50,13 @@ flowchart TB
 
     runners --> gemini
     runners -->|persist · history excluded| sessions
-    api -->|canonical events · transcript session ID| sessions
+    api -.->|background canonical events · transcript session ID| sessions
     runners -->|post-turn promotion| bank
     tools --> context
     tools --> database
     tools --> ram
     context --> database
-    api -->|explicit user + assistant events| ram
+    api -.->|background user + assistant events| ram
 
     cache --> database
     ram --> database

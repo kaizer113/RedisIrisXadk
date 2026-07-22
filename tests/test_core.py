@@ -1105,6 +1105,9 @@ async def test_container_lifespan_warms_each_worker_when_enabled(monkeypatch) ->
         calls.append(True)
         return {"ok": True, "duration_ms": 12.5, "services": {}}
 
+    async def fake_drain():
+        closed.append("working-memory")
+
     def fake_close(name):
         async def close():
             closed.append(name)
@@ -1113,6 +1116,7 @@ async def test_container_lifespan_warms_each_worker_when_enabled(monkeypatch) ->
 
     monkeypatch.setattr(api_module.settings, "valuewholesale_warmup_on_startup", True)
     monkeypatch.setattr(api_module, "warmup_redis_services", fake_warmup)
+    monkeypatch.setattr(api_module, "drain_working_memory_tasks", fake_drain)
     monkeypatch.setattr(api_module, "runners", {})
     monkeypatch.setattr(api_module, "greeting_runners", {})
     monkeypatch.setattr(services.langcache, "close", fake_close("langcache"))
@@ -1123,7 +1127,8 @@ async def test_container_lifespan_warms_each_worker_when_enabled(monkeypatch) ->
         pass
 
     assert calls == [True]
-    assert sorted(closed) == ["context", "langcache", "memory"]
+    assert closed[0] == "working-memory"
+    assert sorted(closed[1:]) == ["context", "langcache", "memory"]
 
 
 async def test_context_tool_catalog_is_reused_until_forced_refresh(monkeypatch) -> None:
@@ -1417,6 +1422,43 @@ async def test_working_memory_dual_writes_identical_prompt_and_answer(monkeypatc
         "Where is my order?",
         "It is ready for pickup.",
     ]
+
+
+async def test_working_memory_background_queue_preserves_session_order(monkeypatch) -> None:
+    calls = []
+    user_started = asyncio.Event()
+    release_user = asyncio.Event()
+
+    async def persist(member_id, session_id, role, text):
+        calls.append(("start", member_id, session_id, role, text))
+        if role == "USER":
+            user_started.set()
+            await release_user.wait()
+        calls.append(("done", member_id, session_id, role, text))
+        return True, True
+
+    monkeypatch.setattr(api_module, "append_working_memory_event", persist)
+
+    api_module.queue_working_memory_event("member-1001", "session-1", "USER", "Question")
+    api_module.queue_working_memory_event(
+        "member-1001", "session-1", "ASSISTANT", "Answer"
+    )
+    await user_started.wait()
+    await asyncio.sleep(0)
+
+    assert calls == [("start", "member-1001", "session-1", "USER", "Question")]
+
+    release_user.set()
+    await api_module.drain_working_memory_tasks()
+
+    assert calls == [
+        ("start", "member-1001", "session-1", "USER", "Question"),
+        ("done", "member-1001", "session-1", "USER", "Question"),
+        ("start", "member-1001", "session-1", "ASSISTANT", "Answer"),
+        ("done", "member-1001", "session-1", "ASSISTANT", "Answer"),
+    ]
+    assert not api_module.working_memory_tasks
+    assert not api_module.working_memory_tails
 
 
 def test_adk_transcript_returns_ten_latest_non_empty_events() -> None:
@@ -1867,6 +1909,7 @@ def test_demo_reset_flushes_langcache(monkeypatch) -> None:
 async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch) -> None:
     captured_state = {}
     redis_recall_args = {}
+    queued_events = []
 
     class FakeEvent:
         content = types.Content(role="model", parts=[types.Part(text="Generated first")])
@@ -1915,6 +1958,11 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
     monkeypatch.setattr(services.memory, "recall", recall)
     monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
     monkeypatch.setattr(services.vertex_memory, "recall", slow_vertex_recall)
+    monkeypatch.setattr(
+        api_module,
+        "queue_working_memory_event",
+        lambda *args: queued_events.append(args),
+    )
     monkeypatch.setattr(
         services.semantic_router,
         "route",
@@ -1995,10 +2043,15 @@ async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch
     assert generation_trace["label"] == "ADK Runner + Gemini Flash (1 llm call)"
     assert generation_trace["summary"] == ""
     assert total_trace["label"] == "Total request"
+    assert queued_events == [
+        ("member-1001", "nonblocking-test", "USER", "What do I prefer?"),
+        ("member-1001", "nonblocking-test", "ASSISTANT", "Generated first"),
+    ]
 
 
 async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
     searched = {}
+    queued_events = []
 
     class UnexpectedRunner:
         async def run_async(self, **_kwargs):
@@ -2048,6 +2101,11 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
     monkeypatch.setattr(services.memory, "recall", unexpected_sync)
     monkeypatch.setattr(services.memory, "add_event", lambda *_args: True)
     monkeypatch.setattr(services.vertex_memory, "recall", unexpected_async)
+    monkeypatch.setattr(
+        api_module,
+        "queue_working_memory_event",
+        lambda *args: queued_events.append(args),
+    )
 
     events = [
         event
@@ -2082,6 +2140,15 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
     assert traces["generation"]["summary"] == "Skipped · response served by LangCache"
     assert traces["generation"]["label"] == "ADK Runner + Gemini Flash (0 llm calls)"
     assert traces["total"]["label"] == "Total request"
+    assert queued_events == [
+        (
+            "member-1001",
+            "scoped-cache-test",
+            "USER",
+            "What flavor notes does the medium roast have?",
+        ),
+        ("member-1001", "scoped-cache-test", "ASSISTANT", "Cocoa and caramel notes."),
+    ]
     assert not {
         "redis-short-term",
         "redis-long-term",
