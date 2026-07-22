@@ -42,11 +42,30 @@ GREETING_APP_NAME = "valuewholesale-greeting-agent"
 TRANSCRIPT_APP_NAME = "valuewholesale-working-memory"
 SHORT_TERM_MEMORY_LIMIT = 10
 STATIC_DIR = Path(__file__).with_name("static")
+MEMORY_SEEDS_PATH = Path(__file__).parent.parent / "data" / "generated" / "memory_seeds.jsonl"
+MEMORY_RESETTABLE_MEMBERS = frozenset(
+    {"member-1001", "member-1002", "member-1003", "member-1004"}
+)
+
+
+class DemoVertexMemoryBankService(VertexAiMemoryBankService):
+    """Tag generated demo memories and keep them separate from seeded facts."""
+
+    async def add_session_to_memory(self, session: Any) -> None:
+        await self.add_events_to_memory(
+            app_name=session.app_name,
+            user_id=session.user_id,
+            events=session.events,
+            custom_metadata={
+                "metadata": {"valuewholesale_origin": "demo-created"},
+                "disable_consolidation": True,
+            },
+        )
 
 
 def build_memory_service() -> InMemoryMemoryService | VertexAiMemoryBankService:
     if settings.vertex_memory_configured:
-        return VertexAiMemoryBankService(
+        return DemoVertexMemoryBankService(
             project=settings.google_cloud_project,
             location=settings.google_memory_location,
             agent_engine_id=settings.google_agent_engine_id,
@@ -205,6 +224,10 @@ class MemoryCompareRequest(BaseModel):
     member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
     expected_terms: list[str] = Field(default_factory=list, max_length=20)
     runs: int = Field(default=1, ge=1, le=10)
+
+
+class MemoryResetRequest(BaseModel):
+    member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
 
 
 def event_text(event: Any) -> str:
@@ -1382,6 +1405,59 @@ async def reset_demo() -> dict[str, Any]:
     return {"ok": True, "message": "LangCache flushed"}
 
 
+@app.post("/api/reset-member-memory")
+async def reset_member_memory(request: MemoryResetRequest) -> dict[str, Any]:
+    """Restore both memory providers for a small demo member to the seed set."""
+    if request.member_id not in MEMBERS:
+        raise HTTPException(status_code=404, detail="Demo member not found")
+    if request.member_id not in MEMORY_RESETTABLE_MEMBERS:
+        raise HTTPException(
+            status_code=403,
+            detail="Memory reset is limited to the four small demo members",
+        )
+    if services.memory.client is None:
+        raise HTTPException(status_code=503, detail="Redis Agent Memory is not configured")
+    if services.vertex_memory.client is None:
+        raise HTTPException(status_code=503, detail="Vertex ADK Memory Bank is not configured")
+
+    seeded_memories = [
+        json.loads(line)
+        for line in MEMORY_SEEDS_PATH.read_text().splitlines()
+        if line.strip()
+    ]
+    member_seeds = [
+        memory for memory in seeded_memories if memory.get("owner_id") == request.member_id
+    ]
+    if not member_seeds:
+        raise HTTPException(status_code=500, detail="No seeded memories found for demo member")
+
+    await drain_working_memory_tasks()
+    try:
+        redis_result, vertex_result = await asyncio.gather(
+            asyncio.to_thread(
+                services.memory.reset_long_term,
+                request.member_id,
+                member_seeds,
+            ),
+            asyncio.to_thread(
+                services.vertex_memory.reset_long_term,
+                request.member_id,
+                member_seeds,
+            ),
+        )
+    except Exception as exc:
+        log.warning("Member memory reset failed for %s: %s", request.member_id, exc)
+        raise HTTPException(status_code=502, detail="Member memory reset failed") from exc
+    return {
+        "ok": True,
+        "member_id": request.member_id,
+        "providers": {
+            "redis_agent_memory": redis_result,
+            "vertex_adk_memory_bank": vertex_result,
+        },
+    }
+
+
 @app.get("/api/context/tools")
 async def context_tools() -> dict[str, Any]:
     started = time.perf_counter()
@@ -1431,6 +1507,7 @@ async def members() -> dict[str, Any]:
                 "name": member["name"],
                 "tier": member["tier"],
                 "home_warehouse": member["home_warehouse"],
+                "memory_resettable": member["member_id"] in MEMORY_RESETTABLE_MEMBERS,
             }
             for member in MEMBERS.values()
         ]

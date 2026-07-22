@@ -7,7 +7,9 @@ memory paths and Gemini model selector.
 ## Before the session
 
 1. Start the application, open its URL, scroll to **Presenter controls**, and click **Reset demo
-   cache**. Confirm the reset and wait for the ready message.
+   cache**. If a prior run changed Alex's preferences, also click **Reset member memory** to
+   restore his Redis and ADK long-term memories from the seed data. Confirm each reset and wait for
+   the ready message. This control is available only for the four small demo members.
 2. Scroll back to the top of the page.
 3. Confirm the services are configured, then check **Context Retriever** in the Redis service
    panel. It starts unchecked for before/after comparisons even though its client is already warm.

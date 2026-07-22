@@ -40,6 +40,7 @@ EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
 AGENT_MEMORY_MAX_CONNECTIONS = 40
 AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
 TOOL_CALL_CACHE_METADATA_KEY = "_tool_call_cache"
+VERTEX_MEMORY_APP_NAME = "valuewholesale-shopping-agent"
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value
@@ -1318,7 +1319,9 @@ class MemoryService:
                         "memory_type": "semantic",
                         "owner_id": safe_id(member_id, "anonymous"),
                         "namespace": self.settings.agent_memory_namespace,
-                        "topics": topics or ["shopping", "preference"],
+                        "topics": list(
+                            dict.fromkeys([*(topics or ["shopping", "preference"]), "demo-created"])
+                        ),
                     }
                 ]
             )
@@ -1326,6 +1329,82 @@ class MemoryService:
         except Exception as exc:
             log.warning("Agent Memory direct write failed open: %s", exc)
             return False
+
+    def reset_long_term(
+        self,
+        member_id: str,
+        seeded_memories: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """Preserve seeded records and remove other memories in one member namespace."""
+        if self.client is None or self.models is None:
+            raise RuntimeError("Redis Agent Memory is not configured")
+
+        owner_id = safe_id(member_id, "anonymous")
+        namespace = self.settings.agent_memory_namespace
+        existing_memory_ids: set[str] = set()
+        page_token: str | None = None
+        seen_page_tokens: set[str] = set()
+
+        while True:
+            response = self.client.search_long_term_memory(
+                request={
+                    "filter_op": self.models.FilterConjunction.ALL,
+                    "filter_": {
+                        "owner_id": {"eq": owner_id},
+                        "namespace": {"eq": namespace},
+                    },
+                    "limit": 100,
+                    "page_token": page_token,
+                }
+            )
+            existing_memory_ids.update(str(item.id) for item in response.items)
+            next_page_token = getattr(response, "next_page_token", None)
+            if not next_page_token:
+                break
+            if next_page_token in seen_page_tokens:
+                raise RuntimeError("Agent Memory returned a repeated page token")
+            seen_page_tokens.add(next_page_token)
+            page_token = next_page_token
+
+        seed_by_id = {str(memory["id"]): memory for memory in seeded_memories}
+        memory_ids_to_delete = sorted(existing_memory_ids - seed_by_id.keys())
+        deleted = 0
+        for start in range(0, len(memory_ids_to_delete), 100):
+            response = self.client.bulk_delete_long_term_memories(
+                memory_ids=memory_ids_to_delete[start : start + 100]
+            )
+            errors = list(getattr(response, "errors", None) or [])
+            if errors:
+                raise RuntimeError(f"Failed to delete {len(errors)} long-term memories")
+            deleted += len(response.deleted)
+
+        missing_seed_ids = seed_by_id.keys() - existing_memory_ids
+        records = [
+            {
+                **memory,
+                "owner_id": owner_id,
+                "namespace": namespace,
+                "topics": list(dict.fromkeys([*(memory.get("topics") or []), "demo-seed"])),
+            }
+            for memory in seeded_memories
+            if memory["id"] in missing_seed_ids
+            and safe_id(str(memory.get("owner_id", "")), "anonymous") == owner_id
+        ]
+        created = 0
+        for start in range(0, len(records), 100):
+            response = self.client.bulk_create_long_term_memories(
+                memories=records[start : start + 100]
+            )
+            errors = list(getattr(response, "errors", None) or [])
+            if errors:
+                raise RuntimeError(f"Failed to restore {len(errors)} seeded memories")
+            created += len(response.created)
+
+        return {
+            "deleted": deleted,
+            "restored": created,
+            "preserved": len(existing_memory_ids & seed_by_id.keys()),
+        }
 
 
 class ContextRetrieverService:
@@ -1481,6 +1560,68 @@ class VertexMemoryService:
         except Exception as exc:
             log.warning("Vertex Memory Bank search failed open: %s", exc)
             return []
+
+    def reset_long_term(
+        self,
+        member_id: str,
+        seeded_memories: list[dict[str, Any]],
+    ) -> dict[str, int]:
+        """Preserve seeded facts and remove other memories in one member scope."""
+        if self.client is None:
+            raise RuntimeError("Vertex ADK Memory Bank is not configured")
+
+        import vertexai
+
+        owner_id = safe_id(member_id, "anonymous")
+        scope = {"app_name": VERTEX_MEMORY_APP_NAME, "user_id": owner_id}
+        resource_name = (
+            f"projects/{self.settings.google_cloud_project}"
+            f"/locations/{self.settings.google_memory_location}"
+            f"/reasoningEngines/{self.settings.google_agent_engine_id}"
+        )
+        client = vertexai.Client(
+            project=self.settings.google_cloud_project,
+            location=self.settings.google_memory_location,
+            http_options={"timeout": 60_000},
+        )
+        seed_facts = {str(memory["text"]) for memory in seeded_memories}
+        scoped_memories = [
+            memory
+            for memory in client.agent_engines.memories.list(name=resource_name)
+            if getattr(memory, "scope", None) == scope
+        ]
+
+        deleted = 0
+        existing_seed_facts: set[str] = set()
+        for memory in scoped_memories:
+            fact = str(getattr(memory, "fact", ""))
+            if fact in seed_facts and fact not in existing_seed_facts:
+                existing_seed_facts.add(fact)
+                continue
+            operation = client.agent_engines.memories.delete(name=memory.name)
+            if hasattr(operation, "result"):
+                operation.result()
+            deleted += 1
+
+        restored = 0
+        for fact in sorted(seed_facts - existing_seed_facts):
+            operation = client.agent_engines.memories.create(
+                name=resource_name,
+                fact=fact,
+                scope=scope,
+                config={
+                    "metadata": {"valuewholesale_origin": {"string_value": "demo-seed"}}
+                },
+            )
+            if hasattr(operation, "result"):
+                operation.result()
+            restored += 1
+
+        return {
+            "deleted": deleted,
+            "restored": restored,
+            "preserved": len(existing_seed_facts),
+        }
 
     @staticmethod
     def _serialize(item: Any) -> dict[str, Any]:

@@ -22,8 +22,10 @@ from valuewholesale_agent.agent import (
     store_tool_call_cache,
 )
 from valuewholesale_agent.api import (
+    MEMORY_RESETTABLE_MEMBERS,
     SHORT_TERM_MEMORY_LIMIT,
     TRANSCRIPT_APP_NAME,
+    DemoVertexMemoryBankService,
     LatencyRegistry,
     _chat_events,
     _greeting_events,
@@ -61,6 +63,7 @@ from valuewholesale_agent.services import (
     MemoryService,
     SemanticRouterService,
     ToolCallCache,
+    VertexMemoryService,
     _retrieval_quality,
     memory_snippets,
     safe_id,
@@ -759,6 +762,7 @@ async def test_agent_memory_reuses_extended_http_pools_and_closes_them(monkeypat
 
 def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
     batch_sizes = []
+    seeded_topics = []
 
     class FakeAgentMemory:
         def __init__(self, *_args, **_kwargs):
@@ -772,6 +776,7 @@ def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
 
         def bulk_create_long_term_memories(self, *, memories, **_kwargs):
             batch_sizes.append(len(memories))
+            seeded_topics.extend(memory["topics"] for memory in memories)
             return SimpleNamespace(
                 created=[memory["id"] for memory in memories],
                 errors=[],
@@ -790,6 +795,165 @@ def test_managed_memory_seed_batches_at_api_limit(monkeypatch) -> None:
 
     assert (created, errors) == (205, 0)
     assert batch_sizes == [100, 100, 5]
+    assert all("demo-seed" in topics for topics in seeded_topics)
+
+
+def test_agent_memory_reset_is_scoped_paginated_and_batched() -> None:
+    search_requests = []
+    deleted_batches = []
+    created_batches = []
+
+    class FakeMemoryClient:
+        def search_long_term_memory(self, *, request):
+            search_requests.append(request)
+            page = len(search_requests)
+            count = 100 if page < 3 else 5
+            items = (
+                [SimpleNamespace(id=f"seed-{index}") for index in range(5)]
+                if page == 3
+                else [SimpleNamespace(id=f"existing-{page}-{index}") for index in range(count)]
+            )
+            return SimpleNamespace(
+                items=items,
+                next_page_token=f"page-{page + 1}" if page < 3 else None,
+            )
+
+        def bulk_delete_long_term_memories(self, *, memory_ids):
+            deleted_batches.append(list(memory_ids))
+            return SimpleNamespace(deleted=list(memory_ids), errors=[])
+
+        def bulk_create_long_term_memories(self, *, memories):
+            created_batches.append(list(memories))
+            return SimpleNamespace(
+                created=[memory["id"] for memory in memories],
+                errors=[],
+            )
+
+    memory = MemoryService(Settings(_env_file=None))
+    memory.client = FakeMemoryClient()
+    memory.models = models
+    seeds = [
+        {
+            "id": f"seed-{index}",
+            "text": f"Seed {index}",
+            "owner_id": "member-1001",
+            "namespace": "ignored-by-reset",
+        }
+        for index in range(205)
+    ]
+
+    result = memory.reset_long_term("member-1001", seeds)
+
+    assert result == {"deleted": 200, "restored": 200, "preserved": 5}
+    assert [len(batch) for batch in deleted_batches] == [100, 100]
+    assert [len(batch) for batch in created_batches] == [100, 100]
+    assert [request["page_token"] for request in search_requests] == [
+        None,
+        "page-2",
+        "page-3",
+    ]
+    assert all(
+        request["filter_"]
+        == {
+            "owner_id": {"eq": "member-1001"},
+            "namespace": {"eq": "valuewholesale-shopping"},
+        }
+        for request in search_requests
+    )
+    assert all(
+        record["owner_id"] == "member-1001"
+        and record["namespace"] == "valuewholesale-shopping"
+        for batch in created_batches
+        for record in batch
+    )
+    assert all(
+        "demo-seed" in record["topics"]
+        for batch in created_batches
+        for record in batch
+    )
+
+
+def test_vertex_memory_reset_preserves_seed_facts_and_deletes_only_new(monkeypatch) -> None:
+    scope = {"app_name": "valuewholesale-shopping-agent", "user_id": "member-1001"}
+    deleted = []
+    created = []
+
+    class FakeMemories:
+        def list(self, *, name):
+            assert name.endswith("/reasoningEngines/engine-id")
+            return iter(
+                [
+                    SimpleNamespace(name="memory/seed", fact="Seed 1", scope=scope),
+                    SimpleNamespace(name="memory/new", fact="New fact", scope=scope),
+                    SimpleNamespace(
+                        name="memory/other",
+                        fact="Other user fact",
+                        scope={**scope, "user_id": "member-1002"},
+                    ),
+                ]
+            )
+
+        def delete(self, *, name):
+            deleted.append(name)
+            return SimpleNamespace(result=lambda: None)
+
+        def create(self, **kwargs):
+            created.append(kwargs)
+            return SimpleNamespace(result=lambda: None)
+
+    fake_client = SimpleNamespace(
+        agent_engines=SimpleNamespace(memories=FakeMemories())
+    )
+    monkeypatch.setattr("vertexai.Client", lambda **_kwargs: fake_client)
+    memory = VertexMemoryService(
+        Settings(
+            _env_file=None,
+            google_cloud_project="project-id",
+            google_memory_location="us-east4",
+            google_agent_engine_id="engine-id",
+        )
+    )
+    memory.client = object()
+
+    result = memory.reset_long_term(
+        "member-1001",
+        [
+            {"text": "Seed 1", "owner_id": "member-1001"},
+            {"text": "Seed 2", "owner_id": "member-1001"},
+        ],
+    )
+
+    assert result == {"deleted": 1, "restored": 1, "preserved": 1}
+    assert deleted == ["memory/new"]
+    assert created[0]["fact"] == "Seed 2"
+    assert created[0]["scope"] == scope
+    assert created[0]["config"]["metadata"]["valuewholesale_origin"] == {
+        "string_value": "demo-seed"
+    }
+
+
+async def test_demo_vertex_memory_tags_generated_facts_and_disables_consolidation() -> None:
+    calls = []
+
+    async def add_events_to_memory(**kwargs):
+        calls.append(kwargs)
+
+    service = SimpleNamespace(add_events_to_memory=add_events_to_memory)
+    session = SimpleNamespace(app_name="app", user_id="member-1001", events=["event"])
+
+    await DemoVertexMemoryBankService.add_session_to_memory(service, session)
+
+    assert calls == [
+        {
+            "app_name": "app",
+            "user_id": "member-1001",
+            "events": ["event"],
+            "custom_metadata": {
+                "metadata": {"valuewholesale_origin": "demo-created"},
+                "disable_consolidation": True,
+            },
+        }
+    ]
 
 
 def test_semantic_router_applies_guardrails_and_positive_route() -> None:
@@ -1808,6 +1972,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
     assert 'id="reset-demo"' in html
+    assert 'id="reset-memory"' in html
     assert 'id="redis-endpoint"' in html
     assert 'id="memory-latencies"' in html
     assert (
@@ -1816,6 +1981,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     ) in html
     assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
+    assert "fetch('/api/reset-member-memory'" in html
     assert 'target="_blank" rel="noopener noreferrer"' in html
     assert 'id="service-panel"' in html
     assert 'id="service-panel-toggle"' in html
@@ -1934,6 +2100,48 @@ def test_demo_reset_flushes_langcache(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": "LangCache flushed"}
     assert cleared == [True]
+
+
+def test_member_memory_reset_restores_selected_demo_member(monkeypatch) -> None:
+    redis_calls = []
+    vertex_calls = []
+
+    def reset_redis(member_id, memories):
+        redis_calls.append((member_id, memories))
+        return {"deleted": 1, "restored": 0, "preserved": len(memories)}
+
+    def reset_vertex(member_id, memories):
+        vertex_calls.append((member_id, memories))
+        return {"deleted": 2, "restored": 0, "preserved": len(memories)}
+
+    monkeypatch.setattr(services.memory, "client", object())
+    monkeypatch.setattr(services.memory, "reset_long_term", reset_redis)
+    monkeypatch.setattr(services.vertex_memory, "client", object())
+    monkeypatch.setattr(services.vertex_memory, "reset_long_term", reset_vertex)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/reset-member-memory",
+            json={"member_id": "member-1001"},
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "member_id": "member-1001",
+        "providers": {
+            "redis_agent_memory": {"deleted": 1, "restored": 0, "preserved": 10},
+            "vertex_adk_memory_bank": {"deleted": 2, "restored": 0, "preserved": 10},
+        },
+    }
+    assert redis_calls[0][0] == vertex_calls[0][0] == "member-1001"
+    assert {memory["owner_id"] for memory in redis_calls[0][1]} == {"member-1001"}
+
+    with TestClient(app) as client:
+        forbidden = client.post(
+            "/api/reset-member-memory",
+            json={"member_id": "member-1005"},
+        )
+    assert forbidden.status_code == 403
 
 
 async def test_adk_memory_telemetry_streams_before_slower_generation(monkeypatch) -> None:
@@ -2408,6 +2616,11 @@ def test_health_and_unconfigured_memory_comparison() -> None:
             "member-1004",
             "member-1005",
         ]
+        assert {
+            member["member_id"]
+            for member in members.json()["members"]
+            if member["memory_resettable"]
+        } == MEMORY_RESETTABLE_MEMBERS
         response = client.post(
             "/api/memory/compare",
             json={"query": "pickup preference", "expected_terms": ["Portland"], "runs": 2},

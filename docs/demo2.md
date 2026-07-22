@@ -12,7 +12,9 @@ feature-by-feature flow in [demo.md](demo.md).
 ## Before the session
 
 1. Start the application, open its URL, scroll to **Presenter controls**, and click **Reset demo
-   cache**. Confirm the reset and wait for the ready message.
+   cache**. If a prior run changed Alex's preferences, also click **Reset member memory** to
+   restore his Redis and ADK long-term memories from the seed data. Confirm each reset and wait for
+   the ready message. This control is available only for the four small demo members.
 2. Return to the top, confirm the services are configured, and check **Context Retriever** in the
    Redis service panel. It starts unchecked even though its client and governed tool catalog are
    warmed in the background.

@@ -34,7 +34,15 @@ def seed_redis(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int,
         timeout_ms=REDIS_TIMEOUT_MS,
     ) as client:
         for start in range(0, len(memories), REDIS_BATCH_SIZE):
-            batch = memories[start : start + REDIS_BATCH_SIZE]
+            batch = [
+                {
+                    **memory,
+                    "topics": list(
+                        dict.fromkeys([*(memory.get("topics") or []), "demo-seed"])
+                    ),
+                }
+                for memory in memories[start : start + REDIS_BATCH_SIZE]
+            ]
             for attempt in range(3):
                 try:
                     response = client.bulk_create_long_term_memories(
@@ -105,6 +113,11 @@ def seed_vertex(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int
                     name=name,
                     fact=memory["text"],
                     scope=scope,
+                    config={
+                        "metadata": {
+                            "valuewholesale_origin": {"string_value": "demo-seed"}
+                        }
+                    },
                 )
                 break
             except Exception as exc:
