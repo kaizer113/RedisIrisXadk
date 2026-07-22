@@ -13,7 +13,11 @@ from google.adk.tools import BaseTool
 
 from valuewholesale_agent.config import get_settings
 from valuewholesale_agent.services import TOOL_CALL_CACHE_METADATA_KEY, services
-from valuewholesale_agent.tools import ALL_TOOLS, GREETING_TOOLS
+from valuewholesale_agent.tools import (
+    ALL_TOOLS,
+    CONTEXT_RETRIEVER_TOOLSET,
+    GREETING_TOOLS,
+)
 
 settings = get_settings()
 
@@ -139,8 +143,9 @@ warehouse's live availability, understand policies, inspect orders, and build a 
 
 Operating rules:
 - Ground product, price, inventory, order, membership, and policy claims in tool results.
-- For catalog discovery, call `search_catalog`. `search_product_by_text` is a compatibility alias
-  for the same catalog search, not a different data source. Never invent any other function name.
+- For catalog discovery, call `search_catalog`. Call `search_product_by_text` only when it appears
+  in the governed Context Retriever catalog and live governed product lookup is appropriate. Never
+  invent any other function name.
 - Redis Agent Memory short-term events and long-term facts are prefetched on every request and
   included in your model context. Use them when relevant, but never invent a preference.
 - Google ADK session and Memory Bank reads run as telemetry only. Their results are visible in
@@ -162,8 +167,11 @@ Operating rules:
 - Do not write memory merely because the member asks what is remembered, summarizes remembered
   facts, or uses the word "remembered". A write requires an explicit future-facing instruction
   such as "remember that I prefer..." or "save this preference".
-- For live member, warehouse inventory, and order data, always use Context Retriever: list its
-  governed MCP tools first, then call only exact returned tool names and schemas.
+- For live member, warehouse inventory, and order data, always use Context Retriever: call
+  `list_context_retriever_tools` first, then invoke the exact governed tool name it returns as a
+  function using that tool's returned schema. Governed names are registered ADK functions for the
+  current request; do not route them through `query_context_retriever` unless direct invocation is
+  unavailable for backward compatibility.
 - Successful read-only tool results other than inventory are cached for this browser session for
   up to 12 hours. Always call the appropriate tool normally; the deterministic Redis tool cache
   returns an identical cached result when one is valid. Inventory is never cached because it is
@@ -194,9 +202,8 @@ Operating rules:
   query; never invent an additional product, accessory, bakery item, or catalog category.
 - The known warehouse IDs are portland, seattle, and sacramento. A request for Portland means
   the Portland Harbor warehouse (`portland`); do not ask which city the member means.
-- After catalog discovery, use the Context Retriever `get_inventory_by_id` MCP tool for every SKU
-  whose stock the member requested. Invoke it through `query_context_retriever`; never call a
-  discovered MCP tool directly as an ADK function.
+- After catalog discovery, use the Context Retriever `get_inventory_by_id` governed tool for every
+  SKU whose stock the member requested. Invoke that exact discovered function directly.
 - Inventory IDs and product SKUs are different values. For `get_inventory_by_id`, pass only
   `id="<warehouse_id>-<lowercase-sku>"`, for example `id="portland-vh-1001"`.
 - If you use `filter_inventory_by_sku` instead, its `value` must contain only the product SKU,
@@ -228,7 +235,7 @@ def build_agent(model: str) -> Agent:
         description="A grounded shopping agent for the fictional Value Wholesale warehouse club.",
         instruction=INSTRUCTION,
         include_contents="none",
-        tools=ALL_TOOLS,
+        tools=[*ALL_TOOLS, CONTEXT_RETRIEVER_TOOLSET],
         before_tool_callback=read_tool_call_cache,
         after_tool_callback=store_tool_call_cache,
         after_agent_callback=promote_adk_session_to_memory,

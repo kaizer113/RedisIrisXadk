@@ -66,6 +66,9 @@ from valuewholesale_agent.services import (
     services,
 )
 from valuewholesale_agent.tools import (
+    CONTEXT_RETRIEVER_TOOLSET,
+    ContextRetrieverTool,
+    ContextRetrieverToolset,
     list_context_retriever_tools,
     query_context_retriever,
     search_catalog,
@@ -1422,6 +1425,7 @@ def test_agent_excludes_adk_memory_but_keeps_redis_memory_context() -> None:
     assert "{redis_short_term_context}" in agent.instruction
     assert "{redis_long_term_context}" in agent.instruction
     assert "vertex_long_term_context" not in agent.instruction
+    assert CONTEXT_RETRIEVER_TOOLSET in agent.tools
 
 
 def test_greeting_agent_reuses_profile_and_can_choose_redis_memory() -> None:
@@ -1447,8 +1451,8 @@ def test_shopping_agent_has_cache_safety_instruction() -> None:
     assert "single most recent\n  completed order" in agent.instruction
     assert "Recommend or name only products returned by search_catalog" in agent.instruction
     assert "never invent an additional product" in agent.instruction
-    assert "`search_product_by_text` is a compatibility alias" in agent.instruction
-    assert "Never invent any other function name" in agent.instruction
+    assert "Call `search_product_by_text` only when it appears" in agent.instruction
+    assert "invent any other function name" in agent.instruction
 
 
 def test_catalog_search_compatibility_alias(monkeypatch) -> None:
@@ -1473,7 +1477,68 @@ def test_shopping_agent_distinguishes_inventory_ids_from_skus() -> None:
     assert 'id="portland-vh-1001"' in instruction
     assert 'value="VH-1001"' in instruction
     assert "Never pass a composite inventory ID" in instruction
-    assert "Invoke it through `query_context_retriever`" in instruction
+    assert "Invoke that exact discovered function directly" in instruction
+
+
+async def test_governed_context_tools_are_registered_and_callable(monkeypatch) -> None:
+    definitions = [
+        {
+            "name": "filter_order_by_member_id",
+            "description": "Filter orders by member ID.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"value": {"type": "string"}},
+                "required": ["value"],
+            },
+        },
+        {
+            "name": "search_catalog",
+            "inputSchema": {"type": "object", "properties": {}},
+        },
+    ]
+
+    async def list_tools():
+        return definitions
+
+    async def call(name, arguments):
+        return {"tool": name, "arguments": arguments}
+
+    monkeypatch.setattr(services.context, "list_tools", list_tools)
+    monkeypatch.setattr(services.context, "call", call)
+    toolset = ContextRetrieverToolset({"search_catalog"})
+
+    discovered = await toolset.get_tools(
+        SimpleNamespace(state={"context_retriever_enabled": True})
+    )
+
+    assert [tool.name for tool in discovered] == ["filter_order_by_member_id"]
+    declaration = discovered[0]._get_declaration()
+    assert declaration.name == "filter_order_by_member_id"
+    assert declaration.parameters_json_schema["required"] == ["value"]
+    assert await discovered[0].run_async(
+        args={"value": "member-1001"},
+        tool_context=SimpleNamespace(state={"context_retriever_enabled": True}),
+    ) == {
+        "tool": "filter_order_by_member_id",
+        "arguments": {"value": "member-1001"},
+    }
+
+
+async def test_governed_context_toolset_is_empty_when_disabled(monkeypatch) -> None:
+    async def unexpected():
+        raise AssertionError("disabled toolset must not discover Context Retriever tools")
+
+    monkeypatch.setattr(services.context, "list_tools", unexpected)
+
+    assert await ContextRetrieverToolset(set()).get_tools(
+        SimpleNamespace(state={"context_retriever_enabled": False})
+    ) == []
+
+    disabled_tool = ContextRetrieverTool({"name": "filter_order_by_member_id"})
+    assert await disabled_tool.run_async(
+        args={"value": "member-1001"},
+        tool_context=SimpleNamespace(state={"context_retriever_enabled": False}),
+    ) == {"ok": False, "error": "context_retriever_disabled"}
 
 
 def test_shopping_agent_fetches_orders_for_broad_member_context_questions() -> None:
@@ -1672,6 +1737,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
     assert '<div class="service-meta-row"><button id="context-tools-trigger"' in html
     assert "function setToolSummary(count,text=`${count} tools discovered`)" in html
+    assert ".split('_by_')[0]" in html
     assert "Warming services…" not in html
     assert (
         ".service-meta-row { display:flex; align-items:baseline; "

@@ -4,7 +4,9 @@ import asyncio
 import json
 from typing import Any
 
-from google.adk.tools import ToolContext
+from google.adk.tools import BaseTool, ToolContext
+from google.adk.tools.base_toolset import BaseToolset
+from google.genai import types
 
 from valuewholesale_agent.services import (
     call_with_timing,
@@ -226,9 +228,65 @@ async def query_context_retriever(
     return await services.context.call(tool_name, arguments)
 
 
+class ContextRetrieverTool(BaseTool):
+    """An ADK-facing governed tool discovered from Context Retriever."""
+
+    def __init__(self, definition: dict[str, Any]) -> None:
+        self.definition = definition
+        super().__init__(
+            name=str(definition["name"]),
+            description=str(
+                definition.get("description")
+                or "Query governed live Value Wholesale context."
+            ),
+        )
+
+    def _get_declaration(self) -> types.FunctionDeclaration:
+        schema = self.definition.get("inputSchema")
+        if not isinstance(schema, dict):
+            schema = self.definition.get("input_schema")
+        if not isinstance(schema, dict):
+            schema = {"type": "object", "properties": {}}
+        return types.FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters_json_schema=schema,
+        )
+
+    async def run_async(
+        self,
+        *,
+        args: dict[str, Any],
+        tool_context: ToolContext,
+    ) -> dict[str, Any]:
+        if not _context_retriever_enabled(tool_context):
+            return {"ok": False, "error": "context_retriever_disabled"}
+        return await services.context.call(self.name, args)
+
+
+class ContextRetrieverToolset(BaseToolset):
+    """Expose the live governed catalog as callable ADK tools."""
+
+    def __init__(self, reserved_names: set[str]) -> None:
+        super().__init__()
+        self.reserved_names = reserved_names
+
+    async def get_tools(self, readonly_context: Any | None = None) -> list[BaseTool]:
+        state = getattr(readonly_context, "state", {}) if readonly_context else {}
+        enabled = state.get("context_retriever_enabled", True)
+        if enabled is not True and str(enabled).lower() != "true":
+            return []
+        definitions = await services.context.list_tools()
+        return [
+            ContextRetrieverTool(definition)
+            for definition in definitions
+            if definition.get("name")
+            and str(definition["name"]) not in self.reserved_names
+        ]
+
+
 ALL_TOOLS = [
     search_catalog,
-    search_product_by_text,
     search_member_policies,
     add_item_to_cart,
     view_cart,
@@ -236,6 +294,10 @@ ALL_TOOLS = [
     list_context_retriever_tools,
     query_context_retriever,
 ]
+
+CONTEXT_RETRIEVER_TOOLSET = ContextRetrieverToolset(
+    {tool.__name__ for tool in ALL_TOOLS}
+)
 
 
 GREETING_TOOLS = [
