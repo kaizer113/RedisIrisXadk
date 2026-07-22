@@ -267,7 +267,9 @@ class LocalEmbeddingService:
 class ToolCallCache:
     """Session-scoped exact-match cache for successful read-only tool results."""
 
-    KEY_PREFIX = "valuewholesale:tool-cache:v1"
+    KEY_PREFIX = "tool-cache"
+    SESSION_INDEX_PREFIX = "tool-cache-session"
+    SCHEMA_VERSION = "v2"
 
     def __init__(self, settings: Settings, client: redis.Redis | None) -> None:
         self.settings = settings
@@ -284,11 +286,25 @@ class ToolCallCache:
         tool_name: str,
         arguments: dict[str, Any],
     ) -> str:
-        material = f"{tool_name.strip().lower()}\n{self._canonical_arguments(arguments)}"
-        digest = hashlib.sha256(material.encode()).hexdigest()
         owner = safe_id(owner_id, "anonymous")
         session = safe_id(session_id, "shopping-session")
-        return f"{self.KEY_PREFIX}:{owner}:{session}:{digest}"
+        material = "\n".join(
+            (
+                self.SCHEMA_VERSION,
+                owner,
+                session,
+                tool_name.strip().lower(),
+                self._canonical_arguments(arguments),
+            )
+        )
+        digest = hashlib.sha256(material.encode()).hexdigest()
+        return f"{self.KEY_PREFIX}:{digest}"
+
+    def _session_index_key(self, owner_id: str, session_id: str) -> str:
+        owner = safe_id(owner_id, "anonymous")
+        session = safe_id(session_id, "shopping-session")
+        digest = hashlib.sha256(f"{owner}\n{session}".encode()).hexdigest()
+        return f"{self.SESSION_INDEX_PREFIX}:{digest}"
 
     def get(
         self,
@@ -302,13 +318,12 @@ class ToolCallCache:
         if self.redis is None:
             return None, round((time.perf_counter() - started) * 1000, 2)
         try:
-            raw = self.redis.get(self.key(owner_id, session_id, tool_name, arguments))
+            result = self.redis.json().get(
+                self.key(owner_id, session_id, tool_name, arguments)
+            )
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
-            if raw is None:
+            if result is None:
                 return None, duration_ms
-            if isinstance(raw, bytes):
-                raw = raw.decode()
-            result = json.loads(raw)
             return (result if isinstance(result, dict) else None), duration_ms
         except Exception as exc:
             log.warning("Tool call cache read failed open: %s", exc)
@@ -324,17 +339,27 @@ class ToolCallCache:
     ) -> bool:
         if self.redis is None:
             return False
-        cache_value = {
-            key: value for key, value in result.items() if key != TOOL_CALL_CACHE_METADATA_KEY
-        }
-        try:
-            return bool(
-                self.redis.set(
-                    self.key(owner_id, session_id, tool_name, arguments),
-                    json.dumps(cache_value, default=str, separators=(",", ":")),
-                    ex=self.settings.valuewholesale_tool_cache_ttl_seconds,
-                )
+        cache_value = json.loads(
+            json.dumps(
+                {
+                    key: value
+                    for key, value in result.items()
+                    if key != TOOL_CALL_CACHE_METADATA_KEY
+                },
+                default=str,
             )
+        )
+        cache_key = self.key(owner_id, session_id, tool_name, arguments)
+        session_index_key = self._session_index_key(owner_id, session_id)
+        ttl = self.settings.valuewholesale_tool_cache_ttl_seconds
+        try:
+            pipeline = self.redis.pipeline(transaction=True)
+            pipeline.json().set(cache_key, "$", cache_value)
+            pipeline.expire(cache_key, ttl)
+            pipeline.sadd(session_index_key, cache_key)
+            pipeline.expire(session_index_key, ttl)
+            results = pipeline.execute()
+            return bool(results[0])
         except Exception as exc:
             log.warning("Tool call cache write failed open: %s", exc)
             return False
@@ -343,16 +368,15 @@ class ToolCallCache:
         """Invalidate cached reads after a successful session mutation."""
         if self.redis is None:
             return 0
-        owner = safe_id(owner_id, "anonymous")
-        session = safe_id(session_id, "shopping-session")
+        session_index_key = self._session_index_key(owner_id, session_id)
         try:
-            keys = list(
-                self.redis.scan_iter(
-                    match=f"{self.KEY_PREFIX}:{owner}:{session}:*",
-                    count=100,
-                )
-            )
-            return int(self.redis.delete(*keys)) if keys else 0
+            keys = list(self.redis.smembers(session_index_key))
+            if not keys:
+                self.redis.delete(session_index_key)
+                return 0
+            deleted = int(self.redis.delete(*keys))
+            self.redis.delete(session_index_key)
+            return deleted
         except Exception as exc:
             log.warning("Tool call cache invalidation failed open: %s", exc)
             return 0

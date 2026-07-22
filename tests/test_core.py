@@ -222,14 +222,49 @@ def test_tool_call_cache_is_session_scoped_and_uses_twelve_hour_ttl() -> None:
         def __init__(self):
             self.values = {}
             self.expirations = {}
+            self.sets = {}
+            self.commands = []
+
+        def json(self):
+            return self
 
         def get(self, key):
             return self.values.get(key)
 
-        def set(self, key, value, ex):
-            self.values[key] = value.encode()
-            self.expirations[key] = ex
+        def set(self, key, path, value):
+            assert path == "$"
+            self.commands.append(("JSON.SET", key))
+            self.values[key] = value
             return True
+
+        def pipeline(self, transaction):
+            assert transaction is True
+            return self
+
+        def expire(self, key, ttl):
+            self.expirations[key] = ttl
+            return self
+
+        def sadd(self, key, value):
+            self.sets.setdefault(key, set()).add(value)
+            return self
+
+        def smembers(self, key):
+            return self.sets.get(key, set())
+
+        def delete(self, *keys):
+            deleted = 0
+            for key in keys:
+                if key in self.values:
+                    del self.values[key]
+                    deleted += 1
+                if key in self.sets:
+                    del self.sets[key]
+                    deleted += 1
+            return deleted
+
+        def execute(self):
+            return [True, True, 1, True]
 
     fake = FakeRedis()
     cache = ToolCallCache(
@@ -260,7 +295,15 @@ def test_tool_call_cache_is_session_scoped_and_uses_twelve_hour_ttl() -> None:
     assert duration_ms >= 0
     assert cache.get("member-1001", "session-b", "get_orders", arguments)[0] is None
     assert cache.get("member-1002", "session-a", "get_orders", arguments)[0] is None
-    assert list(fake.expirations.values()) == [43_200]
+    cache_key = next(iter(fake.values))
+    assert cache_key.startswith("tool-cache:")
+    assert len(cache_key) == len("tool-cache:") + 64
+    assert fake.commands == [("JSON.SET", cache_key)]
+    assert fake.values[cache_key] == {"orders": ["one"]}
+    assert list(fake.expirations.values()) == [43_200, 43_200]
+    assert cache.clear_session("member-1001", "session-a") == 1
+    assert fake.values == {}
+    assert fake.sets == {}
 
 
 async def test_tool_cache_callbacks_report_miss_then_hit(monkeypatch) -> None:
