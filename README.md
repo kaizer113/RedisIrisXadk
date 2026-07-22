@@ -26,7 +26,7 @@ session and long-term memory paths, deployment topology, and a rendered system d
 | Live commerce context | Redis Context Retriever | Governed access to inventory/order entities |
 | Cache routing | RedisVL Semantic Router | Safe semantic classification of reusable policy, product-education, and shopping-guide prompts |
 | Response cache | Redis LangCache | Scoped cache-aside for policies, static product education, and reusable shopping guides |
-| Tool call cache | Redis database | Session-scoped exact read-tool results with a 12-hour TTL; inventory and mutations bypass it |
+| Tool call cache | Redis database | Session-scoped exact read-tool results with a 12-hour TTL and independent latency attribution; inventory and mutations bypass it |
 | Working memory A | Redis Agent Memory | Canonical user prompts and final assistant answers |
 | Working memory B | Vertex AI Agent Platform Sessions | The identical canonical prompt/answer transcript in a dedicated ADK session |
 | Long-term memory | Redis Agent Memory + Vertex AI ADK Memory Bank | Scoped semantic/episodic preferences and comparison telemetry |

@@ -56,7 +56,9 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
    successful miss is cached for 12 hours. Inventory and mutations bypass the cache, and a
    successful mutation invalidates that session's cached reads. Each tool trace reports cache
    hit/miss status and Redis read latency; the Database service card shows that timing separately
-   from vector search.
+   from vector search. On a cache hit, no downstream tool duration is displayed or attributed to
+   Context Retriever, RedisVL, Agent Memory, or another tool service because that service did not
+   execute. On a miss, cache-read latency is excluded from the measured tool duration.
 8. ADK stores native orchestration events through the Runner session. The agent's
    post-turn callback asks ADK to generate Memory Bank memories from that session.
 9. FastAPI queues identical assistant text for Redis Agent Memory and the dedicated ADK transcript,

@@ -388,43 +388,49 @@ def trace_event(
     cache: dict[str, Any] | None = None,
     move_to_end: bool = False,
 ) -> dict[str, Any]:
-    if status == "done" and duration_ms is not None:
-        normalized_id = step_id.lower()
-        normalized_label = label.lower()
-        normalized_summary = summary.lower()
-        service: str | None = None
-        if normalized_id == "semantic-router" and "bypassed" not in normalized_summary:
-            service = "semantic_router"
-        elif normalized_id == "langcache" and "bypassed" not in normalized_summary:
-            service = "langcache"
-        elif "redis-short-term" in normalized_id:
-            service = "redis_agent_memory_short_term"
-        elif "redis-long-term" in normalized_id or "redis long-term memory" in normalized_label:
-            service = "redis_agent_memory_long_term"
-        elif "adk-short-term" in normalized_id:
-            service = "agent_platform_sessions"
-        elif "vertex-long-term" in normalized_id:
-            service = "vertex_adk_memory_bank"
-        elif "context retriever" in normalized_label:
-            service = "context_retriever"
-        elif normalized_label.startswith("redisvl search"):
-            service = "redis_database"
-        elif (
-            normalized_id in {"generation", "greeting-generation"}
-            and "(0 llm calls)" not in normalized_label
-        ):
-            service = "gemini_adk_orchestration"
-        if service:
-            latency_registry.record(service, duration_ms)
-        for detail in details or []:
-            if detail.startswith("Local embedding:"):
-                try:
-                    embedding_ms = float(detail.split(":", 1)[1].split("ms", 1)[0].strip())
-                except ValueError:
-                    continue
-                latency_registry.record("embedding_cache", embedding_ms)
+    if status == "done":
         if cache and cache.get("read_duration_ms") is not None:
             latency_registry.record("tool_call_cache", float(cache["read_duration_ms"]))
+        if duration_ms is not None:
+            normalized_id = step_id.lower()
+            normalized_label = label.lower()
+            normalized_summary = summary.lower()
+            service: str | None = None
+            if normalized_id == "semantic-router" and "bypassed" not in normalized_summary:
+                service = "semantic_router"
+            elif normalized_id == "langcache" and "bypassed" not in normalized_summary:
+                service = "langcache"
+            elif "redis-short-term" in normalized_id:
+                service = "redis_agent_memory_short_term"
+            elif (
+                "redis-long-term" in normalized_id
+                or "redis long-term memory" in normalized_label
+            ):
+                service = "redis_agent_memory_long_term"
+            elif "adk-short-term" in normalized_id:
+                service = "agent_platform_sessions"
+            elif "vertex-long-term" in normalized_id:
+                service = "vertex_adk_memory_bank"
+            elif "context retriever" in normalized_label:
+                service = "context_retriever"
+            elif normalized_label.startswith("redisvl search"):
+                service = "redis_database"
+            elif (
+                normalized_id in {"generation", "greeting-generation"}
+                and "(0 llm calls)" not in normalized_label
+            ):
+                service = "gemini_adk_orchestration"
+            if service:
+                latency_registry.record(service, duration_ms)
+            for detail in details or []:
+                if detail.startswith("Local embedding:"):
+                    try:
+                        embedding_ms = float(
+                            detail.split(":", 1)[1].split("ms", 1)[0].strip()
+                        )
+                    except ValueError:
+                        continue
+                    latency_registry.record("embedding_cache", embedding_ms)
     event = {
         "type": "trace",
         "step": {
@@ -472,7 +478,12 @@ def _tool_label(name: str, arguments: dict[str, Any]) -> str:
     return f"Agent tool · {name.replace('_', ' ')}"
 
 
-def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
+def _tool_summary(
+    name: str,
+    response: dict[str, Any],
+    *,
+    include_timing_details: bool = True,
+) -> tuple[str, list[str]]:
     payload = response.get("result", response)
     if name == "search_catalog" and isinstance(payload, dict):
         products = payload.get("products", [])
@@ -481,7 +492,7 @@ def _tool_summary(name: str, response: dict[str, Any]) -> tuple[str, list[str]]:
             str(product.get("name", product.get("sku", "product"))) for product in products[:5]
         ]
         embedding_duration_ms = payload.get("embedding_duration_ms")
-        if isinstance(embedding_duration_ms, (int, float)):
+        if include_timing_details and isinstance(embedding_duration_ms, (int, float)):
             details.append(f"Local embedding: {embedding_duration_ms} ms")
             cache_hit = payload.get("embedding_cache_hit")
             details.append(
@@ -533,6 +544,23 @@ def _tool_duration(name: str, response: dict[str, Any], elapsed_ms: float) -> fl
         if isinstance(operation_duration_ms, (int, float)):
             return float(operation_duration_ms)
     return elapsed_ms
+
+
+def _tool_trace_duration(
+    name: str,
+    response: dict[str, Any],
+    elapsed_ms: float,
+    cache: dict[str, Any] | None,
+) -> float | None:
+    """Keep cache lookup time separate and omit tool duration entirely on a hit."""
+    if cache and cache.get("status") == "hit":
+        return None
+    cache_read_ms = (
+        float(cache.get("read_duration_ms", 0.0))
+        if cache and cache.get("read_duration_ms") is not None
+        else 0.0
+    )
+    return _tool_duration(name, response, max(0.0, elapsed_ms - cache_read_ms))
 
 
 async def member_profile_for_session(
@@ -977,12 +1005,16 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     response_data = dict(response.response or {})
                     cache_info = response_data.pop(TOOL_CALL_CACHE_METADATA_KEY, None)
                     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-                    duration = (
-                        float(cache_info.get("read_duration_ms", elapsed_ms))
-                        if cache_info and cache_info.get("status") == "hit"
-                        else _tool_duration(name, response_data, elapsed_ms)
+                    duration = _tool_trace_duration(
+                        name, response_data, elapsed_ms, cache_info
                     )
-                    summary, details = _tool_summary(name, response_data)
+                    summary, details = _tool_summary(
+                        name,
+                        response_data,
+                        include_timing_details=not (
+                            cache_info and cache_info.get("status") == "hit"
+                        ),
+                    )
                     if trace_visible:
                         yield trace_event(
                             f"tool-{call_id}",
@@ -1126,7 +1158,13 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     )
                     response_data = dict(response.response or {})
                     cache_info = response_data.pop(TOOL_CALL_CACHE_METADATA_KEY, None)
-                    summary, details = _tool_summary(name, response_data)
+                    summary, details = _tool_summary(
+                        name,
+                        response_data,
+                        include_timing_details=not (
+                            cache_info and cache_info.get("status") == "hit"
+                        ),
+                    )
                     source = {
                         "recall_redis_shopping_memory": "Redis Agent Memory",
                         "list_context_retriever_tools": "Context Retriever catalog",
@@ -1137,14 +1175,12 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     if source:
                         context_details.append(f"{source}: {summary}")
                     if trace_visible:
-                        tool_duration = round(
-                            (time.perf_counter() - call_started) * 1000,
-                            2,
+                        elapsed_ms = round(
+                            (time.perf_counter() - call_started) * 1000, 2
                         )
-                        if cache_info and cache_info.get("status") == "hit":
-                            tool_duration = float(
-                                cache_info.get("read_duration_ms", tool_duration)
-                            )
+                        tool_duration = _tool_trace_duration(
+                            name, response_data, elapsed_ms, cache_info
+                        )
                         yield trace_event(
                             f"greeting-tool-{call_id}",
                             _tool_label(name, arguments),

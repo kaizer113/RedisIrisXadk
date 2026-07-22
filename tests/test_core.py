@@ -30,6 +30,7 @@ from valuewholesale_agent.api import (
     _tool_duration,
     _tool_label,
     _tool_summary,
+    _tool_trace_duration,
     app,
     append_working_memory_event,
     event_text,
@@ -151,6 +152,32 @@ def test_trace_records_tool_call_cache_read_latency(monkeypatch) -> None:
 
     assert event["step"]["cache"] == {"status": "miss", "read_duration_ms": 1.25}
     assert registry.snapshot()["tool_call_cache"]["p50_ms"] == 1.25
+
+
+def test_tool_cache_hit_does_not_record_downstream_service_latency(monkeypatch) -> None:
+    registry = LatencyRegistry()
+    registry.mark_cold_call_complete("tool_call_cache")
+    registry.mark_cold_call_complete("context_retriever")
+    monkeypatch.setattr(api_module, "latency_registry", registry)
+
+    event = trace_event(
+        "tool-1",
+        "Context Retriever · discover MCP tools",
+        duration_ms=None,
+        summary="41 governed tools available",
+        cache={"status": "hit", "read_duration_ms": 3.69},
+    )
+
+    assert event["step"]["duration_ms"] is None
+    assert registry.snapshot() == {
+        "tool_call_cache": {
+            "count": 1,
+            "avg_ms": 3.69,
+            "p50_ms": 3.69,
+            "p95_ms": 3.69,
+            "p99_ms": 3.69,
+        }
+    }
 
 
 def test_scale_memory_corpus_is_deterministic_and_hidden() -> None:
@@ -1836,6 +1863,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert '.service[data-service="redis_database"] .tool-cache-operation { margin-top:0;' in html
     assert "if(step.cache?.read_duration_ms!=null)add('redis_database','','tool_cache')" in html
     assert "cache.textContent=`Tool call cache ${status}`" in html
+    assert "cacheHit=step.cache?.status==='hit'" in html
+    assert "if(cacheHit&&operation!=='tool_cache')return" in html
+    assert "step.status==='running'?'…':''" in html
     assert (
         "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
         in html
@@ -2276,6 +2306,34 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
         == 23.4
     )
     assert _tool_duration("search_member_policies", {}, 8.5) == 8.5
+    assert (
+        _tool_trace_duration(
+            "list_context_retriever_tools",
+            {"tools": [{"name": "one"}]},
+            3.69,
+            {"status": "hit", "read_duration_ms": 3.69},
+        )
+        is None
+    )
+    assert _tool_trace_duration(
+        "search_member_policies",
+        {},
+        8.5,
+        {"status": "miss", "read_duration_ms": 1.25},
+    ) == 7.25
+    cached_summary, cached_details = _tool_summary(
+        "search_catalog",
+        {
+            "result": {
+                "products": [{"name": "Clear Tide Laundry Pods"}],
+                "embedding_duration_ms": 3.25,
+                "embedding_cache_hit": True,
+            }
+        },
+        include_timing_details=False,
+    )
+    assert cached_summary == "1 products found"
+    assert cached_details == ["Clear Tide Laundry Pods"]
     event = trace_event("total", "Total request", duration_ms=1200, summary="Completed")
     assert event["step"]["duration_ms"] == 1200
 
