@@ -1297,17 +1297,20 @@ class MemoryService:
     def recall(self, member_id: str, query: str, limit: int = 5) -> list[dict[str, Any]]:
         if self.client is None or self.models is None:
             return []
+        memory_filter: dict[str, Any] = {
+            "owner_id": {"eq": safe_id(member_id, "anonymous")},
+            "memory_type": {"in_": list(REDIS_RECALL_MEMORY_TYPES)},
+        }
+        namespace = self.settings.agent_memory_namespace.strip()
+        if namespace:
+            memory_filter["namespace"] = {"eq": namespace}
         try:
             response = self.client.search_long_term_memory(
                 request={
                     "text": query,
                     "similarity_threshold": self.settings.agent_memory_similarity_threshold,
                     "filter_op": self.models.FilterConjunction.ALL,
-                    "filter_": {
-                        "owner_id": {"eq": safe_id(member_id, "anonymous")},
-                        "namespace": {"eq": self.settings.agent_memory_namespace},
-                        "memory_type": {"in_": list(REDIS_RECALL_MEMORY_TYPES)},
-                    },
+                    "filter_": memory_filter,
                     "limit": max(1, min(limit, 10)),
                 },
             )
@@ -1324,20 +1327,21 @@ class MemoryService:
             return False
         fact_digest = hashlib.sha256(fact.encode("utf-8")).hexdigest()[:16]
         memory_id = safe_id(f"{member_id}-{fact_digest}", "memory")
+        memory = {
+            "id": memory_id,
+            "text": fact,
+            "memory_type": "semantic",
+            "owner_id": safe_id(member_id, "anonymous"),
+            "topics": list(
+                dict.fromkeys([*(topics or ["shopping", "preference"]), "demo-created"])
+            ),
+        }
+        namespace = self.settings.agent_memory_namespace.strip()
+        if namespace:
+            memory["namespace"] = namespace
         try:
             self.client.bulk_create_long_term_memories(
-                memories=[
-                    {
-                        "id": memory_id,
-                        "text": fact,
-                        "memory_type": "semantic",
-                        "owner_id": safe_id(member_id, "anonymous"),
-                        "namespace": self.settings.agent_memory_namespace,
-                        "topics": list(
-                            dict.fromkeys([*(topics or ["shopping", "preference"]), "demo-created"])
-                        ),
-                    }
-                ]
+                memories=[memory]
             )
             return True
         except Exception as exc:
@@ -1354,13 +1358,16 @@ class MemoryService:
             raise RuntimeError("Redis Agent Memory is not configured")
 
         display_limit = max(1, min(limit, MEMORY_INVENTORY_LIMIT))
+        memory_filter: dict[str, Any] = {
+            "owner_id": {"eq": safe_id(member_id, "anonymous")},
+        }
+        namespace = self.settings.agent_memory_namespace.strip()
+        if namespace:
+            memory_filter["namespace"] = {"eq": namespace}
         response = self.client.search_long_term_memory(
             request={
                 "filter_op": self.models.FilterConjunction.ALL,
-                "filter_": {
-                    "owner_id": {"eq": safe_id(member_id, "anonymous")},
-                    "namespace": {"eq": self.settings.agent_memory_namespace},
-                },
+                "filter_": memory_filter,
                 "limit": display_limit + 1,
             }
         )
@@ -1379,12 +1386,15 @@ class MemoryService:
         member_id: str,
         seeded_memories: list[dict[str, Any]],
     ) -> dict[str, int]:
-        """Preserve seeded records and remove other memories in one member namespace."""
+        """Preserve seeded records and remove other memories in one member scope."""
         if self.client is None or self.models is None:
             raise RuntimeError("Redis Agent Memory is not configured")
 
         owner_id = safe_id(member_id, "anonymous")
-        namespace = self.settings.agent_memory_namespace
+        namespace = self.settings.agent_memory_namespace.strip()
+        memory_filter: dict[str, Any] = {"owner_id": {"eq": owner_id}}
+        if namespace:
+            memory_filter["namespace"] = {"eq": namespace}
         existing_memory_ids: set[str] = set()
         page_token: str | None = None
         seen_page_tokens: set[str] = set()
@@ -1393,10 +1403,7 @@ class MemoryService:
             response = self.client.search_long_term_memory(
                 request={
                     "filter_op": self.models.FilterConjunction.ALL,
-                    "filter_": {
-                        "owner_id": {"eq": owner_id},
-                        "namespace": {"eq": namespace},
-                    },
+                    "filter_": memory_filter,
                     "limit": 100,
                     "page_token": page_token,
                 }
@@ -1423,17 +1430,23 @@ class MemoryService:
             deleted += len(response.deleted)
 
         missing_seed_ids = seed_by_id.keys() - existing_memory_ids
-        records = [
-            {
+        records: list[dict[str, Any]] = []
+        for memory in seeded_memories:
+            if (
+                memory["id"] not in missing_seed_ids
+                or safe_id(str(memory.get("owner_id", "")), "anonymous") != owner_id
+            ):
+                continue
+            record = {
                 **memory,
                 "owner_id": owner_id,
-                "namespace": namespace,
                 "topics": list(dict.fromkeys([*(memory.get("topics") or []), "demo-seed"])),
             }
-            for memory in seeded_memories
-            if memory["id"] in missing_seed_ids
-            and safe_id(str(memory.get("owner_id", "")), "anonymous") == owner_id
-        ]
+            if namespace:
+                record["namespace"] = namespace
+            else:
+                record.pop("namespace", None)
+            records.append(record)
         created = 0
         for start in range(0, len(records), 100):
             response = self.client.bulk_create_long_term_memories(

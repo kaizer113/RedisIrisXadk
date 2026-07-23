@@ -750,6 +750,37 @@ def test_agent_memory_inventory_is_scoped_and_bounded() -> None:
     }
 
 
+def test_agent_memory_omits_blank_namespace_from_retrieval_and_writes() -> None:
+    search_requests = []
+    created_memories = []
+
+    class FakeMemoryClient:
+        def search_long_term_memory(self, *, request):
+            search_requests.append(request)
+            return SimpleNamespace(items=[])
+
+        def bulk_create_long_term_memories(self, *, memories):
+            created_memories.extend(memories)
+            return SimpleNamespace(created=[memory["id"] for memory in memories], errors=[])
+
+    memory = MemoryService(
+        Settings(_env_file=None, agent_memory_namespace="")
+    )
+    memory.client = FakeMemoryClient()
+    memory.models = models
+
+    assert memory.recall("member-1001", "pickup") == []
+    assert memory.list_long_term("member-1001")["count"] == 0
+    assert memory.remember("member-1001", "Prefers morning pickup.") is True
+
+    assert all(
+        request["filter_"]["owner_id"] == {"eq": "member-1001"}
+        and "namespace" not in request["filter_"]
+        for request in search_requests
+    )
+    assert "namespace" not in created_memories[0]
+
+
 async def test_agent_memory_reuses_extended_http_pools_and_closes_them(monkeypatch) -> None:
     captured = {}
 
@@ -912,6 +943,46 @@ def test_agent_memory_reset_is_scoped_paginated_and_batched() -> None:
         for batch in created_batches
         for record in batch
     )
+
+
+def test_agent_memory_reset_omits_blank_namespace() -> None:
+    search_requests = []
+    created_memories = []
+
+    class FakeMemoryClient:
+        def search_long_term_memory(self, *, request):
+            search_requests.append(request)
+            return SimpleNamespace(items=[], next_page_token=None)
+
+        def bulk_create_long_term_memories(self, *, memories):
+            created_memories.extend(memories)
+            return SimpleNamespace(
+                created=[memory["id"] for memory in memories],
+                errors=[],
+            )
+
+    memory = MemoryService(Settings(_env_file=None, agent_memory_namespace=""))
+    memory.client = FakeMemoryClient()
+    memory.models = models
+
+    result = memory.reset_long_term(
+        "member-1001",
+        [
+            {
+                "id": "seed-1",
+                "text": "Seed 1",
+                "owner_id": "member-1001",
+                "namespace": "valuewholesale-shopping",
+            }
+        ],
+    )
+
+    assert result == {"deleted": 0, "restored": 1, "preserved": 0}
+    assert search_requests[0]["filter_"] == {
+        "owner_id": {"eq": "member-1001"},
+    }
+    assert created_memories[0]["owner_id"] == "member-1001"
+    assert "namespace" not in created_memories[0]
 
 
 def test_vertex_memory_reset_preserves_seed_facts_and_deletes_only_new(monkeypatch) -> None:
