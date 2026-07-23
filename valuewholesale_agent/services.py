@@ -43,7 +43,7 @@ AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
 TOOL_CALL_CACHE_METADATA_KEY = "_tool_call_cache"
 VERTEX_MEMORY_APP_NAME = "valuewholesale-shopping-agent"
 MEMORY_INVENTORY_LIMIT = 20
-REDIS_RECALL_MEMORY_TYPES = ("semantic", "episodic", "shopping_preference")
+REDIS_RECALL_MEMORY_TYPES = ("semantic", "episodic", "shopping_preferenceV2")
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value

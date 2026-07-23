@@ -709,7 +709,7 @@ def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     request = captured["request"]
     assert request["filter_"]["owner_id"] == {"eq": "member-1001"}
     assert request["filter_"]["memory_type"] == {
-        "in_": ["semantic", "episodic", "shopping_preference"]
+        "in_": ["semantic", "episodic", "shopping_preferenceV2"]
     }
 
 
