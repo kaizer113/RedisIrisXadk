@@ -1118,6 +1118,10 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
         in ECOMMERCE_REFERENCES
     )
     assert (
+        "My son eats doritos at school, do you have some in stocks"
+        in ECOMMERCE_REFERENCES
+    )
+    assert (
         "Give me an account overview and tell me if I have anything to pick up."
         in ECOMMERCE_REFERENCES
     )
