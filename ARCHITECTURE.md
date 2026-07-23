@@ -32,7 +32,7 @@ The editable Mermaid source is [`docs/architecture.mmd`](docs/architecture.mmd).
 `POST /api/chat/stream` is the main demo path.
 
 1. FastAPI normalizes the member and session IDs. Deterministic guardrails immediately bypass
-   caching for member-specific, live-data, or sensitive requests.
+   caching for member-specific, live-data, sensitive, or explicit memory-keyword requests.
 2. RedisVL classifies all remaining prompts into policy, static product-education, reusable
    shopping-guide, general ecommerce, or blocked semantic routes. For a short conversational
    follow-up, FastAPI first loads recent Redis Agent Memory session events and supplies that

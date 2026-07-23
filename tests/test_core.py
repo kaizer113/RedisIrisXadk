@@ -706,7 +706,9 @@ def test_agent_memory_sdk_request_matches_installed_sdk() -> None:
     assert memory.recall("member-1001", "pickup", 3) == []
     request = captured["request"]
     assert request["filter_"]["owner_id"] == {"eq": "member-1001"}
-    assert request["filter_"]["memory_type"] == {"in_": ["semantic", "episodic"]}
+    assert request["filter_"]["memory_type"] == {
+        "in_": ["semantic", "episodic", "shopping_preference"]
+    }
 
 
 def test_agent_memory_inventory_is_scoped_and_bounded() -> None:
@@ -1118,6 +1120,17 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert personalized["decision_source"] == "guardrail"
     assert personalized["reason"] == "member-specific request"
     assert personalized["redisvl_duration_ms"] is None
+
+    memory_request = router.route(
+        "Using your memory, recommend something for my next warehouse trip."
+    )
+    assert memory_request["eligible"] is False
+    assert memory_request["blocked"] is False
+    assert memory_request["cache_read"] is False
+    assert memory_request["cache_write"] is False
+    assert memory_request["decision_source"] == "guardrail"
+    assert memory_request["reason"] == "explicit memory request"
+    assert memory_request["redisvl_duration_ms"] is None
 
     explicit_purchase = router.route("i want to buy dish soap")
     assert explicit_purchase["action"] == "allow"
@@ -2073,6 +2086,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="adk-memory-trigger"' in html
     assert 'id="memory-modal"' in html
     assert "fetch(`/api/member-memory?member_id=${encodeURIComponent(requestedMember)}`)" in html
+    assert "memory?.memory_type||memory?.memoryType||fallback" in html
+    assert "'adk_memory_bank'" in html
+    assert ".memory-source {" in html
     assert "scheduleMemoryInventory(1500)" in html
     assert "if(!chatInFlight)void loadMemoryInventory()" in html
     assert ".memory-columns { display:grid; grid-template-columns:1fr 1fr;" in html

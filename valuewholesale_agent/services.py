@@ -43,6 +43,7 @@ AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
 TOOL_CALL_CACHE_METADATA_KEY = "_tool_call_cache"
 VERTEX_MEMORY_APP_NAME = "valuewholesale-shopping-agent"
 MEMORY_INVENTORY_LIMIT = 20
+REDIS_RECALL_MEMORY_TYPES = ("semantic", "episodic", "shopping_preference")
 
 REDIS_KEEPALIVE_OPTIONS = {
     option: value
@@ -802,6 +803,10 @@ class SemanticRouterService:
 
     _GUARDRAILS = (
         (
+            "explicit memory request",
+            re.compile(r"\bmemory\b", re.IGNORECASE),
+        ),
+        (
             "member-specific request",
             re.compile(
                 r"\b(?:my|our)\s+(?:(?:pickup|recent|shopping|member)\s+)?"
@@ -1294,7 +1299,7 @@ class MemoryService:
                     "filter_": {
                         "owner_id": {"eq": safe_id(member_id, "anonymous")},
                         "namespace": {"eq": self.settings.agent_memory_namespace},
-                        "memory_type": {"in_": ["semantic", "episodic"]},
+                        "memory_type": {"in_": list(REDIS_RECALL_MEMORY_TYPES)},
                     },
                     "limit": max(1, min(limit, 10)),
                 },
