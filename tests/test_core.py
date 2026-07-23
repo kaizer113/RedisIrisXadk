@@ -18,6 +18,7 @@ from valuewholesale_agent import api as api_module
 from valuewholesale_agent.agent import (
     build_agent,
     build_greeting_agent,
+    promote_adk_session_to_memory,
     read_tool_call_cache,
     store_tool_call_cache,
 )
@@ -1021,7 +1022,7 @@ def test_vertex_memory_inventory_uses_server_side_scope_filter(monkeypatch) -> N
     }
 
 
-async def test_demo_vertex_memory_tags_generated_facts_and_disables_consolidation() -> None:
+async def test_demo_vertex_memory_tags_generated_facts_with_consolidation() -> None:
     calls = []
 
     async def add_events_to_memory(**kwargs):
@@ -1039,10 +1040,57 @@ async def test_demo_vertex_memory_tags_generated_facts_and_disables_consolidatio
             "events": ["event"],
             "custom_metadata": {
                 "metadata": {"valuewholesale_origin": "demo-created"},
-                "disable_consolidation": True,
             },
         }
     ]
+
+
+async def test_adk_memory_promotion_sends_only_current_invocation_events() -> None:
+    calls = []
+    old_event = SimpleNamespace(invocation_id="old")
+    current_events = [
+        SimpleNamespace(invocation_id="current"),
+        SimpleNamespace(invocation_id="current"),
+    ]
+
+    async def add_events_to_memory(**kwargs):
+        calls.append(kwargs)
+
+    context = SimpleNamespace(
+        invocation_id="current",
+        session=SimpleNamespace(events=[old_event, *current_events]),
+        add_events_to_memory=add_events_to_memory,
+    )
+
+    await promote_adk_session_to_memory(context)
+
+    assert calls == [
+        {
+            "events": current_events,
+            "custom_metadata": {
+                "metadata": {"valuewholesale_origin": "demo-created"},
+            },
+        }
+    ]
+
+
+async def test_adk_memory_promotion_skips_empty_invocation() -> None:
+    calls = []
+
+    async def add_events_to_memory(**kwargs):
+        calls.append(kwargs)
+
+    context = SimpleNamespace(
+        invocation_id="current",
+        session=SimpleNamespace(
+            events=[SimpleNamespace(invocation_id="different-invocation")]
+        ),
+        add_events_to_memory=add_events_to_memory,
+    )
+
+    await promote_adk_session_to_memory(context)
+
+    assert calls == []
 
 
 def test_semantic_router_applies_guardrails_and_positive_route() -> None:

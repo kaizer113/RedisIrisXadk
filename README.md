@@ -48,8 +48,8 @@ its non-secret resource ID in `.env`, and seeds the same checked-in facts into b
 long-term memory providers. New conversation turns enqueue the same prompt/answer transcript for
 Redis Agent Memory and a dedicated ADK session using the `{session_id}-transcript` backend ID. This
 eventually consistent persistence does not delay the answer and is drained during graceful worker
-shutdown. The Runner's native session keeps the original ID and continues to feed ADK Memory Bank
-generation independently.
+shutdown. The Runner's native session keeps the original ID and promotes only the current
+invocation to ADK Memory Bank generation independently.
 
 ## Local start
 

@@ -58,7 +58,6 @@ class DemoVertexMemoryBankService(VertexAiMemoryBankService):
             events=session.events,
             custom_metadata={
                 "metadata": {"valuewholesale_origin": "demo-created"},
-                "disable_consolidation": True,
             },
         )
 

@@ -126,9 +126,21 @@ async def store_tool_call_cache(
 
 
 async def promote_adk_session_to_memory(callback_context: CallbackContext) -> None:
-    """Trigger ADK Memory Bank generation after each completed turn."""
+    """Promote only the completed invocation to ADK Memory Bank."""
     try:
-        await callback_context.add_session_to_memory()
+        invocation_events = [
+            event
+            for event in callback_context.session.events
+            if event.invocation_id == callback_context.invocation_id
+        ]
+        if not invocation_events:
+            return None
+        await callback_context.add_events_to_memory(
+            events=invocation_events,
+            custom_metadata={
+                "metadata": {"valuewholesale_origin": "demo-created"},
+            },
+        )
     except Exception:
         # The callback intentionally fails open for local mode and unconfigured demos.
         return None
