@@ -132,6 +132,7 @@ ECOMMERCE_REFERENCES = [
     "I drink tea every evening, which brands do you have?",
     "I enjoy eating chocolate after dinner, give me some recommendations",
     "My son eats doritos at school, do you have some in stocks",
+    "how many packs of Doritos do you have?",
     "Find family-size pantry staples under thirty dollars.",
     "Recommend products for my household.",
     "Recommend a good pasta from your catalog.",
