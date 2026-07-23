@@ -2287,6 +2287,16 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "memory?.memory_type||memory?.memoryType||fallback" in html
     assert "'adk_memory_bank'" in html
     assert ".memory-source {" in html
+    assert ".memory-metadata {" in html
+    assert "topic?.managed_memory_topic||topic?.managedMemoryTopic" in html
+    assert "'Extraction topics':'Topics'" in html
+    assert "return 'Conversation extraction'" in html
+    assert "return 'Session extraction'" in html
+    assert "return 'Demo seed import'" in html
+    assert "entries.push(['Source session',String(session)])" in html
+    assert "entries.push(['Created',formatMemoryTime(created)])" in html
+    assert "entries.push(['Last consolidated',formatMemoryTime(updated)])" in html
+    assert "Creation metadata is shown when supplied by each provider." in html
     assert "scheduleMemoryInventory(1500)" in html
     assert "if(!chatInFlight)void loadMemoryInventory()" in html
     assert ".memory-columns { display:grid; grid-template-columns:1fr 1fr;" in html
