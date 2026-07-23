@@ -1102,6 +1102,10 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     )
     assert "What pasta products do you sell?" in ECOMMERCE_REFERENCES
     assert (
+        "I like to eat salmon when it's hot outside, do you sell salmon in Portland?"
+        in ECOMMERCE_REFERENCES
+    )
+    assert (
         "Give me an account overview and tell me if I have anything to pick up."
         in ECOMMERCE_REFERENCES
     )
