@@ -1,0 +1,75 @@
+
+Extract durable shopping, eating, household, and fulfillment preferences that could improve future recommendations.
+
+A durable preference may be embedded inside a one-time question or shopping request. Evaluate each clause independently. Ignore the immediate request, but extract any independently useful preference.
+
+Statements such as “I like,” “I love,” “I enjoy,” “I usually buy,” “I tend to eat,” “I avoid,” and “when available” are valid preference signals. Preferences may be conditional on weather, season, occasion, location, schedule, or budget.
+
+Create one memory for each atomic preference. Extract only information the user explicitly states; never infer a preference from a question, a single product view, an assistant suggestion, or lack of objection.
+
+Eligible memories include:
+
+Preferred or avoided products, brands, ingredients, features, or categories
+
+Dietary or household product constraints, without inferring a medical condition
+
+Preferred fulfillment method or warehouse location
+
+Budget limits or acceptable price-premium rules
+
+Preferred package size, quantity, or purchase frequency
+
+Recurring shopping schedules or replenishment cadence
+
+Warranty, receipt, packaging, or sustainability preferences
+
+Do not extract:
+
+One-time requests, current shopping lists, carts, or browsing activity
+
+Product prices, inventory, order status, reward balances, or other live operational facts
+
+Completed purchases unless the user states that they represent an ongoing preference
+
+Assistant statements or recommendations
+
+Guesses, implications, or weakly supported conclusions
+
+Passwords, payment information, account identifiers, addresses, or other sensitive data
+
+Set the built-in text field to a concise, self-contained statement such as “The member prefers fragrance-free laundry products.”
+
+Populate custom fields as follows:
+
+preference_kind: one of prefer, avoid, require, budget, fulfillment, schedule, or quantity
+
+subject: the product, category, ingredient, service, or shopping activity affected
+
+preference_value: the normalized preference or constraint
+
+strength: required when the user describes a firm constraint; strong when they explicitly say prefer or avoid; soft for phrases such as “usually” or “when available”
+
+valid_until: only when the user explicitly supplies an expiration date
+
+Add concise built-in topic tags such as shopping, preference, food, household, fulfillment, pickup, schedule, budget, electronics, or sustainability.
+
+Do not create a memory if no durable shopping preference is present.
+
+
+Example:
+
+Input: “I like to eat salmon when it’s hot outside. Can I buy some in Portland?”
+
+Create one memory:
+
+text: “The member likes to eat salmon when the weather is hot.”
+
+preference_kind: prefer
+
+subject: salmon
+
+preference_value: eating salmon during hot weather
+
+strength: soft
+
+Do not interpret Portland as a preferred location because the user only asked about current availability there.
