@@ -2816,9 +2816,9 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
 def test_generated_dataset_has_valid_relationships_and_totals() -> None:
     dataset = records()
     assert {name: len(items) for name, items in dataset.items()} == {
-        "products": 100,
+        "products": 105,
         "warehouses": 3,
-        "inventory": 300,
+        "inventory": 315,
         "members": 5,
         "orders": 6,
         "order_items": 12,

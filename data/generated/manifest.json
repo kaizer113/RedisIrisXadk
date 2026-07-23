@@ -1,13 +1,13 @@
 {
   "entities": {
-    "inventory": 300,
+    "inventory": 315,
     "members": 5,
     "memory_evaluations": 9,
     "memory_seeds": 516,
     "order_items": 12,
     "orders": 6,
     "policies": 3,
-    "products": 100,
+    "products": 105,
     "warehouses": 3
   },
   "format": "jsonl",

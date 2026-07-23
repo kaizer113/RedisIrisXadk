@@ -20,6 +20,51 @@ CORE_PRODUCTS = [
         "tags": ["organic", "breakfast", "bulk"],
     },
     {
+        "sku": "VH-1011",
+        "name": "Rain City 72% Dark Chocolate Squares, 24 count",
+        "category": "pantry",
+        "price": 21.99,
+        "member_price": 18.99,
+        "description": "Individually wrapped dark chocolate squares with a rich cocoa finish.",
+        "tags": ["chocolate", "dark-chocolate", "dessert", "individually-wrapped"],
+    },
+    {
+        "sku": "VH-1012",
+        "name": "Cascade Creamy Milk Chocolate Bars, 18 count",
+        "category": "pantry",
+        "price": 19.49,
+        "member_price": 16.99,
+        "description": "Smooth milk chocolate bars in a shareable club-size box.",
+        "tags": ["chocolate", "milk-chocolate", "dessert", "shareable"],
+    },
+    {
+        "sku": "VH-1013",
+        "name": "Harbor Select Sea Salt Caramels, 32 oz",
+        "category": "pantry",
+        "price": 23.99,
+        "member_price": 20.49,
+        "description": "Dark chocolate-covered soft caramels finished with flaky sea salt.",
+        "tags": ["chocolate", "caramel", "sea-salt", "gift"],
+    },
+    {
+        "sku": "VH-1014",
+        "name": "North Fork Chocolate Hazelnut Truffles, 48 count",
+        "category": "pantry",
+        "price": 27.99,
+        "member_price": 24.49,
+        "description": "Milk chocolate truffles with creamy roasted hazelnut centers.",
+        "tags": ["chocolate", "truffles", "hazelnut", "gift"],
+    },
+    {
+        "sku": "VH-1015",
+        "name": "Orchard Trail Dark Chocolate Almond Clusters, 36 oz",
+        "category": "pantry",
+        "price": 22.49,
+        "member_price": 19.49,
+        "description": "Roasted almond clusters coated in dark chocolate for a crunchy snack.",
+        "tags": ["chocolate", "dark-chocolate", "almonds", "snack"],
+    },
+    {
         "sku": "VH-2001",
         "name": "Family Dock Paper Towels, 12 rolls",
         "category": "household",
@@ -94,7 +139,7 @@ CORE_PRODUCTS = [
 ]
 
 # Thirty product families with three deterministic pack variants produce 90 additional products.
-# Keeping this source compact and generated makes the 100-product workshop catalog reproducible.
+# Keeping this source compact and generated makes the 105-product workshop catalog reproducible.
 _CATALOG_FAMILIES = [
     (
         "pantry",
@@ -348,6 +393,11 @@ _CORE_INVENTORY = {
     "portland": {
         "VH-1001": 42,
         "VH-1002": 31,
+        "VH-1011": 34,
+        "VH-1012": 28,
+        "VH-1013": 21,
+        "VH-1014": 16,
+        "VH-1015": 25,
         "VH-2001": 18,
         "VH-2002": 0,
         "VH-3001": 66,
@@ -360,6 +410,11 @@ _CORE_INVENTORY = {
     "seattle": {
         "VH-1001": 20,
         "VH-1002": 12,
+        "VH-1011": 27,
+        "VH-1012": 32,
+        "VH-1013": 18,
+        "VH-1014": 23,
+        "VH-1015": 19,
         "VH-2001": 35,
         "VH-2002": 24,
         "VH-3001": 41,
@@ -372,6 +427,11 @@ _CORE_INVENTORY = {
     "sacramento": {
         "VH-1001": 17,
         "VH-1002": 38,
+        "VH-1011": 22,
+        "VH-1012": 26,
+        "VH-1013": 29,
+        "VH-1014": 14,
+        "VH-1015": 31,
         "VH-2001": 21,
         "VH-2002": 28,
         "VH-3001": 0,

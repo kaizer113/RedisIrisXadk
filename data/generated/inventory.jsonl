@@ -1,5 +1,10 @@
 {"inventory_id": "portland-vh-1001", "quantity": 42, "sku": "VH-1001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
 {"inventory_id": "portland-vh-1002", "quantity": 31, "sku": "VH-1002", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
+{"inventory_id": "portland-vh-1011", "quantity": 34, "sku": "VH-1011", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
+{"inventory_id": "portland-vh-1012", "quantity": 28, "sku": "VH-1012", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
+{"inventory_id": "portland-vh-1013", "quantity": 21, "sku": "VH-1013", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
+{"inventory_id": "portland-vh-1014", "quantity": 16, "sku": "VH-1014", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
+{"inventory_id": "portland-vh-1015", "quantity": 25, "sku": "VH-1015", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
 {"inventory_id": "portland-vh-2001", "quantity": 18, "sku": "VH-2001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
 {"inventory_id": "portland-vh-2002", "quantity": 0, "sku": "VH-2002", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
 {"inventory_id": "portland-vh-3001", "quantity": 66, "sku": "VH-3001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
@@ -100,6 +105,11 @@
 {"inventory_id": "portland-vh-6090", "quantity": 12, "sku": "VH-6090", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "portland"}
 {"inventory_id": "seattle-vh-1001", "quantity": 20, "sku": "VH-1001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
 {"inventory_id": "seattle-vh-1002", "quantity": 12, "sku": "VH-1002", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
+{"inventory_id": "seattle-vh-1011", "quantity": 27, "sku": "VH-1011", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
+{"inventory_id": "seattle-vh-1012", "quantity": 32, "sku": "VH-1012", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
+{"inventory_id": "seattle-vh-1013", "quantity": 18, "sku": "VH-1013", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
+{"inventory_id": "seattle-vh-1014", "quantity": 23, "sku": "VH-1014", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
+{"inventory_id": "seattle-vh-1015", "quantity": 19, "sku": "VH-1015", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
 {"inventory_id": "seattle-vh-2001", "quantity": 35, "sku": "VH-2001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
 {"inventory_id": "seattle-vh-2002", "quantity": 24, "sku": "VH-2002", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
 {"inventory_id": "seattle-vh-3001", "quantity": 41, "sku": "VH-3001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
@@ -200,6 +210,11 @@
 {"inventory_id": "seattle-vh-6090", "quantity": 35, "sku": "VH-6090", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "seattle"}
 {"inventory_id": "sacramento-vh-1001", "quantity": 17, "sku": "VH-1001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
 {"inventory_id": "sacramento-vh-1002", "quantity": 38, "sku": "VH-1002", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
+{"inventory_id": "sacramento-vh-1011", "quantity": 22, "sku": "VH-1011", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
+{"inventory_id": "sacramento-vh-1012", "quantity": 26, "sku": "VH-1012", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
+{"inventory_id": "sacramento-vh-1013", "quantity": 29, "sku": "VH-1013", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
+{"inventory_id": "sacramento-vh-1014", "quantity": 14, "sku": "VH-1014", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
+{"inventory_id": "sacramento-vh-1015", "quantity": 31, "sku": "VH-1015", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
 {"inventory_id": "sacramento-vh-2001", "quantity": 21, "sku": "VH-2001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
 {"inventory_id": "sacramento-vh-2002", "quantity": 28, "sku": "VH-2002", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
 {"inventory_id": "sacramento-vh-3001", "quantity": 0, "sku": "VH-3001", "updated_at": "2026-07-16T16:00:00Z", "warehouse_id": "sacramento"}
