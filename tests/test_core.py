@@ -1191,6 +1191,18 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert explicit_purchase["reason"] == "explicit ecommerce request"
     assert explicit_purchase["redisvl_duration_ms"] is None
 
+    weather_and_purchase = router.route(
+        "I like to eat salmon when it's hot outside, can i buy in Portland?"
+    )
+    assert weather_and_purchase["action"] == "allow"
+    assert weather_and_purchase["blocked"] is False
+    assert weather_and_purchase["cache_read"] is False
+    assert weather_and_purchase["cache_write"] is False
+    assert weather_and_purchase["route"] == ECOMMERCE_ROUTE
+    assert weather_and_purchase["decision_source"] == "deterministic"
+    assert weather_and_purchase["reason"] == "explicit ecommerce request"
+    assert weather_and_purchase["redisvl_duration_ms"] is None
+
     for prompt in (
         "Who am I?",
         "What do you know about me?",

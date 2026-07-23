@@ -843,8 +843,9 @@ class SemanticRouterService:
         re.IGNORECASE,
     )
     _EXPLICIT_SHOPPING_INTENT = re.compile(
-        r"\b(?:i\s+(?:want|need|would\s+like)\s+to\s+|help\s+me\s+)"
-        r"(?:buy|purchase|shop\s+for|order|get)\b",
+        r"\b(?:(?:i\s+(?:want|need|would\s+like)\s+to\s+|help\s+me\s+)"
+        r"(?:buy|purchase|shop\s+for|order|get)|"
+        r"(?:can|could|may)\s+i\s+(?:buy|purchase|shop\s+for|order|get))\b",
         re.IGNORECASE,
     )
 
