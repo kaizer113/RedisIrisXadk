@@ -1260,6 +1260,20 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     assert "Previous shopping conversation" in fake_embeddings.embedded[-1]
     assert "even without a receipt?" in fake_embeddings.embedded[-1]
 
+    confirmation = router.route(
+        "yes",
+        (
+            "Would you like me to check the availability of any of these packs "
+            "at the Portland Harbor warehouse for you?"
+        ),
+    )
+    assert confirmation["blocked"] is False
+    assert confirmation["cache_read"] is False
+    assert confirmation["cache_write"] is False
+    assert confirmation["reason"] == "contextual ecommerce follow-up"
+    assert "Previous shopping conversation" in fake_embeddings.embedded[-1]
+    assert "Current follow-up: yes" in fake_embeddings.embedded[-1]
+
     personalized = router.route("Where is my pickup order?")
     assert personalized["eligible"] is False
     assert personalized["blocked"] is False
@@ -1349,6 +1363,26 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
     no_match = router.route("Discuss an unrelated topic.")
     assert no_match["action"] == "block"
     assert no_match["blocked"] is True
+
+
+def test_semantic_router_recognizes_short_confirmation_followups() -> None:
+    for prompt in (
+        "yes",
+        "Yes, please!",
+        "sure",
+        "go ahead",
+        "sounds good",
+        "no thanks",
+        "maybe later",
+    ):
+        assert SemanticRouterService.is_contextual_followup(prompt) is True
+
+    for prompt in (
+        "yes, show me all snack packs available in Portland",
+        "no added sugar products",
+        "maybe recommend a different coffee",
+    ):
+        assert SemanticRouterService.is_contextual_followup(prompt) is False
 
 
 def test_unconfigured_semantic_router_fails_safe() -> None:
@@ -2730,6 +2764,74 @@ async def test_scoped_langcache_hit_skips_adk_runner(monkeypatch) -> None:
         "adk-short-term",
         "vertex-long-term",
     }.intersection(traces)
+
+
+async def test_confirmation_followup_routes_with_recent_session_context(
+    monkeypatch,
+) -> None:
+    routed = {}
+    prior_events = [
+        {"text": "Here are three family-size snack packs."},
+        {
+            "text": (
+                "Would you like me to check their availability at the Portland "
+                "Harbor warehouse?"
+            )
+        },
+    ]
+
+    def short_term(session_id, limit):
+        assert session_id == "confirmation-test"
+        assert limit == SHORT_TERM_MEMORY_LIMIT
+        return prior_events
+
+    def route(message, recent_context):
+        routed.update(message=message, recent_context=recent_context)
+        return {
+            "eligible": False,
+            "cache_read": False,
+            "cache_write": False,
+            "blocked": True,
+            "action": "block",
+            "decision_source": "redisvl",
+            "redisvl_duration_ms": 1.23,
+            "route_duration_ms": 1.5,
+            "threshold": 0.48,
+            "distance": 0.12,
+            "route": OUT_OF_DOMAIN_ROUTE,
+            "reason": "test stop after routing",
+            "contextual_followup": True,
+        }
+
+    monkeypatch.setattr(services.memory, "short_term", short_term)
+    monkeypatch.setattr(services.semantic_router, "route", route)
+
+    events = [
+        event
+        async for event in _chat_events(
+            api_module.ChatRequest(
+                message="yes",
+                member_id="member-1001",
+                session_id="confirmation-test",
+                model="gemini-3.1-flash-lite",
+            )
+        )
+    ]
+
+    assert routed == {
+        "message": "yes",
+        "recent_context": (
+            "Here are three family-size snack packs.\n"
+            "Would you like me to check their availability at the Portland "
+            "Harbor warehouse?"
+        ),
+    }
+    router_trace = next(
+        event["step"]
+        for event in events
+        if event["type"] == "trace" and event["step"]["id"] == "semantic-router"
+    )
+    assert "Recent Redis session context used for routing" in router_trace["details"]
 
 
 async def test_semantic_router_blocks_out_of_domain_before_cache_memory_and_adk(

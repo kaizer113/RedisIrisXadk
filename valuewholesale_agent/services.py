@@ -844,7 +844,12 @@ class SemanticRouterService:
         ),
     )
     _CONTEXTUAL_FOLLOWUP = re.compile(
-        r"^\s*(?:and\b|also\b|but\b|even\b|what\s+about\b|how\s+about\b|"
+        r"^\s*(?:(?:(?:yes|yeah|yep|yup|sure|ok(?:ay)?|absolutely|definitely)"
+        r"(?:\s*,?\s*please)?|please(?:\s+do)?|go\s+ahead|do\s+it|"
+        r"sounds\s+good|that\s+works|why\s+not|"
+        r"(?:no|nope)(?:\s*,?\s*thanks)?|not\s+(?:now|right\s+now)|"
+        r"maybe(?:\s+later)?)\s*[.!?]*\s*$|"
+        r"and\b|also\b|but\b|even\b|what\s+about\b|how\s+about\b|"
         r"what\s+if\b|without\b|with\b|does\s+(?:that|it)\b|"
         r"is\s+(?:that|it)\b|can\s+(?:that|it)\b)",
         re.IGNORECASE,
