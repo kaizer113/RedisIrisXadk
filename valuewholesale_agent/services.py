@@ -129,6 +129,7 @@ ECOMMERCE_REFERENCES = [
     "Help me purchase an item from your catalog.",
     "I like to eat salmon when it's hot outside, do you sell salmon in Portland?",
     "I used to eat cookies when i was young, now i don't",
+    "I drink tea every evening, which brands do you have?",
     "Find family-size pantry staples under thirty dollars.",
     "Recommend products for my household.",
     "Recommend a good pasta from your catalog.",
