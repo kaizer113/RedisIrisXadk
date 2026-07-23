@@ -75,6 +75,7 @@ from valuewholesale_agent.tools import (
     CONTEXT_RETRIEVER_TOOLSET,
     ContextRetrieverTool,
     ContextRetrieverToolset,
+    is_context_retriever_tool,
     list_context_retriever_tools,
     query_context_retriever,
     search_catalog,
@@ -2716,6 +2717,17 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
         {"result": {"sku": "VH-1001", "quantity": 42}},
     )
     assert summary == "VH-1001 · quantity 42"
+    assert details == []
+    ContextRetrieverTool({"name": "get_inventory_by_id"})
+    assert is_context_retriever_tool("get_inventory_by_id") is True
+    assert _tool_label("get_inventory_by_id", {"id": "portland-vh-1001"}) == (
+        "Context Retriever · get_inventory_by_id"
+    )
+    summary, details = _tool_summary(
+        "get_inventory_by_id",
+        {"result": {"sku": "VH-1001", "quantity": 7}},
+    )
+    assert summary == "VH-1001 · quantity 7"
     assert details == []
     assert _tool_label("search_catalog", {}) == (
         'RedisVL Search Catalog · "" · all categories · limit 5'

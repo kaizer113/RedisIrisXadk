@@ -32,6 +32,7 @@ from valuewholesale_agent.services import (
     safe_id,
     services,
 )
+from valuewholesale_agent.tools import is_context_retriever_tool
 
 settings = get_settings()
 log = logging.getLogger(__name__)
@@ -497,6 +498,8 @@ def _tool_label(name: str, arguments: dict[str, Any]) -> str:
         return "Context Retriever · discover MCP tools"
     if name == "query_context_retriever":
         return f"Context Retriever · {arguments.get('tool_name', 'MCP tool')}"
+    if is_context_retriever_tool(name):
+        return f"Context Retriever · {name}"
     return f"Agent tool · {name.replace('_', ' ')}"
 
 
@@ -529,7 +532,9 @@ def _tool_summary(
     if name == "list_context_retriever_tools" and isinstance(payload, dict):
         tools = payload.get("tools", [])
         return f"{len(tools)} governed tools available", []
-    if name == "query_context_retriever" and isinstance(payload, dict):
+    if (
+        name == "query_context_retriever" or is_context_retriever_tool(name)
+    ) and isinstance(payload, dict):
         if payload.get("ok") is False:
             return "MCP call failed", [str(payload.get("error", "Unknown MCP error"))[:300]]
         if "quantity" in payload:

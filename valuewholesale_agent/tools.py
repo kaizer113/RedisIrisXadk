@@ -15,6 +15,13 @@ from valuewholesale_agent.services import (
     services,
 )
 
+_CONTEXT_RETRIEVER_TOOL_NAMES: set[str] = set()
+
+
+def is_context_retriever_tool(name: str) -> bool:
+    """Return whether a tool was dynamically discovered from Context Retriever."""
+    return name in _CONTEXT_RETRIEVER_TOOL_NAMES
+
 
 def _context_retriever_enabled(tool_context: ToolContext) -> bool:
     state = getattr(tool_context, "state", {})
@@ -240,6 +247,7 @@ class ContextRetrieverTool(BaseTool):
                 or "Query governed live Value Wholesale context."
             ),
         )
+        _CONTEXT_RETRIEVER_TOOL_NAMES.add(self.name)
 
     def _get_declaration(self) -> types.FunctionDeclaration:
         schema = self.definition.get("inputSchema")
