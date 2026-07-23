@@ -1419,11 +1419,18 @@ async def reset_member_memory(request: MemoryResetRequest) -> dict[str, Any]:
     if services.vertex_memory.client is None:
         raise HTTPException(status_code=503, detail="Vertex ADK Memory Bank is not configured")
 
-    seeded_memories = [
-        json.loads(line)
-        for line in MEMORY_SEEDS_PATH.read_text().splitlines()
-        if line.strip()
-    ]
+    try:
+        seeded_memories = [
+            json.loads(line)
+            for line in MEMORY_SEEDS_PATH.read_text().splitlines()
+            if line.strip()
+        ]
+    except (OSError, json.JSONDecodeError) as exc:
+        log.error("Memory seed data could not be loaded from %s: %s", MEMORY_SEEDS_PATH, exc)
+        raise HTTPException(
+            status_code=500,
+            detail="Memory seed data is unavailable in this deployment",
+        ) from exc
     member_seeds = [
         memory for memory in seeded_memories if memory.get("owner_id") == request.member_id
     ]

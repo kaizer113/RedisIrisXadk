@@ -14,6 +14,7 @@ RUN uv sync --frozen --no-dev
 RUN uv run --no-sync python -c "from huggingface_hub import snapshot_download; snapshot_download('redis/langcache-embed-v3-small')"
 
 COPY valuewholesale_agent ./valuewholesale_agent
+COPY data/generated/memory_seeds.jsonl ./data/generated/memory_seeds.jsonl
 COPY scripts ./scripts
 
 EXPOSE 8080

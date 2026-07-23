@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -2121,6 +2122,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
     assert 'id="reset-demo"' in html
     assert 'id="reset-memory"' in html
+    assert 'id="reset-help"' in html
+    assert "Reset unavailable" in html
+    assert "large-corpus benchmark member" in html
     assert 'id="redis-endpoint"' in html
     assert 'id="memory-latencies"' in html
     assert (
@@ -2130,6 +2134,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
     assert "fetch('/api/reset-member-memory'" in html
+    assert "Restoring ${name}'s seeded memories in Redis and ADK" in html
+    assert "(await response.json()).detail" in html
     assert 'id="redis-memory-trigger"' in html
     assert 'id="adk-memory-trigger"' in html
     assert 'id="memory-modal"' in html
@@ -2300,6 +2306,14 @@ def test_member_memory_reset_restores_selected_demo_member(monkeypatch) -> None:
             json={"member_id": "member-1005"},
         )
     assert forbidden.status_code == 403
+
+
+def test_container_includes_member_memory_seed_data() -> None:
+    dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
+    assert (
+        "COPY data/generated/memory_seeds.jsonl ./data/generated/memory_seeds.jsonl"
+        in dockerfile
+    )
 
 
 def test_member_memory_inventory_reads_providers_concurrently_and_tolerates_failure(
