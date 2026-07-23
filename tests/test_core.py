@@ -2208,11 +2208,15 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "cacheHit=step.cache?.status==='hit'" in html
     assert "if(cacheHit&&operation!=='tool_cache')return" in html
     assert "step.status==='running'?'…':''" in html
+    assert "function formatDurationMs(value){return `${Number(value).toFixed(2)} ms`;}" in html
+    assert "formatDurationMs(step.duration_ms)" in html
+    assert "formatDurationMs(step.cache.read_duration_ms)" in html
     assert (
         "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
         in html
     )
     assert 'class="panel side trace-panel"' in html
+    assert "@media (min-width:901px) { aside { min-height:0; contain:size; } }" in html
     shortcuts = [
         ("Pantry run", "Find family-size pantry staples under $30 and check Portland stock."),
         (
