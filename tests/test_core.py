@@ -2280,9 +2280,14 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "fetch('/api/reset-member-memory'" in html
     assert "Restoring ${name}'s seeded memories in Redis and ADK" in html
     assert "(await response.json()).detail" in html
+    assert 'id="all-memory-trigger"' in html
     assert 'id="redis-memory-trigger"' in html
     assert 'id="adk-memory-trigger"' in html
     assert 'id="memory-modal"' in html
+    assert "openMemories('all',event.currentTarget)" in html
+    assert "openMemories('redis',event.currentTarget)" in html
+    assert "openMemories('adk',event.currentTarget)" in html
+    assert "memoryColumns.classList.toggle('single',memoryFilter!=='all')" in html
     assert "fetch(`/api/member-memory?member_id=${encodeURIComponent(requestedMember)}`)" in html
     assert ".memory-pills {" in html
     assert ".memory-pill-origin {" in html
