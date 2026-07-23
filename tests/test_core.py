@@ -2140,8 +2140,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="redis-endpoint"' in html
     assert 'id="memory-latencies"' in html
     assert (
-        "health ${memory.health_ms} ms · short-term ${memory.short_term_ms} ms · "
-        "long-term ${memory.long_term_ms} ms"
+        "health ${formatDurationMs(memory.health_ms)} · "
+        "short-term ${formatDurationMs(memory.short_term_ms)} · "
+        "long-term ${formatDurationMs(memory.long_term_ms)}"
     ) in html
     assert "data.redis_endpoint||'Not configured'" in html
     assert "fetch('/api/reset-demo',{method:'POST'})" in html
@@ -2211,6 +2212,10 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "function formatDurationMs(value){return `${Number(value).toFixed(2)} ms`;}" in html
     assert "formatDurationMs(step.duration_ms)" in html
     assert "formatDurationMs(step.cache.read_duration_ms)" in html
+    assert "timing.textContent=formatDurationMs(duration)" in html
+    assert "duration==null?'used':formatDurationMs(duration)" in html
+    assert "`p95 ${formatDurationMs(stats.p95_ms)}`" in html
+    assert "${formatDurationMs(result.duration_ms)}" in html
     assert (
         "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
         in html
