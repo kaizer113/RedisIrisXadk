@@ -6,8 +6,11 @@ from typing import Any
 
 from valuewholesale_agent.config import get_settings
 from valuewholesale_agent.services import (
+    ECOMMERCE_ROUTE,
     LOCAL_EMBEDDING_DIMS,
+    NORLINGS_ECOMMERCE_REFERENCES,
     CatalogService,
+    SemanticRouterService,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -179,6 +182,17 @@ def ensure_indexes(catalog: CatalogService) -> None:
         )
 
 
+def ensure_semantic_router_references(catalog: CatalogService) -> int:
+    if catalog.settings.experience_id != "norlings" or catalog.redis is None:
+        return 0
+    router = SemanticRouterService(catalog.settings, redis_client=catalog.redis)
+    added_keys = router.ensure_route_references(
+        ECOMMERCE_ROUTE,
+        NORLINGS_ECOMMERCE_REFERENCES,
+    )
+    return len(added_keys)
+
+
 def main() -> None:
     catalog = CatalogService(settings)
     client = catalog.redis
@@ -249,12 +263,14 @@ def main() -> None:
             mapping=redis_mapping(evaluation),
         )
     pipeline.execute()
+    router_references_added = ensure_semantic_router_references(catalog)
     print(
         "Seeded "
         f"{len(products)} products, {len(warehouses)} warehouses, {len(inventory)} stock records, "
         f"{len(members)} members, {len(orders)} orders, {len(order_items)} order items, "
         f"{len(policies)} policies, {len(memory_seeds)} memory seeds, "
-        f"and {len(memory_evaluations)} memory evaluations."
+        f"{len(memory_evaluations)} memory evaluations, and "
+        f"{router_references_added} missing semantic-router references."
     )
 
 

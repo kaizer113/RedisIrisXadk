@@ -19,6 +19,7 @@ from redisvl.extensions.cache.embeddings import EmbeddingsCache
 from redisvl.index import SearchIndex
 from redisvl.query import TextQuery, VectorQuery
 from redisvl.query.filter import Tag
+from redisvl.redis.utils import hashify
 from redisvl.utils.vectorize import HFTextVectorizer
 
 from valuewholesale_agent.config import Settings, get_settings
@@ -149,6 +150,13 @@ ECOMMERCE_REFERENCES = [
     "Which membership deal offers the best value?",
     "Do you sell fragrance-free detergent?",
     "What groceries should I buy for a large family?",
+]
+NORLINGS_ECOMMERCE_REFERENCES = [
+    "Help me find a tailored work outfit.",
+    "Recommend fragrance-free skincare.",
+    "Do you have the wool coat in Manhattan?",
+    "Find a leather tote for work.",
+    "Build an evening outfit under $400 and check Manhattan stock",
 ]
 OUT_OF_DOMAIN_ROUTE = "blocked_out_of_domain"
 OUT_OF_DOMAIN_REFERENCES = [
@@ -922,10 +930,7 @@ class SemanticRouterService:
                 ]
                 ecommerce_references = [
                     *ECOMMERCE_REFERENCES,
-                    "Help me find a tailored work outfit.",
-                    "Recommend fragrance-free skincare.",
-                    "Do you have the wool coat in Manhattan?",
-                    "Find a leather tote for work.",
+                    *NORLINGS_ECOMMERCE_REFERENCES,
                 ]
             else:
                 policy_references = PUBLIC_POLICY_REFERENCES
@@ -971,6 +976,32 @@ class SemanticRouterService:
                 overwrite=False,
             )
         return self._router
+
+    def ensure_route_references(self, route_name: str, references: list[str]) -> list[str]:
+        """Add only route references whose exact vector records are absent."""
+        router = self._get_router()
+        route = router.get(route_name)
+        if route is None:
+            raise ValueError(f"Route {route_name} not found in the SemanticRouter")
+        missing = []
+        for reference in references:
+            reference_key = router._route_ref_key(  # noqa: SLF001
+                router._index,  # noqa: SLF001
+                route_name,
+                hashify(reference),
+            )
+            if not router._index.client.exists(reference_key):  # noqa: SLF001
+                missing.append(reference)
+        if not missing:
+            return []
+        # RedisVL initializes the in-memory route from the supplied seed list even
+        # when the corresponding vectors are absent from an existing index. Remove
+        # those entries before add_route_references appends them to persisted state.
+        missing_set = set(missing)
+        route.references = [
+            reference for reference in route.references if reference not in missing_set
+        ]
+        return router.add_route_references(route_name, missing)
 
     def route(self, message: str, recent_context: str = "") -> dict[str, Any]:
         threshold = self.settings.valuewholesale_semantic_router_threshold

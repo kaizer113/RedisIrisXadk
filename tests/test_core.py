@@ -50,6 +50,7 @@ from valuewholesale_agent.experience import get_experience_profile, load_experie
 from valuewholesale_agent.services import (
     ECOMMERCE_REFERENCES,
     ECOMMERCE_ROUTE,
+    NORLINGS_ECOMMERCE_REFERENCES,
     OUT_OF_DOMAIN_ROUTE,
     POLICY_INDEX_NAME,
     PRODUCT_EDUCATION_ROUTE,
@@ -1240,6 +1241,10 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
         in ECOMMERCE_REFERENCES
     )
     assert "What household products have I bought in the past?" in ECOMMERCE_REFERENCES
+    assert (
+        "Build an evening outfit under $400 and check Manhattan stock"
+        in NORLINGS_ECOMMERCE_REFERENCES
+    )
     settings = Settings(
         _env_file=None,
         redis_url="redis://configured",
@@ -1421,6 +1426,38 @@ def test_semantic_router_recognizes_short_confirmation_followups() -> None:
         "maybe recommend a different coffee",
     ):
         assert SemanticRouterService.is_contextual_followup(prompt) is False
+
+
+def test_semantic_router_seed_adds_missing_vector_without_duplicate_config() -> None:
+    reference = "Build an evening outfit under $400 and check Manhattan stock"
+    route = SimpleNamespace(references=["existing reference", reference])
+
+    class FakeClient:
+        @staticmethod
+        def exists(key):
+            return False
+
+    class FakeRouter:
+        _index = SimpleNamespace(client=FakeClient())
+
+        @staticmethod
+        def _route_ref_key(index, route_name, reference_hash):
+            return f"{route_name}:{reference_hash}"
+
+        @staticmethod
+        def get(route_name):
+            return route
+
+        @staticmethod
+        def add_route_references(route_name, references):
+            route.references.extend(references)
+            return ["added-key"]
+
+    service = SemanticRouterService(Settings(_env_file=None))
+    service._router = FakeRouter()
+
+    assert service.ensure_route_references(ECOMMERCE_ROUTE, [reference]) == ["added-key"]
+    assert route.references.count(reference) == 1
 
 
 def test_unconfigured_semantic_router_fails_safe() -> None:
