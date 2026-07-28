@@ -1128,7 +1128,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
         )
     yield trace_event(
         "greeting-generation",
-        "ADK Greeting",
+        "Agent Greting",
         status="running",
         summary="Selecting optional context and generating a greeting",
     )
@@ -1240,7 +1240,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     )
     yield trace_event(
         "greeting-generation",
-        llm_count_label("ADK Greeting", llm_calls),
+        llm_count_label("Agent Greting", llm_calls),
         duration_ms=round((time.perf_counter() - runner_started) * 1000, 2),
         summary=context_summary,
         details=context_details,

@@ -2248,7 +2248,7 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
         for event in reversed(events)
         if event["type"] == "trace" and event["step"]["id"] == "greeting-generation"
     )
-    assert greeting_trace["label"] == "ADK Greeting (2 llm calls)"
+    assert greeting_trace["label"] == "Agent Greting (2 llm calls)"
     assert greeting_trace["duration_ms"] < 50
     assert "Context used: Redis Agent Memory" in greeting_trace["summary"]
     assert greeting_trace["details"] == ["Redis Agent Memory: 1 relevant memories found"]
@@ -2315,6 +2315,16 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "body.adk-hidden .adk-only { display:none !important; }" in html
     assert "['adk-short-term','vertex-long-term'].includes" in html
     assert "group.adkOnly?' adk-only':''" in html
+    assert "Gemini & Agent orchestration" in html
+    assert "Agent Loop + Gemini " in html
+    assert "setPresenterLabel(label,step.label)" in html
+    assert "refreshPresenterLabels()" in html
+    assert "flex-wrap:wrap" in html
+    assert ".presenter-toggle { display:flex; flex:0 0 100%;" in html
+    assert (
+        '</div><label class="presenter-toggle"><input id="show-adk-toggle"'
+        in html
+    )
     assert 'id="context-retriever-toggle"' in html
     assert "title=\"Show p95 latency\"" in html
     assert "renderAggregatePair(target,'ST',shortP95,'LT',longP95)" in html
@@ -2339,7 +2349,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert ".service-logo.gemini { width:37px; height:37px; justify-self:center; }" in html
     assert "services:['gemini_adk_orchestration'],wide:true" in html
     assert "if(id==='generation'||id==='greeting-generation')" in html
-    assert "label.textContent=step.label" in html
+    assert "setPresenterLabel(label,step.label)" in html
     assert ".service-time:not(:empty) { display:block; }" in html
     assert ".service-name { min-width:0; line-height:1.2; white-space:normal; }" in html
     assert '<div class="service-meta-row"><button id="context-tools-trigger"' in html
