@@ -39,9 +39,10 @@ offers Gemini 3.1 Flash-Lite for speed and Gemini 3.1 Pro for heavier reasoning.
 
 Every shopping request runs semantic routing. A LangCache hit returns before memory retrieval and
 agent generation; cache misses and bypasses retrieve the required context and run the agent.
-Context Retriever is warmed on startup but is opt-in in the service panel, making it easy to
-compare the same journey with and without governed live context. The web UI streams those steps
-live and offers demo-member and Gemini-model selectors.
+Context Retriever is warmed on startup and enabled by default in the service panel. The browser
+remembers the presenter's last setting, making it easy to compare the same journey with and
+without governed live context across page refreshes. The web UI streams those steps live and
+offers demo-member and Gemini-model selectors.
 
 `make setup-memory-bank` idempotently creates or updates the named Vertex Memory Bank, saves
 its non-secret resource ID in `.env`, and seeds the same checked-in facts into both managed

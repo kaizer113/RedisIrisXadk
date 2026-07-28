@@ -175,7 +175,7 @@ PROFILES = {
             ("New-season shoes", "Which shoes fit my preferences and are available in Chicago?"),
             ("Complete the look", "What accessories would complement my recent purchases?"),
             ("Upcoming order", "What is in my upcoming order?"),
-            ("Beauty edit", "Recommend a fragrance based on what you remember about me."),
+            ("Fragrance", "Recommend a fragrance based on what you remember about me."),
             ("Ask a policy", "What is the return policy for designer items?"),
             ("Travel ready", "Find a refined carry-on option available in Seattle."),
         ),

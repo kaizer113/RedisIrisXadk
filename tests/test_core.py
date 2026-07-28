@@ -2385,6 +2385,16 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "localStorage.getItem(SHOW_ADK_STORAGE_KEY)==='true'" in html
     assert "catch(_){return false;}" in html
     assert "localStorage.setItem(SHOW_ADK_STORAGE_KEY,String(show))" in html
+    assert (
+        "CONTEXT_RETRIEVER_STORAGE_KEY='value-wholesale-context-retriever'" in html
+    )
+    assert "let contextRetrieverEnabled=storedContextRetrieverEnabled()" in html
+    assert "return stored===null||stored==='true'" in html
+    assert "catch(_){return true;}" in html
+    assert (
+        "localStorage.setItem(CONTEXT_RETRIEVER_STORAGE_KEY,"
+        "String(contextRetrieverEnabled))" in html
+    )
     assert "body.adk-hidden .adk-only { display:none !important; }" in html
     assert "['adk-short-term','vertex-long-term'].includes" in html
     assert "group.adkOnly?' adk-only':''" in html
@@ -2406,6 +2416,10 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "'No samples yet'" in html
     assert "No warm samples yet" not in html
     assert "toggle.onchange=()=>{contextRetrieverEnabled=toggle.checked" in html
+    assert (
+        "event.target.id==='context-retriever-toggle'"
+        ")persistContextRetrieverEnabled()" in html
+    )
     assert "toggle.onchange=async()=>" not in html
     assert 'rel="icon" href="__EXPERIENCE_FAVICON__"' in html
     assert (api_module.STATIC_DIR / "assets" / "value-wholesale-favicon.svg").is_file()
