@@ -2307,6 +2307,14 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="service-panel"' in html
     assert 'id="service-panel-toggle"' in html
     assert 'id="latency-stats-toggle"' in html
+    assert 'id="show-adk-toggle"' in html
+    assert "Show ADK in trace and services" in html
+    assert "SHOW_ADK_STORAGE_KEY='value-wholesale-show-adk'" in html
+    assert "localStorage.getItem(SHOW_ADK_STORAGE_KEY)!=='false'" in html
+    assert "localStorage.setItem(SHOW_ADK_STORAGE_KEY,String(show))" in html
+    assert "body.adk-hidden .adk-only { display:none !important; }" in html
+    assert "['adk-short-term','vertex-long-term'].includes" in html
+    assert "group.adkOnly?' adk-only':''" in html
     assert 'id="context-retriever-toggle"' in html
     assert "title=\"Show p95 latency\"" in html
     assert "renderAggregatePair(target,'ST',shortP95,'LT',longP95)" in html
