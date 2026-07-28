@@ -11,7 +11,7 @@ if [[ ! -f "$SOURCE_ENV_FILE" ]]; then
 fi
 
 set -a
-# shellcheck disable=SC1091
+# shellcheck disable=SC1090,SC1091
 source "$SOURCE_ENV_FILE"
 set +a
 
@@ -19,14 +19,21 @@ PROJECT_ID="${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT before running this
 REGION="${VALUEWHOLESALE_DEPLOY_REGION:?Set VALUEWHOLESALE_DEPLOY_REGION before running this script}"
 ZONE="${VALUEWHOLESALE_VM_ZONE:?Set VALUEWHOLESALE_VM_ZONE before running this script}"
 VM_NAME="${VALUEWHOLESALE_VM_NAME:-valuewholesale-demo}"
+EXPERIENCE="${EXPERIENCE_ID:-valuewholesale}"
+CONTAINER_NAME="${VALUEWHOLESALE_VM_CONTAINER_NAME:-${EXPERIENCE}-agent}"
+HOST_PORT="${VALUEWHOLESALE_VM_HOST_PORT:-80}"
 MACHINE_TYPE="e2-standard-4"
 NETWORK="default"
 NETWORK_TAG="valuewholesale-web"
-FIREWALL_RULE="valuewholesale-allow-http"
+if [[ "$HOST_PORT" == "80" && "$EXPERIENCE" == "valuewholesale" ]]; then
+  FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-valuewholesale-allow-http}"
+else
+  FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-${EXPERIENCE}-allow-${HOST_PORT}}"
+fi
 REPOSITORY="valuewholesale"
 SERVICE="valuewholesale-shopping-agent"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="app=valuewholesale,environment=demo"
+LABELS="app=${EXPERIENCE},environment=demo"
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required"; exit 1; }
@@ -50,10 +57,10 @@ if ! gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; th
     --network "$NETWORK" \
     --direction INGRESS \
     --action ALLOW \
-    --rules tcp:80 \
+    --rules "tcp:$HOST_PORT" \
     --source-ranges 0.0.0.0/0 \
     --target-tags "$NETWORK_TAG" \
-    --description "Public HTTP access for the Value Wholesale workshop demo" \
+    --description "Public HTTP access for the $EXPERIENCE demo" \
     || gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null
 fi
 
@@ -103,13 +110,13 @@ if [[ "$ready" != "true" ]]; then
   exit 1
 fi
 
-RUNTIME_ENV_FILE="$(mktemp /tmp/valuewholesale-vm-env.XXXXXX)"
+RUNTIME_ENV_FILE="$(mktemp "/tmp/${EXPERIENCE}-vm-env.XXXXXX")"
 trap 'rm -f "$RUNTIME_ENV_FILE"' EXIT
 chmod 600 "$RUNTIME_ENV_FILE"
 while IFS= read -r line; do
   key="${line%%=*}"
   case "$key" in
-    GOOGLE_*|VALUEWHOLESALE_*|REDIS_URL|CTX_MCP_URL|MCP_AGENT_KEY|LANGCACHE_*|AGENT_MEMORY_*|PORT|LOG_LEVEL)
+    GOOGLE_*|VALUEWHOLESALE_*|EXPERIENCE_ID|DATASET_DIR|STATIC_DIR|REDIS_KEY_PREFIX|REDIS_INDEX_PREFIX|EMBEDDING_CACHE_NAME|ADK_*|CONTEXT_*|MEMORY_BANK_DISPLAY_NAME|REDIS_URL|CTX_MCP_URL|MCP_AGENT_KEY|LANGCACHE_*|AGENT_MEMORY_*|PORT|LOG_LEVEL)
       if [[ "$key" == "REDIS_URL" && -n "${VALUEWHOLESALE_VM_REDIS_HOST:-}" ]]; then
         redis_value="${line#REDIS_URL=}"
         redis_prefix="${redis_value%@*}"
@@ -126,31 +133,34 @@ while IFS= read -r line; do
   esac
 done < "$SOURCE_ENV_FILE"
 
-gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/valuewholesale.env" --zone "$ZONE" --quiet
+gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/${CONTAINER_NAME}.env" --zone "$ZONE" --quiet
 gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "
   set -e
-  sudo install -o root -g root -m 600 ~/valuewholesale.env /etc/valuewholesale.env
-  rm -f ~/valuewholesale.env
+  sudo install -o root -g root -m 600 ~/${CONTAINER_NAME}.env /etc/${CONTAINER_NAME}.env
+  rm -f ~/${CONTAINER_NAME}.env
   token=\$(curl -fsS -H 'Metadata-Flavor: Google' \
     'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token' \
     | python3 -c 'import json,sys; print(json.load(sys.stdin)[\"access_token\"])')
   printf '%s' \"\$token\" | sudo docker login -u oauth2accesstoken --password-stdin https://$REGION-docker.pkg.dev
   sudo docker image prune -f >/dev/null
   sudo docker pull '$IMAGE'
-  sudo docker rm -f valuewholesale-agent >/dev/null 2>&1 || true
+  sudo docker rm -f '$CONTAINER_NAME' >/dev/null 2>&1 || true
   sudo docker run -d \
-    --name valuewholesale-agent \
+    --name '$CONTAINER_NAME' \
     --restart unless-stopped \
-    --env-file /etc/valuewholesale.env \
+    --env-file '/etc/${CONTAINER_NAME}.env' \
     -e PORT=8080 \
     -e WEB_CONCURRENCY=2 \
-    -p 80:8080 \
+    -p '$HOST_PORT:8080' \
     '$IMAGE'
   sudo docker image prune -f >/dev/null
 "
 
 PUBLIC_IP="$(gcloud compute instances describe "$VM_NAME" --zone "$ZONE" --format='value(networkInterfaces[0].accessConfigs[0].natIP)')"
 PUBLIC_URL="http://$PUBLIC_IP"
+if [[ "$HOST_PORT" != "80" ]]; then
+  PUBLIC_URL="$PUBLIC_URL:$HOST_PORT"
+fi
 
 echo "Waiting for the public health endpoint..."
 healthy=false
@@ -163,7 +173,7 @@ for _ in $(seq 1 30); do
 done
 if [[ "$healthy" != "true" ]]; then
   echo "Container started, but the public health check did not pass."
-  echo "Inspect it with: gcloud compute ssh $VM_NAME --zone $ZONE --command 'sudo docker logs valuewholesale-agent'"
+  echo "Inspect it with: gcloud compute ssh $VM_NAME --zone $ZONE --command 'sudo docker logs $CONTAINER_NAME'"
   exit 1
 fi
 

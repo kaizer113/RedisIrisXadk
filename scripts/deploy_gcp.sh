@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ -f .env ]]; then
+SOURCE_ENV_FILE="${VALUEWHOLESALE_CLOUD_RUN_ENV_FILE:-.env}"
+if [[ -f "$SOURCE_ENV_FILE" ]]; then
   set -a
-  # shellcheck disable=SC1091
-  source .env
+  # shellcheck disable=SC1090,SC1091
+  source "$SOURCE_ENV_FILE"
   set +a
 fi
 
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:?Set GOOGLE_CLOUD_PROJECT before running this script}"
 REGION="${VALUEWHOLESALE_DEPLOY_REGION:?Set VALUEWHOLESALE_DEPLOY_REGION before running this script}"
-MEMORY_REGION="${GOOGLE_MEMORY_LOCATION:-$REGION}"
-SERVICE="valuewholesale-shopping-agent"
+EXPERIENCE="${EXPERIENCE_ID:-valuewholesale}"
+SERVICE="${VALUEWHOLESALE_CLOUD_RUN_SERVICE:-${EXPERIENCE}-shopping-agent}"
 REPOSITORY="valuewholesale"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="app=valuewholesale,environment=demo"
+LABELS="app=${EXPERIENCE},environment=demo"
 ACCESS_FLAGS=(--no-invoker-iam-check)
 if [[ "${PUBLIC_ACCESS:-true}" == "false" ]]; then
   ACCESS_FLAGS=()
@@ -31,7 +32,7 @@ fi
 
 gcloud builds submit --tag "$IMAGE" .
 
-RUNTIME_ENV_FILE="$(mktemp /tmp/valuewholesale-cloud-run-env.XXXXXX.json)"
+RUNTIME_ENV_FILE="$(mktemp "/tmp/${EXPERIENCE}-cloud-run-env.XXXXXX.json")"
 trap 'rm -f "$RUNTIME_ENV_FILE"' EXIT
 uv run python - "$RUNTIME_ENV_FILE" <<'PY'
 import json
@@ -39,6 +40,19 @@ import os
 import sys
 
 names = [
+    "EXPERIENCE_ID",
+    "DATASET_DIR",
+    "STATIC_DIR",
+    "REDIS_KEY_PREFIX",
+    "REDIS_INDEX_PREFIX",
+    "EMBEDDING_CACHE_NAME",
+    "ADK_APP_NAME",
+    "ADK_GREETING_APP_NAME",
+    "ADK_TRANSCRIPT_APP_NAME",
+    "CONTEXT_SURFACE_NAME",
+    "CONTEXT_AGENT_NAME",
+    "CONTEXT_AGENT_DISPLAY_NAME",
+    "MEMORY_BANK_DISPLAY_NAME",
     "GOOGLE_GENAI_USE_VERTEXAI",
     "GOOGLE_CLOUD_PROJECT",
     "GOOGLE_CLOUD_LOCATION",

@@ -22,26 +22,22 @@ from redisvl.query.filter import Tag
 from redisvl.utils.vectorize import HFTextVectorizer
 
 from valuewholesale_agent.config import Settings, get_settings
-from valuewholesale_agent.demo_data import (
-    INVENTORY,
-    MEMBERS,
-    ORDERS,
-    POLICIES,
-    PRODUCTS,
-    WAREHOUSES,
-)
+from valuewholesale_agent.experience import load_experience_dataset
 
 log = logging.getLogger(__name__)
 
-PRODUCT_INDEX_NAME = "idx:valuewholesale:products-v2"
-POLICY_INDEX_NAME = "idx:valuewholesale:policies-v2"
+_DEFAULT_SETTINGS = get_settings()
+PRODUCT_INDEX_NAME = _DEFAULT_SETTINGS.product_index_name
+POLICY_INDEX_NAME = _DEFAULT_SETTINGS.policy_index_name
 LOCAL_EMBEDDING_DIMS = 384
-EMBEDDING_CACHE_NAME = "valuewholesale-embeddings-v1"
-EMBEDDING_WARMUP_TEXT = "Warm the Value Wholesale semantic embedding model."
+EMBEDDING_CACHE_NAME = _DEFAULT_SETTINGS.effective_embedding_cache_name
+EMBEDDING_WARMUP_TEXT = (
+    f"Warm the {_DEFAULT_SETTINGS.experience.brand_name} semantic embedding model."
+)
 AGENT_MEMORY_MAX_CONNECTIONS = 40
 AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS = 20
 TOOL_CALL_CACHE_METADATA_KEY = "_tool_call_cache"
-VERTEX_MEMORY_APP_NAME = "valuewholesale-shopping-agent"
+VERTEX_MEMORY_APP_NAME = _DEFAULT_SETTINGS.effective_app_name
 MEMORY_INVENTORY_LIMIT = 20
 REDIS_RECALL_MEMORY_TYPES = ("semantic", "episodic", "shopping_preferenceV2")
 
@@ -72,6 +68,7 @@ def call_with_timing(
     started = time.perf_counter()
     result = operation(*args, **kwargs)
     return result, round((time.perf_counter() - started) * 1000, 2)
+
 
 PUBLIC_POLICY_ROUTE = "reusable_ecommerce"
 PRODUCT_EDUCATION_ROUTE = "product_education"
@@ -185,7 +182,7 @@ class LocalEmbeddingService:
         self._inference_lock = threading.Lock()
         self.embedding_cache = (
             EmbeddingsCache(
-                name=EMBEDDING_CACHE_NAME,
+                name=settings.effective_embedding_cache_name,
                 ttl=settings.valuewholesale_embedding_cache_ttl_seconds,
                 redis_url=settings.redis_url,
                 connection_kwargs=REDIS_CONNECTION_KWARGS,
@@ -247,9 +244,10 @@ class LocalEmbeddingService:
     def cache_probe(self) -> tuple[bool, str, dict[str, Any]]:
         if self.embedding_cache is None:
             return False, "RedisVL EmbeddingsCache is not configured", {}
-        vector = self.embed(EMBEDDING_WARMUP_TEXT)
+        warmup_text = f"Warm the {self.settings.experience.brand_name} semantic embedding model."
+        vector = self.embed(warmup_text)
         cached = self.embedding_cache.exists(
-            content=EMBEDDING_WARMUP_TEXT,
+            content=warmup_text,
             model_name=self.settings.valuewholesale_embedding_model,
         )
         return (
@@ -259,32 +257,35 @@ class LocalEmbeddingService:
                 "model": self.settings.valuewholesale_embedding_model,
                 "dimensions": len(vector),
                 "ttl_seconds": self.settings.valuewholesale_embedding_cache_ttl_seconds,
-                "cache_name": EMBEDDING_CACHE_NAME,
+                "cache_name": self.settings.effective_embedding_cache_name,
             },
         )
 
     def warmup(self) -> dict[str, Any]:
         started = time.perf_counter()
-        vector = self.embed(EMBEDDING_WARMUP_TEXT)
+        warmup_text = f"Warm the {self.settings.experience.brand_name} semantic embedding model."
+        vector = self.embed(warmup_text)
         return {
             "model": self.settings.valuewholesale_embedding_model,
             "dimensions": len(vector),
             "device": self.settings.valuewholesale_embedding_device,
             "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-            "cache": EMBEDDING_CACHE_NAME if self.embedding_cache else None,
+            "cache": (
+                self.settings.effective_embedding_cache_name if self.embedding_cache else None
+            ),
         }
 
 
 class ToolCallCache:
     """Session-scoped exact-match cache for successful read-only tool results."""
 
-    KEY_PREFIX = "tool-cache"
-    SESSION_INDEX_PREFIX = "tool-cache-session"
     SCHEMA_VERSION = "v2"
 
     def __init__(self, settings: Settings, client: redis.Redis | None) -> None:
         self.settings = settings
         self.redis = client
+        self.key_prefix = f"{settings.redis_namespace}:tool-cache"
+        self.session_index_prefix = f"{settings.redis_namespace}:tool-cache-session"
 
     @staticmethod
     def _canonical_arguments(arguments: dict[str, Any]) -> str:
@@ -309,13 +310,13 @@ class ToolCallCache:
             )
         )
         digest = hashlib.sha256(material.encode()).hexdigest()
-        return f"{self.KEY_PREFIX}:{digest}"
+        return f"{self.key_prefix}:{digest}"
 
     def _session_index_key(self, owner_id: str, session_id: str) -> str:
         owner = safe_id(owner_id, "anonymous")
         session = safe_id(session_id, "shopping-session")
         digest = hashlib.sha256(f"{owner}\n{session}".encode()).hexdigest()
-        return f"{self.SESSION_INDEX_PREFIX}:{digest}"
+        return f"{self.session_index_prefix}:{digest}"
 
     def get(
         self,
@@ -329,9 +330,7 @@ class ToolCallCache:
         if self.redis is None:
             return None, round((time.perf_counter() - started) * 1000, 2)
         try:
-            result = self.redis.json().get(
-                self.key(owner_id, session_id, tool_name, arguments)
-            )
+            result = self.redis.json().get(self.key(owner_id, session_id, tool_name, arguments))
             duration_ms = round((time.perf_counter() - started) * 1000, 2)
             if result is None:
                 return None, duration_ms
@@ -402,6 +401,7 @@ class CatalogService:
         embeddings: LocalEmbeddingService | None = None,
     ) -> None:
         self.settings = settings
+        self.dataset = load_experience_dataset(str(settings.dataset_path))
         self.embeddings = embeddings or LocalEmbeddingService(settings)
         self.redis: redis.Redis | None = None
         self._product_index: SearchIndex | None = None
@@ -425,8 +425,7 @@ class CatalogService:
         tags = ", ".join(str(tag) for tag in product.get("tags", []))
         description = str(product["description"]).rstrip(". ")
         return (
-            f"{product['name']}. {description}. "
-            f"Category: {product['category']}. Keywords: {tags}."
+            f"{product['name']}. {description}. Category: {product['category']}. Keywords: {tags}."
         )
 
     @staticmethod
@@ -442,7 +441,7 @@ class CatalogService:
             with self._product_index_lock:
                 if self._product_index is None:
                     self._product_index = SearchIndex.from_existing(
-                        PRODUCT_INDEX_NAME,
+                        self.settings.product_index_name,
                         redis_client=self.redis,
                     )
         return self._product_index
@@ -455,7 +454,7 @@ class CatalogService:
             with self._policy_index_lock:
                 if self._policy_index is None:
                     self._policy_index = SearchIndex.from_existing(
-                        POLICY_INDEX_NAME,
+                        self.settings.policy_index_name,
                         redis_client=self.redis,
                     )
         return self._policy_index
@@ -559,9 +558,7 @@ class CatalogService:
                 product_index = self._get_product_index()
                 redisvl_started = time.perf_counter()
                 raw_docs = product_index.query(redisvl_query)
-                redisvl_duration_ms = round(
-                    (time.perf_counter() - redisvl_started) * 1000, 2
-                )
+                redisvl_duration_ms = round((time.perf_counter() - redisvl_started) * 1000, 2)
                 docs = []
                 for mapped in raw_docs:
                     mapped.pop("id", None)
@@ -583,7 +580,7 @@ class CatalogService:
 
         words = {word for word in re.findall(r"[a-z0-9]+", query.lower()) if len(word) > 2}
         ranked: list[tuple[int, dict[str, Any]]] = []
-        for product in PRODUCTS:
+        for product in self.dataset.products:
             if category and product["category"] != category:
                 continue
             haystack = " ".join(
@@ -635,7 +632,7 @@ class CatalogService:
 
         words = set(re.findall(r"[a-z0-9]+", query.lower()))
         ranked = sorted(
-            POLICIES,
+            self.dataset.policies,
             key=lambda policy: (
                 -sum(word in f"{policy['title']} {policy['content']}".lower() for word in words)
             ),
@@ -646,20 +643,21 @@ class CatalogService:
         warehouse_id = warehouse_id.lower()
         if self.redis is not None:
             try:
-                quantity = self.redis.get(f"valuewholesale:inventory:{warehouse_id}:{sku.upper()}")
+                quantity = self.redis.get(
+                    f"{self.settings.redis_namespace}:inventory:{warehouse_id}:{sku.upper()}"
+                )
                 if quantity is not None:
                     qty = int(quantity)
                     return self._inventory_result(sku, warehouse_id, qty, "redis")
             except Exception as exc:
                 log.warning("Redis inventory lookup unavailable; using fixtures: %s", exc)
-        qty = INVENTORY.get(warehouse_id, {}).get(sku.upper())
+        qty = self.dataset.inventory.get(warehouse_id, {}).get(sku.upper())
         if qty is None:
             return {"found": False, "sku": sku.upper(), "warehouse_id": warehouse_id}
         return self._inventory_result(sku, warehouse_id, qty, "fixture")
 
-    @staticmethod
     def _inventory_result(
-        sku: str, warehouse_id: str, quantity: int, source: str
+        self, sku: str, warehouse_id: str, quantity: int, source: str
     ) -> dict[str, Any]:
         if quantity <= 0:
             availability = "out_of_stock"
@@ -671,7 +669,7 @@ class CatalogService:
             "found": True,
             "sku": sku.upper(),
             "warehouse_id": warehouse_id,
-            "warehouse": WAREHOUSES.get(warehouse_id, {}).get("name", warehouse_id),
+            "warehouse": self.dataset.warehouses.get(warehouse_id, {}).get("name", warehouse_id),
             "quantity": quantity,
             "availability": availability,
             "source": source,
@@ -680,7 +678,9 @@ class CatalogService:
     def member_profile(self, member_id: str) -> dict[str, Any]:
         if self.redis is not None:
             try:
-                raw = self.redis.hgetall(f"valuewholesale:member:{safe_id(member_id, 'unknown')}")
+                raw = self.redis.hgetall(
+                    f"{self.settings.redis_namespace}:member:{safe_id(member_id, 'unknown')}"
+                )
                 if raw:
                     profile = self._decode_map(raw)
                     profile["reward_balance"] = float(profile["reward_balance"])
@@ -688,7 +688,7 @@ class CatalogService:
                     return profile
             except Exception as exc:
                 log.warning("Redis member lookup unavailable; using fixtures: %s", exc)
-        return dict(MEMBERS.get(member_id, {"found": False, "member_id": member_id}))
+        return dict(self.dataset.members.get(member_id, {"found": False, "member_id": member_id}))
 
     def recent_orders(self, member_id: str) -> list[dict[str, Any]]:
         if self.redis is not None:
@@ -696,7 +696,7 @@ class CatalogService:
                 escaped_member_id = self._escape_tag(safe_id(member_id, "unknown"))
                 raw = self.redis.execute_command(
                     "FT.SEARCH",
-                    "idx:valuewholesale:orders",
+                    self.settings.order_index_name,
                     f"@member_id:{{{escaped_member_id}}}",
                     "RETURN",
                     8,
@@ -726,7 +726,7 @@ class CatalogService:
                     return orders
             except Exception as exc:
                 log.warning("Redis order lookup unavailable; using fixtures: %s", exc)
-        return [dict(order) for order in ORDERS.get(member_id, [])]
+        return [dict(order) for order in self.dataset.orders.get(member_id, [])]
 
     def _order_items(self, order_id: str) -> list[dict[str, Any]]:
         if self.redis is None:
@@ -734,7 +734,7 @@ class CatalogService:
         escaped_order_id = self._escape_tag(order_id)
         raw = self.redis.execute_command(
             "FT.SEARCH",
-            "idx:valuewholesale:order-items",
+            self.settings.order_item_index_name,
             f"@order_id:{{{escaped_order_id}}}",
             "RETURN",
             6,
@@ -761,6 +761,8 @@ class CatalogService:
 
 class CartService:
     def __init__(self, settings: Settings) -> None:
+        self.settings = settings
+        self.dataset = load_experience_dataset(str(settings.dataset_path))
         self.redis = (
             redis.Redis.from_url(
                 settings.redis_url,
@@ -776,11 +778,11 @@ class CartService:
     def add(self, member_id: str, sku: str, quantity: int) -> dict[str, Any]:
         quantity = max(1, min(quantity, 25))
         sku = sku.upper()
-        if not any(product["sku"] == sku for product in PRODUCTS):
+        if not any(product["sku"] == sku for product in self.dataset.products):
             return {"ok": False, "error": "unknown_sku", "sku": sku}
         if self.redis is not None:
             try:
-                key = f"valuewholesale:cart:{safe_id(member_id, 'anonymous')}"
+                key = f"{self.settings.redis_namespace}:cart:{safe_id(member_id, 'anonymous')}"
                 new_quantity = self.redis.hincrby(key, sku, quantity)
                 self.redis.expire(key, 60 * 60 * 24 * 7)
                 return {"ok": True, "sku": sku, "quantity": new_quantity, "source": "redis"}
@@ -797,7 +799,7 @@ class CartService:
                 return {
                     key: int(value)
                     for key, value in self.redis.hgetall(
-                        f"valuewholesale:cart:{safe_id(member_id, 'anonymous')}"
+                        f"{self.settings.redis_namespace}:cart:{safe_id(member_id, 'anonymous')}"
                     ).items()
                 }
             except Exception as exc:
@@ -884,9 +886,7 @@ class SemanticRouterService:
     @classmethod
     def is_contextual_followup(cls, message: str) -> bool:
         """Identify short utterances that need recent session context to be routed."""
-        return bool(
-            len(message.split()) <= 12 and cls._CONTEXTUAL_FOLLOWUP.search(message)
-        )
+        return bool(len(message.split()) <= 12 and cls._CONTEXTUAL_FOLLOWUP.search(message))
 
     def _get_router(self) -> Any:
         if self._router is not None:
@@ -898,30 +898,64 @@ class SemanticRouterService:
             from redisvl.extensions.router import Route, SemanticRouter
 
             vectorizer = self.embeddings.get_vectorizer()
+            if self.settings.experience_id == "norlings":
+                policy_references = [
+                    "What is the return policy?",
+                    "How long do Icon members have to return an item?",
+                    "Can I return an opened beauty product?",
+                    "How does store pickup work?",
+                    "When is standard shipping complimentary?",
+                    "What alterations are included for Icon members?",
+                    "How do Norling's rewards work?",
+                ]
+                product_references = [
+                    "Tell me about the Signature Wool Wrap Coat.",
+                    "What features does the Gallery Italian Leather Tote have?",
+                    "Is the Lumière serum fragrance free?",
+                    "Describe the Avenue carry-on spinner.",
+                ]
+                shopping_references = [
+                    "How should I build a polished capsule wardrobe?",
+                    "What should I pack for a city trip?",
+                    "How do I care for cashmere and wool?",
+                    "Give me a reusable gift-shopping checklist.",
+                ]
+                ecommerce_references = [
+                    *ECOMMERCE_REFERENCES,
+                    "Help me find a tailored work outfit.",
+                    "Recommend fragrance-free skincare.",
+                    "Do you have the wool coat in Manhattan?",
+                    "Find a leather tote for work.",
+                ]
+            else:
+                policy_references = PUBLIC_POLICY_REFERENCES
+                product_references = PRODUCT_EDUCATION_REFERENCES
+                shopping_references = SHOPPING_GUIDE_REFERENCES
+                ecommerce_references = ECOMMERCE_REFERENCES
             self._router = SemanticRouter(
-                name=self.settings.valuewholesale_semantic_router_index,
+                name=self.settings.effective_semantic_router_index,
                 routes=[
                     Route(
                         name=PUBLIC_POLICY_ROUTE,
-                        references=PUBLIC_POLICY_REFERENCES,
+                        references=policy_references,
                         distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": True, "cache_write": True},
                     ),
                     Route(
                         name=ECOMMERCE_ROUTE,
-                        references=ECOMMERCE_REFERENCES,
+                        references=ecommerce_references,
                         distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": False, "cache_write": False},
                     ),
                     Route(
                         name=PRODUCT_EDUCATION_ROUTE,
-                        references=PRODUCT_EDUCATION_REFERENCES,
+                        references=product_references,
                         distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": True, "cache_write": True},
                     ),
                     Route(
                         name=SHOPPING_GUIDE_ROUTE,
-                        references=SHOPPING_GUIDE_REFERENCES,
+                        references=shopping_references,
                         distance_threshold=self.settings.valuewholesale_semantic_router_threshold,
                         metadata={"action": "allow", "cache_read": True, "cache_write": True},
                     ),
@@ -993,9 +1027,7 @@ class SemanticRouterService:
         embedding_cache_hit: bool | None = None
         try:
             router = self._get_router()
-            contextual_followup = bool(
-                recent_context and self.is_contextual_followup(message)
-            )
+            contextual_followup = bool(recent_context and self.is_contextual_followup(message))
             routing_statement = (
                 f"Previous shopping conversation:\n{recent_context[-1_500:]}\n"
                 f"Current follow-up: {message}"
@@ -1007,19 +1039,17 @@ class SemanticRouterService:
             if callable(cache_probe):
                 embedding_cache_hit = cache_probe(routing_statement)
             vector = self.embeddings.embed(routing_statement)
-            embedding_duration_ms = round(
-                (time.perf_counter() - embedding_started) * 1000, 2
-            )
+            embedding_duration_ms = round((time.perf_counter() - embedding_started) * 1000, 2)
             redisvl_started = time.perf_counter()
             try:
                 match = router(vector=vector)
             finally:
-                redisvl_duration_ms = round(
-                    (time.perf_counter() - redisvl_started) * 1000, 2
-                )
+                redisvl_duration_ms = round((time.perf_counter() - redisvl_started) * 1000, 2)
             route_name = getattr(match, "name", None)
             distance = getattr(match, "distance", None)
             cache_scope = LANGCACHE_SCOPES.get(route_name)
+            if cache_scope and self.settings.experience_id != "valuewholesale":
+                cache_scope = f"{self.settings.experience_id}:{cache_scope}"
             reusable = cache_scope is not None
             cacheable = reusable and not contextual_followup
             ecommerce = route_name == ECOMMERCE_ROUTE
@@ -1035,7 +1065,7 @@ class SemanticRouterService:
                 if route_name == SHOPPING_GUIDE_ROUTE
                 else "ecommerce request"
                 if ecommerce
-                else "outside Value Wholesale ecommerce scope"
+                else f"outside {self.settings.experience.brand_name} ecommerce scope"
             )
             return {
                 "configured": True,
@@ -1052,9 +1082,7 @@ class SemanticRouterService:
                 "redisvl_duration_ms": redisvl_duration_ms,
                 "embedding_duration_ms": embedding_duration_ms,
                 "embedding_cache_hit": embedding_cache_hit,
-                "route_duration_ms": round(
-                    (time.perf_counter() - route_started) * 1000, 2
-                ),
+                "route_duration_ms": round((time.perf_counter() - route_started) * 1000, 2),
                 "contextual_followup": contextual_followup,
                 "cache_scope": cache_scope if cacheable else None,
             }
@@ -1075,9 +1103,7 @@ class SemanticRouterService:
                 "redisvl_duration_ms": redisvl_duration_ms,
                 "embedding_duration_ms": embedding_duration_ms,
                 "embedding_cache_hit": embedding_cache_hit,
-                "route_duration_ms": round(
-                    (time.perf_counter() - route_started) * 1000, 2
-                ),
+                "route_duration_ms": round((time.perf_counter() - route_started) * 1000, 2),
             }
 
 
@@ -1098,9 +1124,7 @@ class LangCacheService:
                 if self._client is None:
                     self._client = httpx.AsyncClient(
                         timeout=8,
-                        headers={
-                            "Authorization": f"Bearer {self.settings.langcache_api_key}"
-                        },
+                        headers={"Authorization": f"Bearer {self.settings.langcache_api_key}"},
                         limits=httpx.Limits(
                             max_connections=AGENT_MEMORY_MAX_CONNECTIONS,
                             max_keepalive_connections=AGENT_MEMORY_MAX_KEEPALIVE_CONNECTIONS,
@@ -1249,9 +1273,9 @@ class MemoryService:
         actor_id = (
             member_id
             if role.upper() == "USER"
-            else "valuewholesale-context"
+            else f"{self.settings.redis_namespace}-context"
             if role.upper() == "SYSTEM"
-            else "valuewholesale-agent"
+            else f"{self.settings.redis_namespace}-agent"
         )
         try:
             self.client.add_session_event(
@@ -1262,7 +1286,7 @@ class MemoryService:
                 created_at=datetime.now(UTC),
                 metadata={
                     "channel": "web",
-                    "agent": "valuewholesale-shopping",
+                    "agent": self.settings.effective_app_name,
                     **(metadata or {}),
                 },
             )
@@ -1289,9 +1313,7 @@ class MemoryService:
             )
             events = list(getattr(response, "events", []) or [])[-max(1, min(limit, 20)) :]
             return [
-                event.model_dump(mode="json")
-                if hasattr(event, "model_dump")
-                else dict(event)
+                event.model_dump(mode="json") if hasattr(event, "model_dump") else dict(event)
                 for event in events
             ]
         except Exception as exc:
@@ -1307,7 +1329,7 @@ class MemoryService:
             "owner_id": {"eq": safe_id(member_id, "anonymous")},
             "memory_type": {"in_": list(REDIS_RECALL_MEMORY_TYPES)},
         }
-        namespace = self.settings.agent_memory_namespace.strip()
+        namespace = self.settings.effective_agent_memory_namespace
         if namespace:
             memory_filter["namespace"] = {"eq": namespace}
         try:
@@ -1342,13 +1364,11 @@ class MemoryService:
                 dict.fromkeys([*(topics or ["shopping", "preference"]), "demo-created"])
             ),
         }
-        namespace = self.settings.agent_memory_namespace.strip()
+        namespace = self.settings.effective_agent_memory_namespace
         if namespace:
             memory["namespace"] = namespace
         try:
-            self.client.bulk_create_long_term_memories(
-                memories=[memory]
-            )
+            self.client.bulk_create_long_term_memories(memories=[memory])
             return True
         except Exception as exc:
             log.warning("Agent Memory direct write failed open: %s", exc)
@@ -1367,7 +1387,7 @@ class MemoryService:
         memory_filter: dict[str, Any] = {
             "owner_id": {"eq": safe_id(member_id, "anonymous")},
         }
-        namespace = self.settings.agent_memory_namespace.strip()
+        namespace = self.settings.effective_agent_memory_namespace
         if namespace:
             memory_filter["namespace"] = {"eq": namespace}
         response = self.client.search_long_term_memory(
@@ -1397,7 +1417,7 @@ class MemoryService:
             raise RuntimeError("Redis Agent Memory is not configured")
 
         owner_id = safe_id(member_id, "anonymous")
-        namespace = self.settings.agent_memory_namespace.strip()
+        namespace = self.settings.effective_agent_memory_namespace
         memory_filter: dict[str, Any] = {"owner_id": {"eq": owner_id}}
         if namespace:
             memory_filter["namespace"] = {"eq": namespace}
@@ -1499,9 +1519,7 @@ class ContextRetrieverService:
     def tools_cached(self) -> bool:
         return self._tools_cache is not None
 
-    async def get_tools(
-        self, *, force_refresh: bool = False
-    ) -> tuple[list[dict[str, Any]], bool]:
+    async def get_tools(self, *, force_refresh: bool = False) -> tuple[list[dict[str, Any]], bool]:
         """Return the governed catalog and whether it came from the server cache."""
         if not self.agent_key:
             return [], False
@@ -1610,7 +1628,7 @@ class VertexMemoryService:
             return []
         try:
             response = await self.client.search_memory(
-                app_name="valuewholesale-shopping-agent",
+                app_name=self.settings.effective_app_name,
                 user_id=safe_id(member_id, "anonymous"),
                 query=query,
             )
@@ -1637,7 +1655,7 @@ class VertexMemoryService:
 
         display_limit = max(1, min(limit, MEMORY_INVENTORY_LIMIT))
         scope = {
-            "app_name": VERTEX_MEMORY_APP_NAME,
+            "app_name": self.settings.effective_app_name,
             "user_id": safe_id(member_id, "anonymous"),
         }
         resource_name = (
@@ -1683,7 +1701,7 @@ class VertexMemoryService:
         import vertexai
 
         owner_id = safe_id(member_id, "anonymous")
-        scope = {"app_name": VERTEX_MEMORY_APP_NAME, "user_id": owner_id}
+        scope = {"app_name": self.settings.effective_app_name, "user_id": owner_id}
         resource_name = (
             f"projects/{self.settings.google_cloud_project}"
             f"/locations/{self.settings.google_memory_location}"
@@ -1720,7 +1738,9 @@ class VertexMemoryService:
                 fact=fact,
                 scope=scope,
                 config={
-                    "metadata": {"valuewholesale_origin": {"string_value": "demo-seed"}}
+                    "metadata": {
+                        f"{self.settings.redis_namespace}_origin": {"string_value": "demo-seed"}
+                    }
                 },
             )
             if hasattr(operation, "result"):

@@ -2,13 +2,21 @@
 
 from __future__ import annotations
 
+import os
+import re
 from typing import Any
 
 from context_surfaces.context_model import ContextField, ContextModel, ContextRelationship
 
+_experience_id = os.getenv("REDIS_KEY_PREFIX") or os.getenv(
+    "EXPERIENCE_ID", "valuewholesale"
+)
+_redis_namespace = re.sub(r"[^a-z0-9]+", "-", _experience_id.lower()).strip("-")
+CONTEXT_KEY_PREFIX = f"{_redis_namespace or 'valuewholesale'}:context"
+
 
 class Product(ContextModel):
-    __redis_key_template__ = "valuewholesale:context:product:{sku}"
+    __redis_key_template__ = f"{CONTEXT_KEY_PREFIX}:product:{{sku}}"
 
     sku: str = ContextField(description="Unique product SKU", is_key_component=True)
     name: str = ContextField(description="Product name", index="text", weight=2.0)
@@ -33,7 +41,7 @@ class Product(ContextModel):
 
 
 class Warehouse(ContextModel):
-    __redis_key_template__ = "valuewholesale:context:warehouse:{warehouse_id}"
+    __redis_key_template__ = f"{CONTEXT_KEY_PREFIX}:warehouse:{{warehouse_id}}"
 
     warehouse_id: str = ContextField(description="Warehouse identifier", is_key_component=True)
     name: str = ContextField(description="Warehouse name", index="text", weight=2.0)
@@ -54,7 +62,7 @@ class Warehouse(ContextModel):
 
 class Inventory(ContextModel):
     # Separate hash records preserve the application's O(1) String inventory keys.
-    __redis_key_template__ = "valuewholesale:context:inventory:{inventory_id}"
+    __redis_key_template__ = f"{CONTEXT_KEY_PREFIX}:inventory:{{inventory_id}}"
 
     inventory_id: str = ContextField(description="Inventory record ID", is_key_component=True)
     warehouse_id: str = ContextField(description="Warehouse identifier", index="tag")
@@ -75,7 +83,7 @@ class Inventory(ContextModel):
 
 
 class Member(ContextModel):
-    __redis_key_template__ = "valuewholesale:context:member:{member_id}"
+    __redis_key_template__ = f"{CONTEXT_KEY_PREFIX}:member:{{member_id}}"
 
     member_id: str = ContextField(description="Member identifier", is_key_component=True)
     name: str = ContextField(description="Member name", index="text", weight=2.0)
@@ -99,7 +107,7 @@ class Member(ContextModel):
 
 
 class Order(ContextModel):
-    __redis_key_template__ = "valuewholesale:context:order:{order_id}"
+    __redis_key_template__ = f"{CONTEXT_KEY_PREFIX}:order:{{order_id}}"
 
     order_id: str = ContextField(description="Order identifier", is_key_component=True)
     member_id: str = ContextField(description="Member who placed the order", index="tag")
@@ -123,7 +131,7 @@ class Order(ContextModel):
 
 
 class OrderItem(ContextModel):
-    __redis_key_template__ = "valuewholesale:context:order-item:{order_item_id}"
+    __redis_key_template__ = f"{CONTEXT_KEY_PREFIX}:order-item:{{order_item_id}}"
 
     order_item_id: str = ContextField(description="Order-line identifier", is_key_component=True)
     order_id: str = ContextField(description="Parent order", index="tag")

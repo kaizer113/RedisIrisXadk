@@ -9,9 +9,9 @@ from typing import Any
 import vertexai
 from redis_agent_memory import AgentMemory
 
-from valuewholesale_agent.config import Settings
+from valuewholesale_agent.config import Settings, get_settings
 
-APP_NAME = "valuewholesale-shopping-agent"
+APP_NAME = get_settings().effective_app_name
 REDIS_BATCH_SIZE = 100
 REDIS_TIMEOUT_MS = 120_000
 VERTEX_WRITES_PER_MINUTE = 80
@@ -37,9 +37,8 @@ def seed_redis(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int,
             batch = [
                 {
                     **memory,
-                    "topics": list(
-                        dict.fromkeys([*(memory.get("topics") or []), "demo-seed"])
-                    ),
+                    "namespace": settings.effective_agent_memory_namespace,
+                    "topics": list(dict.fromkeys([*(memory.get("topics") or []), "demo-seed"])),
                 }
                 for memory in memories[start : start + REDIS_BATCH_SIZE]
             ]
@@ -97,7 +96,7 @@ def seed_vertex(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int
         pending_operations.clear()
 
     for memory in memories:
-        scope = {"app_name": APP_NAME, "user_id": memory["owner_id"]}
+        scope = {"app_name": settings.effective_app_name, "user_id": memory["owner_id"]}
         identity = (memory["text"], tuple(sorted(scope.items())))
         if identity in existing:
             skipped += 1
@@ -115,7 +114,7 @@ def seed_vertex(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int
                     scope=scope,
                     config={
                         "metadata": {
-                            "valuewholesale_origin": {"string_value": "demo-seed"}
+                            f"{settings.redis_namespace}_origin": {"string_value": "demo-seed"}
                         }
                     },
                 )
@@ -136,12 +135,12 @@ def seed_vertex(settings: Settings, memories: list[dict[str, Any]]) -> tuple[int
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Seed identical Value Wholesale facts into both managed memory providers."
+        description="Seed identical experience facts into both managed memory providers."
     )
+    parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument(
         "--data",
         type=Path,
-        default=Path("data/generated/memory_seeds.jsonl"),
     )
     parser.add_argument(
         "--owner-id",
@@ -154,8 +153,9 @@ def main() -> None:
         help="Limit seeding to one managed provider.",
     )
     args = parser.parse_args()
-    settings = Settings()
-    memories = load_memories(args.data)
+    settings = Settings(_env_file=args.env_file)
+    data_path = args.data or settings.dataset_path / "memory_seeds.jsonl"
+    memories = load_memories(data_path)
     if args.owner_id:
         memories = [memory for memory in memories if memory["owner_id"] == args.owner_id]
     if not memories:
@@ -171,8 +171,7 @@ def main() -> None:
     if args.provider in {"both", "vertex"}:
         vertex_created, vertex_skipped = seed_vertex(settings, memories)
         print(
-            f"ADK Memory Bank: {vertex_created} created, "
-            f"{vertex_skipped} already present",
+            f"ADK Memory Bank: {vertex_created} created, {vertex_skipped} already present",
             flush=True,
         )
     if args.provider in {"both", "redis"} and redis_errors:

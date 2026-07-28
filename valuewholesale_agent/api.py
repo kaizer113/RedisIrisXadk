@@ -8,11 +8,11 @@ import time
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
+from html import escape
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from google.adk import Runner
 from google.adk.events import Event
@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from valuewholesale_agent.agent import build_agent, build_greeting_agent
 from valuewholesale_agent.config import get_settings
-from valuewholesale_agent.demo_data import MEMBERS, PRODUCTS, WAREHOUSES
+from valuewholesale_agent.experience import load_experience_dataset
 from valuewholesale_agent.services import (
     TOOL_CALL_CACHE_METADATA_KEY,
     call_with_timing,
@@ -35,18 +35,21 @@ from valuewholesale_agent.services import (
 from valuewholesale_agent.tools import is_context_retriever_tool
 
 settings = get_settings()
+experience = settings.experience
+dataset = load_experience_dataset(str(settings.dataset_path))
 log = logging.getLogger(__name__)
 logging.basicConfig(level=settings.log_level)
 
-APP_NAME = "valuewholesale-shopping-agent"
-GREETING_APP_NAME = "valuewholesale-greeting-agent"
-TRANSCRIPT_APP_NAME = "valuewholesale-working-memory"
+APP_NAME = settings.effective_app_name
+GREETING_APP_NAME = settings.effective_greeting_app_name
+TRANSCRIPT_APP_NAME = settings.effective_transcript_app_name
 SHORT_TERM_MEMORY_LIMIT = 10
-STATIC_DIR = Path(__file__).with_name("static")
-MEMORY_SEEDS_PATH = Path(__file__).parent.parent / "data" / "generated" / "memory_seeds.jsonl"
-MEMORY_RESETTABLE_MEMBERS = frozenset(
-    {"member-1001", "member-1002", "member-1003", "member-1004"}
-)
+STATIC_DIR = settings.static_path
+MEMORY_SEEDS_PATH = settings.dataset_path / "memory_seeds.jsonl"
+MEMORY_RESETTABLE_MEMBERS = frozenset(experience.resettable_member_ids)
+PRODUCTS = dataset.products
+WAREHOUSES = dataset.warehouses
+MEMBERS = dataset.members
 
 
 class DemoVertexMemoryBankService(VertexAiMemoryBankService):
@@ -58,7 +61,7 @@ class DemoVertexMemoryBankService(VertexAiMemoryBankService):
             user_id=session.user_id,
             events=session.events,
             custom_metadata={
-                "metadata": {"valuewholesale_origin": "demo-created"},
+                "metadata": {f"{settings.redis_namespace}_origin": "demo-created"},
             },
         )
 
@@ -182,9 +185,9 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="Value Wholesale Shopping Agent",
+    title=f"{experience.brand_name} Shopping Agent",
     version="0.1.0",
-    description="Google ADK + Redis IRIS ecommerce demonstration.",
+    description=f"Google ADK + Redis IRIS demonstration for {experience.brand_name}.",
     lifespan=lifespan,
 )
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -425,10 +428,7 @@ def trace_event(
                 service = "langcache"
             elif "redis-short-term" in normalized_id:
                 service = "redis_agent_memory_short_term"
-            elif (
-                "redis-long-term" in normalized_id
-                or "redis long-term memory" in normalized_label
-            ):
+            elif "redis-long-term" in normalized_id or "redis long-term memory" in normalized_label:
                 service = "redis_agent_memory_long_term"
             elif "adk-short-term" in normalized_id:
                 service = "agent_platform_sessions"
@@ -448,9 +448,7 @@ def trace_event(
             for detail in details or []:
                 if detail.startswith("Local embedding:"):
                     try:
-                        embedding_ms = float(
-                            detail.split(":", 1)[1].split("ms", 1)[0].strip()
-                        )
+                        embedding_ms = float(detail.split(":", 1)[1].split("ms", 1)[0].strip())
                     except ValueError:
                         continue
                     latency_registry.record("embedding_cache", embedding_ms)
@@ -532,9 +530,9 @@ def _tool_summary(
     if name == "list_context_retriever_tools" and isinstance(payload, dict):
         tools = payload.get("tools", [])
         return f"{len(tools)} governed tools available", []
-    if (
-        name == "query_context_retriever" or is_context_retriever_tool(name)
-    ) and isinstance(payload, dict):
+    if (name == "query_context_retriever" or is_context_retriever_tool(name)) and isinstance(
+        payload, dict
+    ):
         if payload.get("ok") is False:
             return "MCP call failed", [str(payload.get("error", "Unknown MCP error"))[:300]]
         if "quantity" in payload:
@@ -709,7 +707,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
     if not redisvl_called:
         route_summary = f"RedisVL bypassed · {routing.get('reason', 'routing guardrail')}"
     elif blocked:
-        route_summary = "Blocked · outside Value Wholesale ecommerce scope"
+        route_summary = f"Blocked · outside {experience.brand_name} ecommerce scope"
     elif cache_read or cache_write:
         route_summary = "LangCache read + write"
     else:
@@ -724,7 +722,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
 
     if blocked:
         answer = (
-            "I’m focused on Value Wholesale shopping, products, orders, inventory, "
+            f"I’m focused on {experience.brand_name} shopping, products, orders, inventory, "
             "membership, and policies. Ask me something in that area and I’ll help."
         )
         yield trace_event(
@@ -756,9 +754,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
         )
         hit = bool(cached and cached.get("response"))
         cached_prompt = (
-            services.langcache.display_prompt(str(cached.get("prompt", "")))
-            if hit
-            else ""
+            services.langcache.display_prompt(str(cached.get("prompt", ""))) if hit else ""
         )
         yield trace_event(
             "langcache",
@@ -1032,9 +1028,7 @@ async def _chat_events(request: ChatRequest) -> AsyncIterator[dict[str, Any]]:
                     response_data = dict(response.response or {})
                     cache_info = response_data.pop(TOOL_CALL_CACHE_METADATA_KEY, None)
                     elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
-                    duration = _tool_trace_duration(
-                        name, response_data, elapsed_ms, cache_info
-                    )
+                    duration = _tool_trace_duration(name, response_data, elapsed_ms, cache_info)
                     summary, details = _tool_summary(
                         name,
                         response_data,
@@ -1202,9 +1196,7 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
                     if source:
                         context_details.append(f"{source}: {summary}")
                     if trace_visible:
-                        elapsed_ms = round(
-                            (time.perf_counter() - call_started) * 1000, 2
-                        )
+                        elapsed_ms = round((time.perf_counter() - call_started) * 1000, 2)
                         tool_duration = _tool_trace_duration(
                             name, response_data, elapsed_ms, cache_info
                         )
@@ -1249,9 +1241,55 @@ async def _greeting_events(request: GreetingRequest) -> AsyncIterator[dict[str, 
     yield {"type": "greeting", "greeting": final_greeting.strip()}
 
 
+def experience_ui_payload() -> dict[str, Any]:
+    """Return the presentation-only profile consumed by the shared browser UI."""
+    return {
+        "id": experience.id,
+        "brand_name": experience.brand_name,
+        "assistant_name": experience.assistant_name,
+        "location_noun": experience.location_noun,
+        "theme_stylesheet": experience.ui_theme_stylesheet,
+        "favicon": experience.ui_favicon,
+        "mark": experience.ui_mark,
+        "tagline": experience.ui_tagline,
+        "headline": experience.ui_headline,
+        "headline_accent": experience.ui_headline_accent,
+        "intro": experience.ui_intro,
+        "prompts": [
+            {"label": label, "message": message} for label, message in experience.ui_prompts
+        ],
+    }
+
+
 @app.get("/")
-async def index() -> FileResponse:
-    return FileResponse(STATIC_DIR / "index.html")
+async def index() -> HTMLResponse:
+    """Render the shared shell with the active theme applied before first paint."""
+    profile = experience_ui_payload()
+    rendered = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
+    replacements = {
+        "__EXPERIENCE_ID__": escape(str(profile["id"]), quote=True),
+        "__EXPERIENCE_TITLE__": escape(f"{profile['brand_name']} · Shopping Agent"),
+        "__EXPERIENCE_BRAND__": escape(str(profile["brand_name"]), quote=True),
+        "__EXPERIENCE_ASSISTANT__": escape(str(profile["assistant_name"]), quote=True),
+        "__EXPERIENCE_MARK__": escape(str(profile["mark"])),
+        "__EXPERIENCE_TAGLINE__": escape(str(profile["tagline"])),
+        "__EXPERIENCE_HEADLINE__": escape(str(profile["headline"])),
+        "__EXPERIENCE_HEADLINE_ACCENT__": escape(str(profile["headline_accent"])),
+        "__EXPERIENCE_INTRO__": escape(str(profile["intro"])),
+        "__EXPERIENCE_THEME__": escape(str(profile["theme_stylesheet"]), quote=True),
+        "__EXPERIENCE_FAVICON__": escape(str(profile["favicon"]), quote=True),
+        "__EXPERIENCE_PROFILE_JSON__": json.dumps(profile, separators=(",", ":")).replace(
+            "<", "\\u003c"
+        ),
+    }
+    for token, value in replacements.items():
+        rendered = rendered.replace(token, value)
+    return HTMLResponse(rendered, headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/api/experience")
+async def experience_ui() -> dict[str, Any]:
+    return experience_ui_payload()
 
 
 async def warmup_redis_services() -> dict[str, Any]:
@@ -1279,9 +1317,11 @@ async def warmup_redis_services() -> dict[str, Any]:
 
     async def database_probe() -> tuple[bool, str, dict[str, Any]]:
         ok, duration_ms = await asyncio.to_thread(call_with_timing, services.catalog.ping)
-        return ok, "Redis PING succeeded" if ok else "Database is not configured", {
-            "_operation_duration_ms": duration_ms
-        }
+        return (
+            ok,
+            "Redis PING succeeded" if ok else "Database is not configured",
+            {"_operation_duration_ms": duration_ms},
+        )
 
     async def context_probe() -> tuple[bool, str, dict[str, Any]]:
         tools = await services.context.list_tools(force_refresh=True)
@@ -1301,10 +1341,14 @@ async def warmup_redis_services() -> dict[str, Any]:
         )
         ok = decision.get("decision_source") == "redisvl"
         route = decision.get("route") or "no route"
-        return ok, f"Semantic route ready · {route}", {
-            "embedding": embedding,
-            "_operation_duration_ms": duration_ms,
-        }
+        return (
+            ok,
+            f"Semantic route ready · {route}",
+            {
+                "embedding": embedding,
+                "_operation_duration_ms": duration_ms,
+            },
+        )
 
     async def embedding_cache_probe() -> tuple[bool, str, dict[str, Any]]:
         (ok, summary, details), duration_ms = await asyncio.to_thread(
@@ -1343,11 +1387,15 @@ async def warmup_redis_services() -> dict[str, Any]:
                 )
             ),
         )
-        return True, "Health check and memory reads passed", {
-            "health_ms": health_ms,
-            "short_term_ms": short_term_ms,
-            "long_term_ms": long_term_ms,
-        }
+        return (
+            True,
+            "Health check and memory reads passed",
+            {
+                "health_ms": health_ms,
+                "short_term_ms": short_term_ms,
+                "long_term_ms": long_term_ms,
+            },
+        )
 
     results = await asyncio.gather(
         probe("redis_database", database_probe),
@@ -1377,6 +1425,8 @@ async def health() -> dict[str, Any]:
     return {
         "ok": True,
         "app": APP_NAME,
+        "experience_id": experience.id,
+        "brand_name": experience.brand_name,
         "cloud_run_location": settings.google_cloud_location,
         "memory_bank_location": settings.google_memory_location,
         "default_model": settings.google_model,
@@ -1417,7 +1467,7 @@ async def reset_member_memory(request: MemoryResetRequest) -> dict[str, Any]:
     if request.member_id not in MEMORY_RESETTABLE_MEMBERS:
         raise HTTPException(
             status_code=403,
-            detail="Memory reset is limited to the four small demo members",
+            detail="Memory reset is not available for this demo member",
         )
     if services.memory.client is None:
         raise HTTPException(status_code=503, detail="Redis Agent Memory is not configured")
@@ -1426,9 +1476,7 @@ async def reset_member_memory(request: MemoryResetRequest) -> dict[str, Any]:
 
     try:
         seeded_memories = [
-            json.loads(line)
-            for line in MEMORY_SEEDS_PATH.read_text().splitlines()
-            if line.strip()
+            json.loads(line) for line in MEMORY_SEEDS_PATH.read_text().splitlines() if line.strip()
         ]
     except (OSError, json.JSONDecodeError) as exc:
         log.error("Memory seed data could not be loaded from %s: %s", MEMORY_SEEDS_PATH, exc)
@@ -1495,13 +1543,9 @@ async def member_memory(member_id: str) -> dict[str, Any]:
                 "memories": [],
             }
 
-    redis_operation = (
-        services.memory.list_long_term if services.memory.client is not None else None
-    )
+    redis_operation = services.memory.list_long_term if services.memory.client is not None else None
     vertex_operation = (
-        services.vertex_memory.list_long_term
-        if services.vertex_memory.client is not None
-        else None
+        services.vertex_memory.list_long_term if services.vertex_memory.client is not None else None
     )
     providers = dict(
         await asyncio.gather(
@@ -1561,6 +1605,7 @@ async def members() -> dict[str, Any]:
                 "name": member["name"],
                 "tier": member["tier"],
                 "home_warehouse": member["home_warehouse"],
+                "reward_balance": member["reward_balance"],
                 "memory_resettable": member["member_id"] in MEMORY_RESETTABLE_MEMBERS,
             }
             for member in MEMBERS.values()
@@ -1596,10 +1641,13 @@ async def chat_stream(request: ChatRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         async for event in _chat_events(request):
             yield json.dumps(event, default=str, separators=(",", ":")) + "\n"
-        yield json.dumps(
-            {"type": "latency_stats", "services": latency_registry.snapshot()},
-            separators=(",", ":"),
-        ) + "\n"
+        yield (
+            json.dumps(
+                {"type": "latency_stats", "services": latency_registry.snapshot()},
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
 
     return StreamingResponse(
         stream(),
@@ -1613,10 +1661,13 @@ async def greeting_stream(request: GreetingRequest) -> StreamingResponse:
     async def stream() -> AsyncIterator[str]:
         async for event in _greeting_events(request):
             yield json.dumps(event, default=str, separators=(",", ":")) + "\n"
-        yield json.dumps(
-            {"type": "latency_stats", "services": latency_registry.snapshot()},
-            separators=(",", ":"),
-        ) + "\n"
+        yield (
+            json.dumps(
+                {"type": "latency_stats", "services": latency_registry.snapshot()},
+                separators=(",", ":"),
+            )
+            + "\n"
+        )
 
     return StreamingResponse(
         stream(),

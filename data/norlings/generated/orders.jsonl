@@ -1,0 +1,6 @@
+{"fulfillment": "delivery", "item_count": 2, "member_id": "member-2001", "order_id": "NL-ORD-2001", "placed_at": "2026-07-18", "status": "delivered", "total": 337.0, "warehouse": "manhattan"}
+{"fulfillment": "warehouse_pickup", "item_count": 1, "member_id": "member-2001", "order_id": "NL-ORD-2002", "placed_at": "2026-07-25", "status": "ready_for_pickup", "total": 30.0, "warehouse": "manhattan"}
+{"fulfillment": "delivery", "item_count": 2, "member_id": "member-2002", "order_id": "NL-ORD-2003", "placed_at": "2026-07-23", "status": "processing", "total": 293.0, "warehouse": "chicago"}
+{"fulfillment": "delivery", "item_count": 2, "member_id": "member-2003", "order_id": "NL-ORD-2004", "placed_at": "2026-07-09", "status": "delivered", "total": 147.0, "warehouse": "seattle"}
+{"fulfillment": "warehouse_pickup", "item_count": 3, "member_id": "member-2004", "order_id": "NL-ORD-2005", "placed_at": "2026-07-26", "status": "ready_for_pickup", "total": 267.0, "warehouse": "manhattan"}
+{"fulfillment": "warehouse_pickup", "item_count": 2, "member_id": "member-2005", "order_id": "NL-ORD-2006", "placed_at": "2026-06-30", "status": "picked_up", "total": 298.0, "warehouse": "chicago"}

@@ -1,0 +1,7 @@
+:root {
+  --experience-accent: #d71920;
+}
+
+body[data-experience="valuewholesale"] #brand-name {
+  text-transform: uppercase;
+}

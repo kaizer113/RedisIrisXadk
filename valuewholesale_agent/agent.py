@@ -44,9 +44,7 @@ def _tool_cache_bypass_reason(tool_name: str, args: dict[str, Any]) -> str:
     )
     if "inventory" in governed_name:
         return "inventory is always live"
-    if normalized in _TOOL_CACHE_MUTATIONS or governed_name.startswith(
-        _TOOL_CACHE_WRITE_PREFIXES
-    ):
+    if normalized in _TOOL_CACHE_MUTATIONS or governed_name.startswith(_TOOL_CACHE_WRITE_PREFIXES):
         return "mutation"
     return ""
 
@@ -138,7 +136,7 @@ async def promote_adk_session_to_memory(callback_context: CallbackContext) -> No
         await callback_context.add_events_to_memory(
             events=invocation_events,
             custom_metadata={
-                "metadata": {"valuewholesale_origin": "demo-created"},
+                "metadata": {f"{settings.redis_namespace}_origin": "demo-created"},
             },
         )
     except Exception:
@@ -240,12 +238,59 @@ Authoritative context for this request:
 """
 
 
+def instruction_for_active_experience() -> str:
+    profile = settings.experience
+    if profile.id == "valuewholesale":
+        return INSTRUCTION
+    instruction = INSTRUCTION
+    instruction = instruction.replace(
+        "You are Vale, the Value Wholesale shopping agent for a membership warehouse retailer.\n"
+        "Value Wholesale is a fictional brand. Never mention or imitate any real warehouse "
+        "retailer.",
+        f"You are {profile.assistant_name}, the {profile.brand_name} shopping and style agent "
+        f"for a {profile.retailer_description}.\n"
+        f"{profile.brand_name} is a fictional brand. Never claim affiliation with or imitate "
+        "any real retailer.",
+    )
+    instruction = instruction.replace(
+        "Your job is to help members discover bulk products, compare member value, check a "
+        "specific\n"
+        "warehouse's live availability, understand policies, inspect orders, and build a cart.",
+        "Your job is to help customers discover apparel, beauty, home, travel, and lifestyle "
+        "products,\ncompare Norling's prices, check a specific store's live availability, "
+        "understand policies, inspect orders, and build a cart.",
+    )
+    instruction = instruction.replace("Value Wholesale", profile.brand_name)
+    instruction = instruction.replace(
+        "- The known warehouse IDs are portland, seattle, and sacramento. A request for Portland "
+        "means\n  the Portland Harbor warehouse (`portland`); do not ask which city the member "
+        "means.",
+        f"- {profile.locations_instruction}",
+    )
+    instruction = instruction.replace(
+        'id="<warehouse_id>-<lowercase-sku>"`, for example `id="portland-vh-1001"`.',
+        f'id="<store_id>-<lowercase-sku>"`, for example `id="{profile.inventory_id_example}"`.',
+    )
+    instruction = instruction.replace(
+        '`value="VH-1001"`.',
+        f'`value="{profile.sku_example}"`.',
+    )
+    instruction = instruction.replace(
+        "`portland-vh-1001` to `filter_inventory_by_sku`.",
+        f"`{profile.inventory_id_example}` to `filter_inventory_by_sku`.",
+    )
+    instruction = instruction.replace("Ask for the warehouse", "Ask for the store")
+    instruction = instruction.replace("state the warehouse used", "state the store used")
+    return instruction
+
+
 def build_agent(model: str) -> Agent:
+    profile = settings.experience
     return Agent(
-        name="valuewholesale_shopping_agent",
+        name=profile.agent_name,
         model=model,
-        description="A grounded shopping agent for the fictional Value Wholesale warehouse club.",
-        instruction=INSTRUCTION,
+        description=f"A grounded shopping agent for the fictional {profile.brand_name} store.",
+        instruction=instruction_for_active_experience(),
         include_contents="none",
         tools=[*ALL_TOOLS, CONTEXT_RETRIEVER_TOOLSET],
         before_tool_callback=read_tool_call_cache,
@@ -273,11 +318,22 @@ up a preference, activity, order, product, price, or availability.
 
 
 def build_greeting_agent(model: str) -> Agent:
+    profile = settings.experience
+    instruction = GREETING_INSTRUCTION
+    if profile.id != "valuewholesale":
+        instruction = instruction.replace("Vale", profile.assistant_name)
+        instruction = instruction.replace("Value Wholesale", profile.brand_name)
+        instruction = instruction.replace(
+            "fictional membership warehouse retailer",
+            profile.retailer_description,
+        )
     return Agent(
-        name="valuewholesale_greeting_agent",
+        name=profile.greeting_agent_name,
         model=model,
-        description="Creates an optional, context-aware welcome for a Value Wholesale member.",
-        instruction=GREETING_INSTRUCTION,
+        description=(
+            f"Creates an optional, context-aware welcome for a {profile.brand_name} member."
+        ),
+        instruction=instruction,
         include_contents="none",
         tools=GREETING_TOOLS,
         before_tool_callback=read_tool_call_cache,

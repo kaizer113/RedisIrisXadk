@@ -1,0 +1,167 @@
+:root {
+  --ink: #171512;
+  --muted: #68615a;
+  --red: #9b7655;
+  --blue: #24201c;
+  --navy: #ece5db;
+  --panel: #fff;
+  --line: #d9d0c4;
+  --soft-blue: #f5f0e9;
+  --soft-red: #f8f2ea;
+}
+
+body[data-experience="norlings"] {
+  color: var(--ink);
+  background:
+    radial-gradient(circle at 8% 4%, #d8c8b175 0, transparent 28%),
+    radial-gradient(circle at 92% 0%, #9b765542 0, transparent 30%),
+    #f3eee7;
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+body[data-experience="norlings"] header {
+  color: var(--ink);
+  border-color: #d9d0c4;
+  background: #fffefcf2;
+}
+
+body[data-experience="norlings"] .brand {
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+body[data-experience="norlings"] .brand small {
+  color: var(--muted);
+  font-family: Arial, Helvetica, sans-serif;
+  letter-spacing: .05em;
+  text-transform: none;
+}
+
+body[data-experience="norlings"] .brand:hover,
+body[data-experience="norlings"] .brand:focus-visible {
+  outline-color: #9b765580;
+}
+
+body[data-experience="norlings"] .mark {
+  width: 46px;
+  border: 1px solid var(--ink);
+  border-radius: 0;
+  color: var(--ink);
+  background: #f1e7d9;
+  box-shadow: none;
+  font: 22px Georgia, "Times New Roman", serif;
+  letter-spacing: -.03em;
+}
+
+body[data-experience="norlings"] .badge {
+  color: var(--ink);
+  border-color: var(--line);
+  background: #f8f4ee;
+}
+
+body[data-experience="norlings"] .badge:hover,
+body[data-experience="norlings"] .badge:focus-visible {
+  border-color: var(--red);
+  background: #f1e7d9;
+}
+
+body[data-experience="norlings"] .panel {
+  border-color: var(--line);
+  border-top-color: var(--ink);
+  border-radius: 0;
+  box-shadow: 0 22px 70px #1d18121f;
+}
+
+body[data-experience="norlings"] .hero {
+  background: linear-gradient(120deg, #fff 0%, #f8f4ee 72%, #e9ddcd);
+}
+
+body[data-experience="norlings"] h1,
+body[data-experience="norlings"] h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-weight: 400;
+}
+
+body[data-experience="norlings"] h1 span {
+  color: var(--ink);
+}
+
+body[data-experience="norlings"] h1 #hero-accent {
+  color: var(--red);
+}
+
+body[data-experience="norlings"] .chip,
+body[data-experience="norlings"] input,
+body[data-experience="norlings"] select,
+body[data-experience="norlings"] .service,
+body[data-experience="norlings"] .modal-card,
+body[data-experience="norlings"] .modal-close,
+body[data-experience="norlings"] .tool-item,
+body[data-experience="norlings"] .memory-provider,
+body[data-experience="norlings"] .memory-item {
+  border-radius: 0;
+}
+
+body[data-experience="norlings"] .chip:not(:disabled):hover,
+body[data-experience="norlings"] .chip:not(:disabled):focus-visible {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+body[data-experience="norlings"] .assistant {
+  border-color: #dfd3c4;
+  border-left: 3px solid var(--red);
+  border-radius: 0;
+  background: var(--soft-blue);
+}
+
+body[data-experience="norlings"] .user {
+  border-radius: 0;
+  background: var(--ink);
+}
+
+body[data-experience="norlings"] .chat-controls {
+  background: #f6f1ea;
+}
+
+body[data-experience="norlings"] .send {
+  border-radius: 0;
+  background: var(--ink);
+  font-size: 11px;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+body[data-experience="norlings"] .send:hover,
+body[data-experience="norlings"] .send:focus-visible {
+  background: #3e3731;
+}
+
+body[data-experience="norlings"] .demo-reset {
+  color: #eee8df;
+  border-color: #332e29;
+  border-radius: 0;
+  background: #171512;
+}
+
+body[data-experience="norlings"] .presenter-toggle,
+body[data-experience="norlings"] .reset-button {
+  border-radius: 0;
+}
+
+body[data-experience="norlings"] .on .dot,
+body[data-experience="norlings"] .trace-step.done::before {
+  background: #24633f;
+  box-shadow: 0 0 10px #24633f55;
+}
+
+body[data-experience="norlings"] .service.active,
+body[data-experience="norlings"] .trace-step.running::before,
+body[data-experience="norlings"] .trace-live.active .pulse {
+  border-color: #9b7655;
+  background: #fbf6ef;
+  box-shadow: 0 0 0 3px #9b76551c;
+}

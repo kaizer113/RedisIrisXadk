@@ -2,6 +2,23 @@
 
 This is a deterministic, fictional commerce dataset for the shopping-agent workshop. Run `make dataset` to regenerate `data/generated`.
 
+## Experience datasets
+
+The default Value Wholesale records live in `data/generated`. The second Norling's experience lives
+in `data/norlings/generated` and intentionally stays small:
+
+- 5 customers;
+- 3 stores;
+- 18 products and 54 store-inventory records;
+- 6 orders and 11 normalized order lines;
+- 5 policies;
+- 10 long-term memory seeds, exactly 2 per customer;
+- 5 memory retrieval evaluation cases.
+
+Generate either dataset with `make dataset EXPERIENCE=valuewholesale` or
+`make dataset EXPERIENCE=norlings`. Runtime fallback data, Redis seeding, Context Retriever imports,
+and managed-memory seeding all use the selected experience's generated JSONL directory.
+
 ## Entities
 
 | File | Primary identifier | Purpose |

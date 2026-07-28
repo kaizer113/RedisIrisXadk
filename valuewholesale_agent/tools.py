@@ -42,11 +42,11 @@ def search_catalog(
     category: str = "",
     limit: int = 5,
 ) -> dict[str, Any]:
-    """Find Value Wholesale products with RedisVL by meaning, keywords, and optional category.
+    """Find products with RedisVL by meaning, keywords, and optional exact category.
 
     Args:
         query: What the member wants or the need the product should satisfy.
-        category: Optional exact category: pantry, household, beverages, electronics, fresh-food.
+        category: Optional exact category from the active experience's catalog.
         limit: Maximum products to return, from 1 to 6.
     """
     normalized_limit = max(1, min(limit, 6))
@@ -73,18 +73,18 @@ def search_product_by_text(
 
     Args:
         query: What the member wants or the need the product should satisfy.
-        category: Optional exact category: pantry, household, beverages, electronics, fresh-food.
+        category: Optional exact category from the active experience's catalog.
         limit: Maximum products to return, from 1 to 6.
     """
     return search_catalog(query, category, limit)
 
 
 def check_warehouse_inventory(sku: str, warehouse_id: str) -> dict[str, Any]:
-    """Check current quantity and availability for a SKU at a Value Wholesale warehouse.
+    """Check current quantity and availability for a SKU at a fulfillment location.
 
     Args:
-        sku: Product SKU such as VH-1001.
-        warehouse_id: Warehouse identifier: portland, seattle, or sacramento.
+        sku: Product SKU from the active experience.
+        warehouse_id: Store or warehouse identifier from the active experience.
     """
     return services.catalog.check_inventory(sku, warehouse_id)
 
@@ -95,12 +95,12 @@ def get_member_profile(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def get_recent_orders(tool_context: ToolContext) -> dict[str, Any]:
-    """Get recent orders for the signed-in Value Wholesale member."""
+    """Get recent orders for the signed-in member."""
     return {"orders": services.catalog.recent_orders(_member_id(tool_context))}
 
 
 def search_member_policies(query: str) -> dict[str, Any]:
-    """Search grounded Value Wholesale policies with RedisVL vector retrieval.
+    """Search grounded retailer policies with RedisVL vector retrieval.
 
     Args:
         query: The member's policy question.
@@ -134,9 +134,7 @@ async def recall_shopping_memory(query: str, tool_context: ToolContext) -> dict[
     return await compare_memory_retrieval(query, _member_id(tool_context))
 
 
-async def recall_redis_shopping_memory(
-    query: str, tool_context: ToolContext
-) -> dict[str, Any]:
+async def recall_redis_shopping_memory(query: str, tool_context: ToolContext) -> dict[str, Any]:
     """Recall Redis Agent Memory facts that could make a member greeting relevant.
 
     Call this only when remembered preferences or shopping activity would improve the greeting.
@@ -244,7 +242,7 @@ class ContextRetrieverTool(BaseTool):
             name=str(definition["name"]),
             description=str(
                 definition.get("description")
-                or "Query governed live Value Wholesale context."
+                or f"Query governed live {services.settings.experience.brand_name} context."
             ),
         )
         _CONTEXT_RETRIEVER_TOOL_NAMES.add(self.name)
@@ -288,8 +286,7 @@ class ContextRetrieverToolset(BaseToolset):
         return [
             ContextRetrieverTool(definition)
             for definition in definitions
-            if definition.get("name")
-            and str(definition["name"]) not in self.reserved_names
+            if definition.get("name") and str(definition["name"]) not in self.reserved_names
         ]
 
 
@@ -303,9 +300,7 @@ ALL_TOOLS = [
     query_context_retriever,
 ]
 
-CONTEXT_RETRIEVER_TOOLSET = ContextRetrieverToolset(
-    {tool.__name__ for tool in ALL_TOOLS}
-)
+CONTEXT_RETRIEVER_TOOLSET = ContextRetrieverToolset({tool.__name__ for tool in ALL_TOOLS})
 
 
 GREETING_TOOLS = [

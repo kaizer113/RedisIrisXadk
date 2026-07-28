@@ -63,6 +63,38 @@ uv run uvicorn valuewholesale_agent.api:app --env-file .env --reload --port 8080
 
 Open [http://localhost:8080](http://localhost:8080). Without Redis credentials, the catalog, warehouse, member, and cart tools use deterministic fixtures; managed IRIS capabilities show as unconfigured.
 
+## Run the Norling's experience
+
+Norling's is a second fictional retail experience with five demo customers, three stores, and a
+small deterministic fashion, beauty, home, and travel catalog. It uses the same browser application
+as Value Wholesale; its experience profile supplies the department-store theme, brand copy, prompt
+examples, dataset, and managed-service configuration. It runs as a separate process so its settings
+and service clients remain isolated.
+
+Copy the checked-in template and add the dedicated LangCache, Agent Memory, Context Surface, and
+Memory Bank values. `REDIS_URL` may point to the same Redis database as Value Wholesale because
+Norling's uses its own `norlings:*` key prefix and `idx:norlings:*` search indexes.
+
+```bash
+cp .env.norlings.example .env.norlings
+make dataset EXPERIENCE=norlings
+make dev-norlings
+```
+
+Open [http://localhost:8081](http://localhost:8081). To seed all Norling's resources after filling
+the environment file:
+
+```bash
+make setup-iris EXPERIENCE=norlings ENV_FILE=.env.norlings
+make setup-memory-bank EXPERIENCE=norlings ENV_FILE=.env.norlings
+```
+
+The two experiences must run in separate processes. They share the application image and may share
+the Redis database, but use separate catalog/search prefixes, embedding and tool caches, carts,
+semantic-router indexes, managed context resources, and ADK application names. For the existing VM,
+the Norling's template configures a second container on public port `8081`; Cloud Run can instead
+deploy it as a second service URL.
+
 ## Configure managed services
 
 Fill the corresponding variables in your local `.env`:

@@ -13,24 +13,15 @@ from typing import Any
 from context_surfaces import UnifiedClient
 from dotenv import dotenv_values
 
-from scripts.generate_dataset import records
-from valuewholesale_agent.context_models import (
-    Inventory,
-    Member,
-    Order,
-    OrderItem,
-    Product,
-    Warehouse,
-)
+from scripts.generate_dataset import records_for_experience
+from valuewholesale_agent.config import Settings, get_settings
 
 ROOT = Path(__file__).resolve().parents[1]
-ENV_PATH = ROOT / ".env"
 MODELS_PATH = ROOT / "valuewholesale_agent" / "context_models.py"
-SURFACE_NAME = "Value Wholesale Shopping"
 
 
-def upsert_env(updates: dict[str, str]) -> None:
-    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+def upsert_env(path: Path, updates: dict[str, str]) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
     output: list[str] = []
     seen: set[str] = set()
     for line in lines:
@@ -44,7 +35,7 @@ def upsert_env(updates: dict[str, str]) -> None:
         else:
             output.append(line)
     output.extend(f"{key}={value}" for key, value in updates.items() if key not in seen)
-    ENV_PATH.write_text("\n".join(output) + "\n", encoding="utf-8")
+    path.write_text("\n".join(output) + "\n", encoding="utf-8")
 
 
 def ctxctl(*args: str, admin_key: str | None = None) -> Any:
@@ -71,7 +62,13 @@ def redis_connection(redis_url: str) -> tuple[str, str, str, bool]:
     )
 
 
-def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, str]:
+def ensure_surface(
+    env: dict[str, str],
+    settings: Settings,
+    env_path: Path,
+    *,
+    force_agent_key: bool,
+) -> tuple[str, str]:
     admin_key = env.get("CTX_ADMIN_KEY", "")
     if not admin_key:
         raise SystemExit("CTX_ADMIN_KEY is required in .env")
@@ -88,7 +85,7 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
 
     if not surface_id:
         for surface in ctxctl("surface", "list", admin_key=admin_key) or []:
-            if surface.get("name") == SURFACE_NAME:
+            if surface.get("name") == settings.effective_context_surface_name:
                 surface_id = str(surface["id"])
                 break
 
@@ -98,9 +95,10 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "update",
             surface_id,
             "--name",
-            SURFACE_NAME,
+            settings.effective_context_surface_name,
             "--description",
-            "Governed live ecommerce context for the Value Wholesale ADK shopping agent.",
+            f"Governed live ecommerce context for the "
+            f"{settings.experience.brand_name} ADK shopping agent.",
             "--models",
             str(MODELS_PATH),
             admin_key=admin_key,
@@ -112,9 +110,10 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "surface",
             "create",
             "--name",
-            SURFACE_NAME,
+            settings.effective_context_surface_name,
             "--description",
-            "Governed live ecommerce context for the Value Wholesale ADK shopping agent.",
+            f"Governed live ecommerce context for the "
+            f"{settings.experience.brand_name} ADK shopping agent.",
             "--models",
             str(MODELS_PATH),
             "--redis-addr",
@@ -138,20 +137,33 @@ def ensure_surface(env: dict[str, str], *, force_agent_key: bool) -> tuple[str, 
             "--surface-id",
             surface_id,
             "--name",
-            "valuewholesale-adk-shopping-agent",
+            settings.effective_context_agent_name,
             "--description",
-            "Public Value Wholesale workshop agent",
+            settings.effective_context_agent_display_name,
             admin_key=admin_key,
         )
         agent_key = str(payload["key"])
         print("Created a new Context Retriever agent key")
 
-    upsert_env({"CTX_SURFACE_ID": surface_id, "MCP_AGENT_KEY": agent_key})
+    upsert_env(env_path, {"CTX_SURFACE_ID": surface_id, "MCP_AGENT_KEY": agent_key})
     return surface_id, agent_key
 
 
-async def import_records(surface_id: str, admin_key: str) -> None:
-    datasets = records()
+async def import_records(
+    surface_id: str,
+    admin_key: str,
+    settings: Settings,
+) -> None:
+    from valuewholesale_agent.context_models import (
+        Inventory,
+        Member,
+        Order,
+        OrderItem,
+        Product,
+        Warehouse,
+    )
+
+    datasets = records_for_experience(settings.experience_id)
     entities = {
         Product: datasets["products"],
         Warehouse: datasets["warehouses"],
@@ -175,12 +187,21 @@ async def import_records(surface_id: str, admin_key: str) -> None:
 async def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--rotate-agent-key", action="store_true")
+    parser.add_argument("--env-file", type=Path, default=Path(".env"))
     args = parser.parse_args()
-    raw_env = dotenv_values(ENV_PATH)
+    env_path = args.env_file.resolve()
+    raw_env = dotenv_values(env_path)
     env = {key: str(value or "") for key, value in raw_env.items()}
-    os.environ.setdefault("CTX_MCP_URL", env.get("CTX_MCP_URL", ""))
-    surface_id, agent_key = ensure_surface(env, force_agent_key=args.rotate_agent_key)
-    await import_records(surface_id, env["CTX_ADMIN_KEY"])
+    os.environ.update(env)
+    get_settings.cache_clear()
+    settings = Settings(_env_file=env_path)
+    surface_id, agent_key = ensure_surface(
+        env,
+        settings,
+        env_path,
+        force_agent_key=args.rotate_agent_key,
+    )
+    await import_records(surface_id, env["CTX_ADMIN_KEY"], settings)
     tools = await UnifiedClient().list_tools(agent_key)
     print(f"Context Retriever ready with {len(tools)} generated tools")
 

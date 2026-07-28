@@ -46,6 +46,7 @@ from valuewholesale_agent.api import (
 )
 from valuewholesale_agent.config import Settings
 from valuewholesale_agent.demo_data import MEMBERS
+from valuewholesale_agent.experience import get_experience_profile, load_experience_dataset
 from valuewholesale_agent.services import (
     ECOMMERCE_REFERENCES,
     ECOMMERCE_ROUTE,
@@ -102,15 +103,77 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
     assert settings.valuewholesale_agent_timeout_seconds == 90
-    assert api_module.gemini_runner_label("gemini-3.1-flash-lite") == (
-        "ADK Runner + Gemini Flash"
-    )
-    assert api_module.gemini_runner_label("gemini-3.1-pro-preview") == (
-        "ADK Runner + Gemini Pro"
-    )
+    assert api_module.gemini_runner_label("gemini-3.1-flash-lite") == ("ADK Runner + Gemini Flash")
+    assert api_module.gemini_runner_label("gemini-3.1-pro-preview") == ("ADK Runner + Gemini Pro")
     assert api_module.ChatRequest(message="hello").context_retriever_enabled is False
     assert REDIS_CONNECTION_KWARGS["socket_keepalive"] is True
     assert REDIS_CONNECTION_KWARGS["health_check_interval"] == 30
+
+
+def test_norlings_profile_isolated_names_and_small_dataset() -> None:
+    value = Settings(_env_file=None)
+    norlings = Settings(
+        _env_file=None,
+        experience_id="norlings",
+        valuewholesale_demo_member_id="member-2001",
+    )
+    profile = get_experience_profile("norlings")
+    dataset = load_experience_dataset(str(profile.dataset_path))
+
+    assert norlings.experience.brand_name == "Norling's"
+    assert norlings.redis_namespace == "norlings"
+    assert norlings.product_index_name == "idx:norlings:products-v2"
+    assert norlings.policy_index_name == "idx:norlings:policies-v2"
+    assert norlings.effective_embedding_cache_name == "norlings-embeddings-v1"
+    assert norlings.effective_semantic_router_index == "norlings-cache-router-v1"
+    assert norlings.effective_agent_memory_namespace == "norlings-shopping"
+    assert norlings.effective_app_name == "norlings-shopping-agent"
+    assert norlings.product_index_name != value.product_index_name
+    assert norlings.effective_app_name != value.effective_app_name
+
+    assert len(dataset.members) == 5
+    assert len(dataset.products) == 18
+    assert len(dataset.memory_seeds) == 10
+    assert dataset.resettable_member_ids == frozenset(dataset.members)
+    assert {memory["owner_id"] for memory in dataset.memory_seeds} == set(dataset.members)
+    assert {item["sku"] for item in dataset.order_items} <= {
+        product["sku"] for product in dataset.products
+    }
+
+
+def test_experiences_share_one_profile_driven_browser_ui() -> None:
+    root = Path(__file__).parent.parent
+    path = root / "valuewholesale_agent/static/index.html"
+    html = path.read_text()
+    norlings = get_experience_profile("norlings")
+    value = get_experience_profile("valuewholesale")
+
+    assert norlings.static_path == value.static_path == path.parent
+    assert norlings.ui_theme_stylesheet == "/static/themes/norlings.css"
+    assert norlings.ui_favicon == "/static/assets/norlings-favicon.svg"
+    assert norlings.ui_mark == "NL"
+    assert value.ui_theme_stylesheet == "/static/themes/valuewholesale.css"
+    assert 'id="experience-profile"' in html
+    assert "__EXPERIENCE_PROFILE_JSON__" in html
+    assert "fetch('/api/experience')" not in html
+    assert 'id="experience-theme"' in html
+    assert 'id="brand-name"' in html
+    assert 'id="experience-prompts"' in html
+    assert "fetch('/api/chat/stream'" in html
+    assert "fetch('/api/greeting/stream'" in html
+    assert "fetch('/api/members')" in html
+    assert 'id="service-panel"' in html
+    assert 'id="latency-stats-toggle"' in html
+    assert 'id="service-panel-toggle"' in html
+    assert 'id="show-adk-toggle"' in html
+    assert 'id="reset-demo"' in html
+    assert 'id="memory-modal"' in html
+    assert 'id="tools-modal"' in html
+    assert "icon:'/static/assets/redis-r.png'" in html
+    assert "function updateServiceBoard(step)" in html
+    assert "function resetMemberMemory()" in html
+    assert (path.parent / "assets/redis-r.png").is_file()
+    assert (path.parent / "themes/norlings.css").is_file()
 
 
 def test_latency_registry_excludes_cold_call_and_reports_percentiles() -> None:
@@ -329,8 +392,8 @@ def test_tool_call_cache_is_session_scoped_and_uses_twelve_hour_ttl() -> None:
     assert cache.get("member-1001", "session-b", "get_orders", arguments)[0] is None
     assert cache.get("member-1002", "session-a", "get_orders", arguments)[0] is None
     cache_key = next(iter(fake.values))
-    assert cache_key.startswith("tool-cache:")
-    assert len(cache_key) == len("tool-cache:") + 64
+    assert cache_key.startswith("valuewholesale:tool-cache:")
+    assert len(cache_key) == len("valuewholesale:tool-cache:") + 64
     assert fake.commands == [("JSON.SET", cache_key)]
     assert fake.values[cache_key] == {"orders": ["one"]}
     assert list(fake.expirations.values()) == [43_200, 43_200]
@@ -411,14 +474,14 @@ async def test_tool_cache_bypasses_inventory_and_invalidates_after_mutation(monk
     assert (
         await read_tool_call_cache(
             context_tool,
-            {"tool_name": "get_inventory_by_id", "arguments_json": '{}'},
+            {"tool_name": "get_inventory_by_id", "arguments_json": "{}"},
             context,
         )
         is None
     )
     inventory = await store_tool_call_cache(
         context_tool,
-        {"tool_name": "get_inventory_by_id", "arguments_json": '{}'},
+        {"tool_name": "get_inventory_by_id", "arguments_json": "{}"},
         context,
         {"quantity": 12},
     )
@@ -763,9 +826,7 @@ def test_agent_memory_omits_blank_namespace_from_retrieval_and_writes() -> None:
             created_memories.extend(memories)
             return SimpleNamespace(created=[memory["id"] for memory in memories], errors=[])
 
-    memory = MemoryService(
-        Settings(_env_file=None, agent_memory_namespace="")
-    )
+    memory = MemoryService(Settings(_env_file=None, agent_memory_namespace=""))
     memory.client = FakeMemoryClient()
     memory.models = models
 
@@ -933,16 +994,11 @@ def test_agent_memory_reset_is_scoped_paginated_and_batched() -> None:
         for request in search_requests
     )
     assert all(
-        record["owner_id"] == "member-1001"
-        and record["namespace"] == "valuewholesale-shopping"
+        record["owner_id"] == "member-1001" and record["namespace"] == "valuewholesale-shopping"
         for batch in created_batches
         for record in batch
     )
-    assert all(
-        "demo-seed" in record["topics"]
-        for batch in created_batches
-        for record in batch
-    )
+    assert all("demo-seed" in record["topics"] for batch in created_batches for record in batch)
 
 
 def test_agent_memory_reset_omits_blank_namespace() -> None:
@@ -1013,9 +1069,7 @@ def test_vertex_memory_reset_preserves_seed_facts_and_deletes_only_new(monkeypat
             created.append(kwargs)
             return SimpleNamespace(result=lambda: None)
 
-    fake_client = SimpleNamespace(
-        agent_engines=SimpleNamespace(memories=FakeMemories())
-    )
+    fake_client = SimpleNamespace(agent_engines=SimpleNamespace(memories=FakeMemories()))
     monkeypatch.setattr("vertexai.Client", lambda **_kwargs: fake_client)
     memory = VertexMemoryService(
         Settings(
@@ -1065,9 +1119,7 @@ def test_vertex_memory_inventory_uses_server_side_scope_filter(monkeypatch) -> N
                 ]
             )
 
-    fake_client = SimpleNamespace(
-        agent_engines=SimpleNamespace(memories=FakeMemories())
-    )
+    fake_client = SimpleNamespace(agent_engines=SimpleNamespace(memories=FakeMemories()))
     monkeypatch.setattr("vertexai.Client", lambda **_kwargs: fake_client)
     memory = VertexMemoryService(
         Settings(
@@ -1155,9 +1207,7 @@ async def test_adk_memory_promotion_skips_empty_invocation() -> None:
 
     context = SimpleNamespace(
         invocation_id="current",
-        session=SimpleNamespace(
-            events=[SimpleNamespace(invocation_id="different-invocation")]
-        ),
+        session=SimpleNamespace(events=[SimpleNamespace(invocation_id="different-invocation")]),
         add_events_to_memory=add_events_to_memory,
     )
 
@@ -1176,27 +1226,15 @@ def test_semantic_router_applies_guardrails_and_positive_route() -> None:
         "I like to eat salmon when it's hot outside, do you sell salmon in Portland?"
         in ECOMMERCE_REFERENCES
     )
-    assert (
-        "I used to eat cookies when i was young, now i don't"
-        in ECOMMERCE_REFERENCES
-    )
-    assert (
-        "I drink tea every evening, which brands do you have?"
-        in ECOMMERCE_REFERENCES
-    )
+    assert "I used to eat cookies when i was young, now i don't" in ECOMMERCE_REFERENCES
+    assert "I drink tea every evening, which brands do you have?" in ECOMMERCE_REFERENCES
     assert (
         "I enjoy eating chocolate after dinner, give me some recommendations"
         in ECOMMERCE_REFERENCES
     )
-    assert (
-        "My son eats doritos at school, do you have some in stocks"
-        in ECOMMERCE_REFERENCES
-    )
+    assert "My son eats doritos at school, do you have some in stocks" in ECOMMERCE_REFERENCES
     assert "how many packs of Doritos do you have?" in ECOMMERCE_REFERENCES
-    assert (
-        "I eat apples every morning, which type do you have?"
-        in ECOMMERCE_REFERENCES
-    )
+    assert "I eat apples every morning, which type do you have?" in ECOMMERCE_REFERENCES
     assert (
         "Give me an account overview and tell me if I have anything to pick up."
         in ECOMMERCE_REFERENCES
@@ -1691,11 +1729,14 @@ async def test_context_retriever_reports_each_parallel_http_duration(monkeypatch
     assert fast["sku"] == "VH-FAST"
     assert slow["sku"] == "VH-SLOW"
     assert slow["operation_duration_ms"] - fast["operation_duration_ms"] >= 15
-    assert api_module._tool_duration(
-        "query_context_retriever",
-        {"result": fast},
-        267.7,
-    ) == fast["operation_duration_ms"]
+    assert (
+        api_module._tool_duration(
+            "query_context_retriever",
+            {"result": fast},
+            267.7,
+        )
+        == fast["operation_duration_ms"]
+    )
 
 
 async def test_context_retriever_discovers_member_profile_tool(monkeypatch) -> None:
@@ -1884,10 +1925,9 @@ async def test_working_memory_dual_writes_identical_prompt_and_answer(monkeypatc
     monkeypatch.setattr(
         services.memory,
         "add_event",
-        lambda member_id, session_id, role, text: redis_events.append(
-            (member_id, session_id, role, text)
-        )
-        or True,
+        lambda member_id, session_id, role, text: (
+            redis_events.append((member_id, session_id, role, text)) or True
+        ),
     )
 
     assert await append_working_memory_event(
@@ -1923,9 +1963,7 @@ async def test_working_memory_background_queue_preserves_session_order(monkeypat
     monkeypatch.setattr(api_module, "append_working_memory_event", persist)
 
     api_module.queue_working_memory_event("member-1001", "session-1", "USER", "Question")
-    api_module.queue_working_memory_event(
-        "member-1001", "session-1", "ASSISTANT", "Answer"
-    )
+    api_module.queue_working_memory_event("member-1001", "session-1", "ASSISTANT", "Answer")
     await user_started.wait()
     await asyncio.sleep(0)
 
@@ -2032,9 +2070,7 @@ def test_catalog_search_compatibility_alias(monkeypatch) -> None:
 
     monkeypatch.setattr("valuewholesale_agent.tools.search_catalog", fake_search)
 
-    assert search_product_by_text("snacks", "pantry", 3) == {
-        "products": [{"sku": "VH-1001"}]
-    }
+    assert search_product_by_text("snacks", "pantry", 3) == {"products": [{"sku": "VH-1001"}]}
     assert calls == [("snacks", "pantry", 3)]
 
 
@@ -2075,9 +2111,7 @@ async def test_governed_context_tools_are_registered_and_callable(monkeypatch) -
     monkeypatch.setattr(services.context, "call", call)
     toolset = ContextRetrieverToolset({"search_catalog"})
 
-    discovered = await toolset.get_tools(
-        SimpleNamespace(state={"context_retriever_enabled": True})
-    )
+    discovered = await toolset.get_tools(SimpleNamespace(state={"context_retriever_enabled": True}))
 
     assert [tool.name for tool in discovered] == ["filter_order_by_member_id"]
     declaration = discovered[0]._get_declaration()
@@ -2098,9 +2132,12 @@ async def test_governed_context_toolset_is_empty_when_disabled(monkeypatch) -> N
 
     monkeypatch.setattr(services.context, "list_tools", unexpected)
 
-    assert await ContextRetrieverToolset(set()).get_tools(
-        SimpleNamespace(state={"context_retriever_enabled": False})
-    ) == []
+    assert (
+        await ContextRetrieverToolset(set()).get_tools(
+            SimpleNamespace(state={"context_retriever_enabled": False})
+        )
+        == []
+    )
 
     disabled_tool = ContextRetrieverTool({"name": "filter_order_by_member_id"})
     assert await disabled_tool.run_async(
@@ -2240,9 +2277,7 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
         if event["type"] == "trace" and event["step"]["id"] == "greeting-tool-memory-call"
     ]
     assert [event["step"]["status"] for event in tool_events] == ["running", "done"]
-    assert {event["step"]["label"] for event in tool_events} == {
-        "Searching Redis long-term memory"
-    }
+    assert {event["step"]["label"] for event in tool_events} == {"Searching Redis long-term memory"}
     greeting_trace = next(
         event["step"]
         for event in reversed(events)
@@ -2260,14 +2295,14 @@ async def test_greeting_generation_uses_an_isolated_session(monkeypatch) -> None
 def test_member_selector_displays_names_and_requests_generated_greeting() -> None:
     html = (api_module.STATIC_DIR / "index.html").read_text()
     assert "else if(step.move_to_end){trace.appendChild(el);}" in html
-    assert ">Google ADK × Redis Iris</a>" in html
+    assert ">Redis Iris</a>" in html
     assert "RedisIrisXadk/blob/main/ARCHITECTURE.md" in html
     assert "RedisIrisXadk/blob/main/docs/demo.md" in html
     assert 'id="reset-demo"' in html
     assert 'id="reset-memory"' in html
     assert 'id="reset-help"' in html
     assert "Reset unavailable" in html
-    assert "large-corpus benchmark member" in html
+    assert "memory cannot be reset from this demo" in html
     assert 'id="redis-endpoint"' in html
     assert 'id="memory-latencies"' in html
     assert (
@@ -2310,7 +2345,8 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="show-adk-toggle"' in html
     assert "Show ADK in trace and services" in html
     assert "SHOW_ADK_STORAGE_KEY='value-wholesale-show-adk'" in html
-    assert "localStorage.getItem(SHOW_ADK_STORAGE_KEY)!=='false'" in html
+    assert "localStorage.getItem(SHOW_ADK_STORAGE_KEY)==='true'" in html
+    assert "catch(_){return false;}" in html
     assert "localStorage.setItem(SHOW_ADK_STORAGE_KEY,String(show))" in html
     assert "body.adk-hidden .adk-only { display:none !important; }" in html
     assert "['adk-short-term','vertex-long-term'].includes" in html
@@ -2321,12 +2357,9 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "refreshPresenterLabels()" in html
     assert "flex-wrap:wrap" in html
     assert ".presenter-toggle { display:flex; flex:0 0 100%;" in html
-    assert (
-        '</div><label class="presenter-toggle"><input id="show-adk-toggle"'
-        in html
-    )
+    assert '</div><label class="presenter-toggle"><input id="show-adk-toggle"' in html
     assert 'id="context-retriever-toggle"' in html
-    assert "title=\"Show p95 latency\"" in html
+    assert 'title="Show p95 latency"' in html
     assert "renderAggregatePair(target,'ST',shortP95,'LT',longP95)" in html
     assert "renderAggregatePair(target,'Vector'" in html
     assert (
@@ -2337,7 +2370,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "No warm samples yet" not in html
     assert "toggle.onchange=()=>{contextRetrieverEnabled=toggle.checked" in html
     assert "toggle.onchange=async()=>" not in html
-    assert 'rel="icon" href="/static/assets/value-wholesale-favicon.svg"' in html
+    assert 'rel="icon" href="__EXPERIENCE_FAVICON__"' in html
     assert (api_module.STATIC_DIR / "assets" / "value-wholesale-favicon.svg").is_file()
     assert "Live integration status for this environment" in html
     assert "Per-send scoreboard · latest service latency." not in html
@@ -2358,12 +2391,11 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "Warming services…" not in html
     assert (
         ".service-meta-row { display:flex; align-items:baseline; "
-        "justify-content:space-between; gap:8px; margin:3px 3px 0 -3px; }"
-        in html
+        "justify-content:space-between; gap:8px; margin:3px 3px 0 -3px; }" in html
     )
     assert '<span>Vector Search</span><span class="service-operation-time"></span>' in html
     assert '<span>Tool call cache</span><span class="service-operation-time"></span>' in html
-    assert '.service { position:relative; min-width:0; padding:7px;' in html
+    assert ".service { position:relative; min-width:0; padding:7px;" in html
     assert '.service[data-service="redis_database"] .service-operation { margin-top:2px;' in html
     assert '.service[data-service="redis_database"] .tool-cache-operation { margin-top:0;' in html
     assert "if(step.cache?.read_duration_ms!=null)add('redis_database','','tool_cache')" in html
@@ -2379,36 +2411,15 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "`p95 ${formatDurationMs(stats.p95_ms)}`" in html
     assert "${formatDurationMs(result.duration_ms)}" in html
     assert (
-        "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')"
-        in html
+        "details.some(value=>value.startsWith('Local embedding:')))add('embedding_cache')" in html
     )
     assert 'class="panel side trace-panel"' in html
     assert "@media (min-width:901px) { aside { min-height:0; contain:size; } }" in html
-    shortcuts = [
-        ("Pantry run", "Find family-size pantry staples under $30 and check Portland stock."),
-        (
-            "Laundry",
-            "what laundry option should I add to my order, and is it in stock in Portland?",
-        ),
-        ("Upcoming order", "What is in my upcoming order?"),
-        ("Household products", "What household products have I bought?"),
-        ("Tide Pods", "When did i last bought 'Tide Laundry Pods'?"),
-        ("Ask a policy", "What is the electronics return policy?"),
-        ("Return", "How long can I return electronics for ?"),
-        (
-            "Learn a product",
-            "What flavor notes does Rain City Medium Roast Coffee have?",
-        ),
-        (
-            "Shopping guide",
-            "How should I store a large bag of rolled oats after opening?",
-        ),
-    ]
-    assert html.count('class="chip" data-prompt=') == 9
-    for label, prompt in shortcuts:
-        assert f'data-prompt="{prompt}">{label}</button>' in html
-    shortcut_positions = [html.index(f'>{label}</button>') for label, _ in shortcuts]
-    assert shortcut_positions == sorted(shortcut_positions)
+    assert get_experience_profile("valuewholesale").ui_prompts
+    assert get_experience_profile("norlings").ui_prompts
+    assert "profile.prompts.map(item=>" in html
+    assert "button.dataset.prompt=item.message" in html
+    assert "button.textContent=item.label" in html
     assert ".chips { display:grid; grid-template-columns:repeat(5,max-content); gap:6px; }" in html
     assert ".chip { padding:6px 10px;" in html
     assert "input.value=b.dataset.prompt;chatForm.requestSubmit();" in html
@@ -2493,10 +2504,7 @@ def test_member_memory_reset_restores_selected_demo_member(monkeypatch) -> None:
 
 def test_container_includes_member_memory_seed_data() -> None:
     dockerfile = (Path(__file__).parent.parent / "Dockerfile").read_text()
-    assert (
-        "COPY data/generated/memory_seeds.jsonl ./data/generated/memory_seeds.jsonl"
-        in dockerfile
-    )
+    assert "COPY data ./data" in dockerfile
 
 
 def test_member_memory_inventory_reads_providers_concurrently_and_tolerates_failure(
@@ -2805,8 +2813,7 @@ async def test_confirmation_followup_routes_with_recent_session_context(
         {"text": "Here are three family-size snack packs."},
         {
             "text": (
-                "Would you like me to check their availability at the Portland "
-                "Harbor warehouse?"
+                "Would you like me to check their availability at the Portland Harbor warehouse?"
             )
         },
     ]
@@ -2981,9 +2988,9 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
         _tool_label("search_member_policies", {"query": "How long can I return a laptop?"})
         == 'RedisVL Search Policies · "How long can I return a laptop?"'
     )
-    assert _tool_duration(
-        "search_catalog", {"result": {"redisvl_duration_ms": 2.75}}, 167.54
-    ) == 2.75
+    assert (
+        _tool_duration("search_catalog", {"result": {"redisvl_duration_ms": 2.75}}, 167.54) == 2.75
+    )
     assert _tool_duration("search_catalog", {"result": {}}, 167.54) == 0.0
     assert (
         _tool_duration(
@@ -3003,12 +3010,15 @@ def test_live_trace_formats_memory_and_mcp_results() -> None:
         )
         is None
     )
-    assert _tool_trace_duration(
-        "search_member_policies",
-        {},
-        8.5,
-        {"status": "miss", "read_duration_ms": 1.25},
-    ) == 7.25
+    assert (
+        _tool_trace_duration(
+            "search_member_policies",
+            {},
+            8.5,
+            {"status": "miss", "read_duration_ms": 1.25},
+        )
+        == 7.25
+    )
     cached_summary, cached_details = _tool_summary(
         "search_catalog",
         {
@@ -3080,6 +3090,13 @@ def test_generated_dataset_has_valid_relationships_and_totals() -> None:
 
 def test_health_and_unconfigured_memory_comparison() -> None:
     with TestClient(app) as client:
+        page = client.get("/")
+        assert page.status_code == 200
+        assert 'data-experience="valuewholesale"' in page.text
+        assert 'href="/static/themes/valuewholesale.css"' in page.text
+        assert ">Value Wholesale<" in page.text
+        assert "__EXPERIENCE_" not in page.text
+        assert page.headers["cache-control"] == "no-cache"
         health = client.get("/api/health")
         assert health.status_code == 200
         assert health.json()["cloud_run_location"] == "global"
@@ -3087,6 +3104,16 @@ def test_health_and_unconfigured_memory_comparison() -> None:
         assert health.json()["models"] == ["gemini-3.1-flash-lite", "gemini-3.1-pro-preview"]
         assert "redis_endpoint" in health.json()
         assert "semantic_router" in health.json()["services"]
+        experience_response = client.get("/api/experience")
+        assert experience_response.status_code == 200
+        assert experience_response.json()["brand_name"] == "Value Wholesale"
+        assert experience_response.json()["theme_stylesheet"] == (
+            "/static/themes/valuewholesale.css"
+        )
+        assert experience_response.json()["favicon"] == (
+            "/static/assets/value-wholesale-favicon.svg"
+        )
+        assert experience_response.json()["prompts"]
         members = client.get("/api/members")
         assert members.status_code == 200
         assert [member["member_id"] for member in members.json()["members"]] == [

@@ -142,7 +142,7 @@ def main() -> None:
 
     settings = Settings()
     memories = build_memories(
-        namespace=settings.agent_memory_namespace,
+        namespace=settings.effective_agent_memory_namespace,
         start_user=args.start_user,
         users=args.users,
         memories_per_user=args.memories_per_user,
@@ -154,7 +154,7 @@ def main() -> None:
         "total_memories": len(memories),
         "first_owner_id": memories[0]["owner_id"],
         "last_owner_id": memories[-1]["owner_id"],
-        "namespace": settings.agent_memory_namespace,
+        "namespace": settings.effective_agent_memory_namespace,
         "provider": args.provider,
         "estimated_adk_minutes": round(estimate_minutes, 1)
         if args.provider in {"both", "vertex"}

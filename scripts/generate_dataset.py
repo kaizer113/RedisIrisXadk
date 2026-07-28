@@ -416,14 +416,34 @@ def write_jsonl(path: Path, items: list[dict[str, Any]]) -> None:
     )
 
 
-def generate(output_dir: Path) -> dict[str, Any]:
+def records_for_experience(experience_id: str) -> dict[str, list[dict[str, Any]]]:
+    if experience_id == "valuewholesale":
+        return records()
+    if experience_id == "norlings":
+        from valuewholesale_agent.norlings_data import records as norlings_records
+
+        return norlings_records()
+    raise ValueError(f"Unknown experience: {experience_id}")
+
+
+def default_output_for_experience(experience_id: str) -> Path:
+    if experience_id == "valuewholesale":
+        return DEFAULT_OUTPUT
+    return ROOT / "data" / experience_id / "generated"
+
+
+def generate(
+    output_dir: Path,
+    *,
+    experience_id: str = "valuewholesale",
+) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
-    datasets = records()
+    datasets = records_for_experience(experience_id)
     for name, items in datasets.items():
         write_jsonl(output_dir / f"{name}.jsonl", items)
 
     manifest = {
-        "name": "valuewholesale-demo",
+        "name": f"{experience_id}-demo",
         "version": "1.0.0",
         "generated_at": "2026-07-16T16:00:00Z",
         "format": "jsonl",
@@ -446,10 +466,16 @@ def generate(output_dir: Path) -> dict[str, Any]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate the Value Wholesale demo dataset.")
-    parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
+    parser = argparse.ArgumentParser(description="Generate a deterministic experience dataset.")
+    parser.add_argument(
+        "--experience",
+        choices=("valuewholesale", "norlings"),
+        default="valuewholesale",
+    )
+    parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    manifest = generate(args.output)
+    output = args.output or default_output_for_experience(args.experience)
+    manifest = generate(output, experience_id=args.experience)
     print(json.dumps(manifest["entities"], sort_keys=True))
 
 

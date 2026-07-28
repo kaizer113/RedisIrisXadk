@@ -4,16 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
+from valuewholesale_agent.config import get_settings
 from valuewholesale_agent.services import (
     LOCAL_EMBEDDING_DIMS,
-    POLICY_INDEX_NAME,
-    PRODUCT_INDEX_NAME,
     CatalogService,
-    services,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = ROOT / "data" / "generated"
+settings = get_settings()
+DATA_DIR = settings.dataset_path
 
 
 def load_jsonl(name: str) -> list[dict[str, Any]]:
@@ -39,15 +38,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
         item.decode() if isinstance(item, bytes) else str(item)
         for item in client.execute_command("FT._LIST")
     }
-    if PRODUCT_INDEX_NAME not in indexes:
+    if catalog.settings.product_index_name not in indexes:
         client.execute_command(
             "FT.CREATE",
-            PRODUCT_INDEX_NAME,
+            catalog.settings.product_index_name,
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valuewholesale:product:",
+            f"{catalog.settings.redis_namespace}:product:",
             "SCHEMA",
             "sku",
             "TAG",
@@ -82,15 +81,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "EF_CONSTRUCTION",
             200,
         )
-    if POLICY_INDEX_NAME not in indexes:
+    if catalog.settings.policy_index_name not in indexes:
         client.execute_command(
             "FT.CREATE",
-            POLICY_INDEX_NAME,
+            catalog.settings.policy_index_name,
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valuewholesale:policy:",
+            f"{catalog.settings.redis_namespace}:policy:",
             "SCHEMA",
             "title",
             "TEXT",
@@ -109,15 +108,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "DISTANCE_METRIC",
             "COSINE",
         )
-    if "idx:valuewholesale:members" not in indexes:
+    if catalog.settings.member_index_name not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valuewholesale:members",
+            catalog.settings.member_index_name,
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valuewholesale:member:",
+            f"{catalog.settings.redis_namespace}:member:",
             "SCHEMA",
             "member_id",
             "TAG",
@@ -130,15 +129,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "reward_balance",
             "NUMERIC",
         )
-    if "idx:valuewholesale:orders" not in indexes:
+    if catalog.settings.order_index_name not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valuewholesale:orders",
+            catalog.settings.order_index_name,
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valuewholesale:order:",
+            f"{catalog.settings.redis_namespace}:order:",
             "SCHEMA",
             "order_id",
             "TAG",
@@ -155,15 +154,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
             "total",
             "NUMERIC",
         )
-    if "idx:valuewholesale:order-items" not in indexes:
+    if catalog.settings.order_item_index_name not in indexes:
         client.execute_command(
             "FT.CREATE",
-            "idx:valuewholesale:order-items",
+            catalog.settings.order_item_index_name,
             "ON",
             "HASH",
             "PREFIX",
             1,
-            "valuewholesale:order-item:",
+            f"{catalog.settings.redis_namespace}:order-item:",
             "SCHEMA",
             "order_item_id",
             "TAG",
@@ -181,7 +180,7 @@ def ensure_indexes(catalog: CatalogService) -> None:
 
 
 def main() -> None:
-    catalog = services.catalog
+    catalog = CatalogService(settings)
     client = catalog.redis
     if client is None:
         raise SystemExit("REDIS_URL is required")
@@ -204,11 +203,11 @@ def main() -> None:
         mapping["tags"] = ",".join(product["tags"])
         if embedding:
             mapping["embedding"] = embedding
-        key = f"valuewholesale:product:{product['sku']}"
+        key = f"{settings.redis_namespace}:product:{product['sku']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=mapping)
     for warehouse in warehouses:
-        key = f"valuewholesale:warehouse:{warehouse['warehouse_id']}"
+        key = f"{settings.redis_namespace}:warehouse:{warehouse['warehouse_id']}"
         pipeline.delete(key)
         pipeline.hset(
             key,
@@ -216,36 +215,37 @@ def main() -> None:
         )
     for stock in inventory:
         pipeline.set(
-            f"valuewholesale:inventory:{stock['warehouse_id']}:{stock['sku']}",
+            f"{settings.redis_namespace}:inventory:{stock['warehouse_id']}:{stock['sku']}",
             stock["quantity"],
         )
     for member in members:
-        key = f"valuewholesale:member:{member['member_id']}"
+        key = f"{settings.redis_namespace}:member:{member['member_id']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=redis_mapping(member))
     for order in orders:
-        key = f"valuewholesale:order:{order['order_id']}"
+        key = f"{settings.redis_namespace}:order:{order['order_id']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=redis_mapping(order))
     for item in order_items:
-        key = f"valuewholesale:order-item:{item['order_item_id']}"
+        key = f"{settings.redis_namespace}:order-item:{item['order_item_id']}"
         pipeline.delete(key)
-        pipeline.hset(
-            key, mapping=redis_mapping(item)
-        )
+        pipeline.hset(key, mapping=redis_mapping(item))
     for policy in policies:
         embedding = catalog._embed(catalog.policy_embedding_text(policy))  # noqa: SLF001
         mapping = redis_mapping(policy)
         if embedding:
             mapping["embedding"] = embedding
-        key = f"valuewholesale:policy:{policy['id']}"
+        key = f"{settings.redis_namespace}:policy:{policy['id']}"
         pipeline.delete(key)
         pipeline.hset(key, mapping=mapping)
     for memory in memory_seeds:
-        pipeline.hset(f"valuewholesale:memory-seed:{memory['id']}", mapping=redis_mapping(memory))
+        pipeline.hset(
+            f"{settings.redis_namespace}:memory-seed:{memory['id']}",
+            mapping=redis_mapping(memory),
+        )
     for evaluation in memory_evaluations:
         pipeline.hset(
-            f"valuewholesale:memory-evaluation:{evaluation['case_id']}",
+            f"{settings.redis_namespace}:memory-evaluation:{evaluation['case_id']}",
             mapping=redis_mapping(evaluation),
         )
     pipeline.execute()
