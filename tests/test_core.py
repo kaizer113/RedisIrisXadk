@@ -2408,7 +2408,10 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="context-retriever-toggle"' in html
     assert 'title="Show p95 latency"' in html
     assert "renderAggregatePair(target,'ST',shortP95,'LT',longP95)" in html
-    assert "renderAggregatePair(target,'Vector'" in html
+    assert "renderAggregatePair(target,'Vector',vectorP95,'Cache',cacheP95)" in html
+    assert "filter(entry=>entry.value!=null)" in html
+    assert "stats?.p95_ms==null?null" in html
+    assert "vectorP95==null&&cacheP95==null" in html
     assert (
         ".service-aggregate-pair { grid-template-columns:max-content max-content minmax(0,1fr);"
         in html
