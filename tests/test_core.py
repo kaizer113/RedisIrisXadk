@@ -794,7 +794,7 @@ def test_agent_memory_inventory_is_scoped_and_bounded() -> None:
                             "text": f"Fact {index}",
                         },
                     )
-                    for index in range(21)
+                    for index in range(41)
                 ]
             )
 
@@ -804,10 +804,10 @@ def test_agent_memory_inventory_is_scoped_and_bounded() -> None:
 
     result = memory.list_long_term("member-1001")
 
-    assert result["count"] == 20
+    assert result["count"] == 40
     assert result["truncated"] is True
-    assert len(result["memories"]) == 20
-    assert captured["limit"] == 21
+    assert len(result["memories"]) == 40
+    assert captured["limit"] == 41
     assert captured["filter_"] == {
         "owner_id": {"eq": "member-1001"},
         "namespace": {"eq": "valuewholesale-shopping"},
@@ -1116,7 +1116,7 @@ def test_vertex_memory_inventory_uses_server_side_scope_filter(monkeypatch) -> N
                             "user_id": "member-1001",
                         },
                     )
-                    for index in range(21)
+                    for index in range(41)
                 ]
             )
 
@@ -1134,12 +1134,12 @@ def test_vertex_memory_inventory_uses_server_side_scope_filter(monkeypatch) -> N
 
     result = memory.list_long_term("member-1001")
 
-    assert result["count"] == 20
+    assert result["count"] == 40
     assert result["truncated"] is True
-    assert len(result["memories"]) == 20
+    assert len(result["memories"]) == 40
     assert captured["name"].endswith("/reasoningEngines/engine-id")
     assert captured["config"] == {
-        "page_size": 21,
+        "page_size": 41,
         "filter": (
             'scope = "{\\"app_name\\":\\"valuewholesale-shopping-agent\\",'
             '\\"user_id\\":\\"member-1001\\"}"'
