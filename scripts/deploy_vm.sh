@@ -23,12 +23,16 @@ EXPERIENCE="${EXPERIENCE_ID:-valuewholesale}"
 CONTAINER_NAME="${VALUEWHOLESALE_VM_CONTAINER_NAME:-${EXPERIENCE}-agent}"
 HOST_PORT="${VALUEWHOLESALE_VM_HOST_PORT:-80}"
 MACHINE_TYPE="e2-standard-4"
-NETWORK="default"
+NETWORK="${VALUEWHOLESALE_VM_NETWORK:-default}"
+SUBNETWORK="${VALUEWHOLESALE_VM_SUBNETWORK:-}"
 NETWORK_TAG="valuewholesale-web"
 if [[ "$HOST_PORT" == "80" && "$EXPERIENCE" == "valuewholesale" ]]; then
   FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-valuewholesale-allow-http}"
 else
   FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-${EXPERIENCE}-allow-${HOST_PORT}}"
+fi
+if [[ "$NETWORK" != "default" && -z "${VALUEWHOLESALE_VM_FIREWALL_RULE:-}" ]]; then
+  FIREWALL_RULE="${FIREWALL_RULE}-${NETWORK}"
 fi
 REPOSITORY="valuewholesale"
 SERVICE="valuewholesale-shopping-agent"
@@ -52,7 +56,15 @@ if [[ "${VALUEWHOLESALE_SKIP_BUILD:-false}" != "true" ]]; then
   gcloud builds submit --tag "$IMAGE" .
 fi
 
-if ! gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; then
+if gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; then
+  firewall_network="$(gcloud compute firewall-rules describe "$FIREWALL_RULE" \
+    --format='value(network.basename())')"
+  if [[ "$firewall_network" != "$NETWORK" ]]; then
+    echo "Existing firewall rule $FIREWALL_RULE uses $firewall_network; expected $NETWORK."
+    echo "Set VALUEWHOLESALE_VM_FIREWALL_RULE to a rule on the target network."
+    exit 1
+  fi
+else
   gcloud compute firewall-rules create "$FIREWALL_RULE" \
     --network "$NETWORK" \
     --direction INGRESS \
@@ -65,6 +77,13 @@ if ! gcloud compute firewall-rules describe "$FIREWALL_RULE" >/dev/null 2>&1; th
 fi
 
 if gcloud compute instances describe "$VM_NAME" --zone "$ZONE" >/dev/null 2>&1; then
+  current_network="$(gcloud compute instances describe "$VM_NAME" --zone "$ZONE" \
+    --format='value(networkInterfaces[0].network.basename())')"
+  if [[ "$current_network" != "$NETWORK" ]]; then
+    echo "Existing VM $VM_NAME uses network $current_network; expected $NETWORK."
+    echo "Recreate the VM explicitly before deploying to a different network."
+    exit 1
+  fi
   current_type="$(gcloud compute instances describe "$VM_NAME" --zone "$ZONE" --format='value(machineType.basename())')"
   if [[ "$current_type" != "$MACHINE_TYPE" ]]; then
     echo "Existing VM $VM_NAME uses $current_type; expected $MACHINE_TYPE."
@@ -76,11 +95,15 @@ if gcloud compute instances describe "$VM_NAME" --zone "$ZONE" >/dev/null 2>&1; 
     gcloud compute instances start "$VM_NAME" --zone "$ZONE"
   fi
 else
+  network_interface="network=$NETWORK,network-tier=PREMIUM,nic-type=GVNIC"
+  if [[ -n "$SUBNETWORK" ]]; then
+    network_interface="network=$NETWORK,subnet=$SUBNETWORK,network-tier=PREMIUM,nic-type=GVNIC"
+  fi
   gcloud compute instances create "$VM_NAME" \
     --quiet \
     --zone "$ZONE" \
     --machine-type "$MACHINE_TYPE" \
-    --network-interface "network=$NETWORK,network-tier=PREMIUM,nic-type=GVNIC" \
+    --network-interface "$network_interface" \
     --tags "$NETWORK_TAG" \
     --labels "$LABELS" \
     --image-family debian-12 \
