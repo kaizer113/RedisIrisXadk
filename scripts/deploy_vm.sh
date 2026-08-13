@@ -25,6 +25,7 @@ HOST_PORT="${VALUEWHOLESALE_VM_HOST_PORT:-80}"
 MACHINE_TYPE="e2-standard-4"
 NETWORK="${VALUEWHOLESALE_VM_NETWORK:-default}"
 SUBNETWORK="${VALUEWHOLESALE_VM_SUBNETWORK:-}"
+USE_IAP="${VALUEWHOLESALE_VM_USE_IAP:-false}"
 NETWORK_TAG="valuewholesale-web"
 if [[ "$HOST_PORT" == "80" && "$EXPERIENCE" == "valuewholesale" ]]; then
   FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-valuewholesale-allow-http}"
@@ -34,6 +35,7 @@ fi
 if [[ "$NETWORK" != "default" && -z "${VALUEWHOLESALE_VM_FIREWALL_RULE:-}" ]]; then
   FIREWALL_RULE="${FIREWALL_RULE}-${NETWORK}"
 fi
+SSH_FIREWALL_RULE="${VALUEWHOLESALE_VM_SSH_FIREWALL_RULE:-valuewholesale-allow-ssh-iap-${NETWORK}}"
 REPOSITORY="valuewholesale"
 SERVICE="valuewholesale-shopping-agent"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
@@ -50,6 +52,26 @@ if ! gcloud artifacts repositories describe "$REPOSITORY" --location "$REGION" >
     --repository-format docker \
     --location "$REGION" \
     --labels "$LABELS"
+fi
+
+if [[ "$USE_IAP" == "true" ]]; then
+  if gcloud compute firewall-rules describe "$SSH_FIREWALL_RULE" >/dev/null 2>&1; then
+    ssh_firewall_network="$(gcloud compute firewall-rules describe "$SSH_FIREWALL_RULE" \
+      --format='value(network.basename())')"
+    if [[ "$ssh_firewall_network" != "$NETWORK" ]]; then
+      echo "Existing firewall rule $SSH_FIREWALL_RULE uses $ssh_firewall_network; expected $NETWORK."
+      exit 1
+    fi
+  else
+    gcloud compute firewall-rules create "$SSH_FIREWALL_RULE" \
+      --network "$NETWORK" \
+      --direction INGRESS \
+      --action ALLOW \
+      --rules tcp:22 \
+      --source-ranges 35.235.240.0/20 \
+      --target-tags "$NETWORK_TAG" \
+      --description "IAP SSH access for the RedisXADK demo VM"
+  fi
 fi
 
 if [[ "${VALUEWHOLESALE_SKIP_BUILD:-false}" != "true" ]]; then
@@ -118,11 +140,17 @@ else
 fi
 
 echo "Waiting for Docker installation and SSH..."
+SSH_ARGS=(--zone "$ZONE" --quiet)
+SCP_ARGS=(--zone "$ZONE" --quiet)
+if [[ "$USE_IAP" == "true" ]]; then
+  SSH_ARGS+=(--tunnel-through-iap)
+  SCP_ARGS+=(--tunnel-through-iap)
+fi
 ready=false
 for _ in $(seq 1 40); do
-  if gcloud compute ssh "$VM_NAME" --zone "$ZONE" \
+  if gcloud compute ssh "$VM_NAME" "${SSH_ARGS[@]}" \
     --command 'command -v docker >/dev/null && sudo systemctl is-active --quiet docker' \
-    --quiet >/dev/null 2>&1; then
+    >/dev/null 2>&1; then
     ready=true
     break
   fi
@@ -156,8 +184,8 @@ while IFS= read -r line; do
   esac
 done < "$SOURCE_ENV_FILE"
 
-gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/${CONTAINER_NAME}.env" --zone "$ZONE" --quiet
-gcloud compute ssh "$VM_NAME" --zone "$ZONE" --quiet --command "
+gcloud compute scp "$RUNTIME_ENV_FILE" "$VM_NAME:~/${CONTAINER_NAME}.env" "${SCP_ARGS[@]}"
+gcloud compute ssh "$VM_NAME" "${SSH_ARGS[@]}" --command "
   set -e
   sudo install -o root -g root -m 600 ~/${CONTAINER_NAME}.env /etc/${CONTAINER_NAME}.env
   rm -f ~/${CONTAINER_NAME}.env
