@@ -26,6 +26,7 @@ MACHINE_TYPE="e2-standard-4"
 NETWORK="${VALUEWHOLESALE_VM_NETWORK:-default}"
 SUBNETWORK="${VALUEWHOLESALE_VM_SUBNETWORK:-}"
 USE_IAP="${VALUEWHOLESALE_VM_USE_IAP:-false}"
+SSH_SOURCE_RANGES="${VALUEWHOLESALE_VM_SSH_SOURCE_RANGES:-}"
 NETWORK_TAG="valuewholesale-web"
 if [[ "$HOST_PORT" == "80" && "$EXPERIENCE" == "valuewholesale" ]]; then
   FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-valuewholesale-allow-http}"
@@ -35,7 +36,13 @@ fi
 if [[ "$NETWORK" != "default" && -z "${VALUEWHOLESALE_VM_FIREWALL_RULE:-}" ]]; then
   FIREWALL_RULE="${FIREWALL_RULE}-${NETWORK}"
 fi
-SSH_FIREWALL_RULE="${VALUEWHOLESALE_VM_SSH_FIREWALL_RULE:-valuewholesale-allow-ssh-iap-${NETWORK}}"
+if [[ "$USE_IAP" == "true" ]]; then
+  SSH_SOURCE_RANGES="35.235.240.0/20"
+  default_ssh_firewall_rule="valuewholesale-allow-ssh-iap-${NETWORK}"
+else
+  default_ssh_firewall_rule="valuewholesale-allow-ssh-admin-${NETWORK}"
+fi
+SSH_FIREWALL_RULE="${VALUEWHOLESALE_VM_SSH_FIREWALL_RULE:-$default_ssh_firewall_rule}"
 REPOSITORY="valuewholesale"
 SERVICE="valuewholesale-shopping-agent"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
@@ -54,7 +61,7 @@ if ! gcloud artifacts repositories describe "$REPOSITORY" --location "$REGION" >
     --labels "$LABELS"
 fi
 
-if [[ "$USE_IAP" == "true" ]]; then
+if [[ -n "$SSH_SOURCE_RANGES" ]]; then
   if gcloud compute firewall-rules describe "$SSH_FIREWALL_RULE" >/dev/null 2>&1; then
     ssh_firewall_network="$(gcloud compute firewall-rules describe "$SSH_FIREWALL_RULE" \
       --format='value(network.basename())')"
@@ -68,9 +75,9 @@ if [[ "$USE_IAP" == "true" ]]; then
       --direction INGRESS \
       --action ALLOW \
       --rules tcp:22 \
-      --source-ranges 35.235.240.0/20 \
+      --source-ranges "$SSH_SOURCE_RANGES" \
       --target-tags "$NETWORK_TAG" \
-      --description "IAP SSH access for the RedisXADK demo VM"
+      --description "Restricted SSH access for the RedisXADK demo VM"
   fi
 fi
 

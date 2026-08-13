@@ -137,6 +137,9 @@ export VALUEWHOLESALE_VM_ZONE="your-zone"
 export VALUEWHOLESALE_VM_NETWORK="your-vpc"
 export VALUEWHOLESALE_VM_SUBNETWORK="your-subnet"
 export VALUEWHOLESALE_VM_USE_IAP=true
+# When IAP is unavailable, set USE_IAP=false and restrict direct SSH to an admin CIDR:
+# export VALUEWHOLESALE_VM_USE_IAP=false
+# export VALUEWHOLESALE_VM_SSH_SOURCE_RANGES="203.0.113.10/32"
 export VALUEWHOLESALE_VM_REDIS_HOST="your-private-redis-hostname"
 make deploy-vm
 ```
