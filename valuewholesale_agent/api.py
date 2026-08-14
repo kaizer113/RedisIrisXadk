@@ -47,9 +47,11 @@ SHORT_TERM_MEMORY_LIMIT = 10
 STATIC_DIR = settings.static_path
 MEMORY_SEEDS_PATH = settings.dataset_path / "memory_seeds.jsonl"
 MEMORY_RESETTABLE_MEMBERS = frozenset(experience.resettable_member_ids)
+PRESENTER_SETTINGS_KEY = f"{settings.redis_namespace}:presenter-settings"
 PRODUCTS = dataset.products
 WAREHOUSES = dataset.warehouses
 MEMBERS = dataset.members
+show_adk_fallback = False
 
 
 class DemoVertexMemoryBankService(VertexAiMemoryBankService):
@@ -220,6 +222,10 @@ class GreetingRequest(BaseModel):
         if model not in settings.available_google_models:
             raise ValueError(f"model must be one of: {', '.join(settings.available_google_models)}")
         return model
+
+
+class PresenterSettingsRequest(BaseModel):
+    show_adk: bool
 
 
 class MemoryCompareRequest(BaseModel):
@@ -1444,6 +1450,50 @@ async def health() -> dict[str, Any]:
             "agent_platform_sessions": isinstance(session_service, VertexAiSessionService),
         },
     }
+
+
+def read_show_adk() -> bool:
+    """Read the shared presenter preference, falling back to this server process."""
+    global show_adk_fallback
+    client = services.catalog.redis
+    if client is None:
+        return show_adk_fallback
+    try:
+        value = client.hget(PRESENTER_SETTINGS_KEY, "show_adk")
+    except Exception as exc:
+        log.warning("Shared presenter settings read failed open: %s", exc)
+        return show_adk_fallback
+    if value is None:
+        return False
+    if isinstance(value, bytes):
+        value = value.decode(errors="replace")
+    show_adk_fallback = str(value).lower() in {"1", "true", "yes", "on"}
+    return show_adk_fallback
+
+
+def write_show_adk(show_adk: bool) -> bool:
+    """Persist the shared presenter preference and return its canonical value."""
+    global show_adk_fallback
+    client = services.catalog.redis
+    if client is not None:
+        client.hset(PRESENTER_SETTINGS_KEY, "show_adk", "1" if show_adk else "0")
+    show_adk_fallback = show_adk
+    return show_adk
+
+
+@app.get("/api/presenter-settings")
+async def presenter_settings() -> dict[str, bool]:
+    return {"show_adk": await asyncio.to_thread(read_show_adk)}
+
+
+@app.put("/api/presenter-settings")
+async def update_presenter_settings(request: PresenterSettingsRequest) -> dict[str, bool]:
+    try:
+        show_adk = await asyncio.to_thread(write_show_adk, request.show_adk)
+    except Exception as exc:
+        log.warning("Shared presenter settings write failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Presenter setting could not be saved") from exc
+    return {"show_adk": show_adk}
 
 
 @app.post("/api/reset-demo")

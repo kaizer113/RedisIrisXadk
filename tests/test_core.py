@@ -2381,10 +2381,11 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert 'id="latency-stats-toggle"' in html
     assert 'id="show-adk-toggle"' in html
     assert "Show ADK in trace and services" in html
-    assert "SHOW_ADK_STORAGE_KEY='value-wholesale-show-adk'" in html
-    assert "localStorage.getItem(SHOW_ADK_STORAGE_KEY)==='true'" in html
-    assert "catch(_){return false;}" in html
-    assert "localStorage.setItem(SHOW_ADK_STORAGE_KEY,String(show))" in html
+    assert "fetch('/api/presenter-settings',{cache:'no-store'})" in html
+    assert "fetch('/api/presenter-settings',{method:'PUT'" in html
+    assert "body:JSON.stringify({show_adk:requested})" in html
+    assert "setInterval(loadPresenterSettings,PRESENTER_SETTINGS_REFRESH_MS)" in html
+    assert "SHOW_ADK_STORAGE_KEY" not in html
     assert (
         "CONTEXT_RETRIEVER_STORAGE_KEY='value-wholesale-context-retriever'" in html
     )
@@ -2491,7 +2492,7 @@ def test_member_selector_displays_names_and_requests_generated_greeting() -> Non
     assert "cancelActiveChat();cancelMemoryInventory();memberId=memberSelect.value" in html
     assert (
         "await warmupOnLoad();setInterval(keepServicesWarm,KEEPALIVE_INTERVAL_MS);"
-        "await selectMember()"
+        "setInterval(loadPresenterSettings,PRESENTER_SETTINGS_REFRESH_MS);await selectMember()"
     ) in html
     assert "fetch('/api/keepalive',{method:'POST'})" in html
     assert "KEEPALIVE_INTERVAL_MS=120000" in html
@@ -2512,6 +2513,31 @@ def test_demo_reset_flushes_langcache(monkeypatch) -> None:
     assert response.status_code == 200
     assert response.json() == {"ok": True, "message": "LangCache flushed"}
     assert cleared == [True]
+
+
+def test_presenter_settings_are_shared_through_redis(monkeypatch) -> None:
+    class FakeRedis:
+        def __init__(self):
+            self.values = {}
+
+        def hget(self, key, field):
+            return self.values.get((key, field))
+
+        def hset(self, key, field, value):
+            self.values[(key, field)] = value.encode()
+            return 1
+
+    fake = FakeRedis()
+    monkeypatch.setattr(services.catalog, "redis", fake)
+
+    with TestClient(app) as client:
+        assert client.get("/api/presenter-settings").json() == {"show_adk": False}
+        response = client.put("/api/presenter-settings", json={"show_adk": True})
+        assert response.status_code == 200
+        assert response.json() == {"show_adk": True}
+        assert client.get("/api/presenter-settings").json() == {"show_adk": True}
+
+    assert fake.values[(api_module.PRESENTER_SETTINGS_KEY, "show_adk")] == b"1"
 
 
 def test_member_memory_reset_restores_selected_demo_member(monkeypatch) -> None:
