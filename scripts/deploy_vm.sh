@@ -27,6 +27,8 @@ NETWORK="${VALUEWHOLESALE_VM_NETWORK:-default}"
 SUBNETWORK="${VALUEWHOLESALE_VM_SUBNETWORK:-}"
 USE_IAP="${VALUEWHOLESALE_VM_USE_IAP:-false}"
 SSH_SOURCE_RANGES="${VALUEWHOLESALE_VM_SSH_SOURCE_RANGES:-}"
+VM_OWNER_LABEL="${VALUEWHOLESALE_VM_OWNER_LABEL:-lionel_giavelli}"
+VM_SKIP_DELETION_LABEL="${VALUEWHOLESALE_VM_SKIP_DELETION_LABEL:-yes}"
 NETWORK_TAG="valuewholesale-web"
 if [[ "$HOST_PORT" == "80" && "$EXPERIENCE" == "valuewholesale" ]]; then
   FIREWALL_RULE="${VALUEWHOLESALE_VM_FIREWALL_RULE:-valuewholesale-allow-http}"
@@ -46,7 +48,7 @@ SSH_FIREWALL_RULE="${VALUEWHOLESALE_VM_SSH_FIREWALL_RULE:-$default_ssh_firewall_
 REPOSITORY="valuewholesale"
 SERVICE="valuewholesale-shopping-agent"
 IMAGE="$REGION-docker.pkg.dev/$PROJECT_ID/$REPOSITORY/$SERVICE:latest"
-LABELS="app=${EXPERIENCE},environment=demo"
+LABELS="app=${EXPERIENCE},environment=demo,owner=${VM_OWNER_LABEL},skip_deletion=${VM_SKIP_DELETION_LABEL}"
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required"; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required"; exit 1; }
@@ -69,6 +71,11 @@ if [[ -n "$SSH_SOURCE_RANGES" ]]; then
       echo "Existing firewall rule $SSH_FIREWALL_RULE uses $ssh_firewall_network; expected $NETWORK."
       exit 1
     fi
+    gcloud compute firewall-rules update "$SSH_FIREWALL_RULE" \
+      --allow tcp:22 \
+      --source-ranges "$SSH_SOURCE_RANGES" \
+      --target-tags "$NETWORK_TAG" \
+      --quiet
   else
     gcloud compute firewall-rules create "$SSH_FIREWALL_RULE" \
       --network "$NETWORK" \
@@ -145,6 +152,11 @@ else
     --shielded-secure-boot \
     --metadata-from-file "startup-script=$ROOT_DIR/scripts/vm_startup.sh"
 fi
+
+gcloud compute instances add-labels "$VM_NAME" \
+  --zone "$ZONE" \
+  --labels "$LABELS" \
+  --quiet
 
 echo "Waiting for Docker installation and SSH..."
 SSH_ARGS=(--zone "$ZONE" --quiet)

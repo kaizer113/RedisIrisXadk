@@ -140,6 +140,8 @@ export VALUEWHOLESALE_VM_USE_IAP=true
 # When IAP is unavailable, set USE_IAP=false and restrict direct SSH to an admin CIDR:
 # export VALUEWHOLESALE_VM_USE_IAP=false
 # export VALUEWHOLESALE_VM_SSH_SOURCE_RANGES="203.0.113.10/32"
+export VALUEWHOLESALE_VM_OWNER_LABEL="your_name"
+export VALUEWHOLESALE_VM_SKIP_DELETION_LABEL=yes
 export VALUEWHOLESALE_VM_REDIS_HOST="your-private-redis-hostname"
 make deploy-vm
 ```
