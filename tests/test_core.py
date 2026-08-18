@@ -154,6 +154,10 @@ def test_experiences_share_one_profile_driven_browser_ui() -> None:
     assert norlings.ui_favicon == "/static/assets/norlings-favicon.svg"
     assert norlings.ui_mark == "NL"
     assert value.ui_theme_stylesheet == "/static/themes/valuewholesale.css"
+    assert value.ui_prompts[5:7] == (
+        ("Ask a policy", "What is the electronics return policy?"),
+        ("Return window", "How long can i return electronics for?"),
+    )
     assert 'id="experience-profile"' in html
     assert "__EXPERIENCE_PROFILE_JSON__" in html
     assert "fetch('/api/experience')" not in html

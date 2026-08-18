@@ -111,6 +111,7 @@ PROFILES = {
             ("Household products", "What household products have I bought?"),
             ("Tide Pods", "When did I last buy Tide Laundry Pods?"),
             ("Ask a policy", "What is the electronics return policy?"),
+            ("Return window", "How long can i return electronics for?"),
             ("Learn a product", "What flavor notes does Rain City Medium Roast Coffee have?"),
         ),
     ),
