@@ -4,6 +4,8 @@ This third demo is an exact Value Wholesale application copy whose Redis Iris ca
 self-managed GKE deployment. The original Value Wholesale and Norling's containers continue to
 use their Redis Cloud services.
 
+Presenter flow and tested prompts: [demo-valuewholesale-onprem.md](demo-valuewholesale-onprem.md).
+
 ## Runtime isolation
 
 | Concern | Third-demo value |

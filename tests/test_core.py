@@ -177,9 +177,17 @@ def test_experiences_share_one_profile_driven_browser_ui() -> None:
     assert 'id="tools-modal"' in html
     assert "icon:'/static/assets/redis-r.png'" in html
     assert "function updateServiceBoard(step)" in html
+    assert 'id="hybrid-finder-actions"' in html
     assert 'id="hybrid-finder-toggle"' in html
+    assert 'id="hybrid-prompts"' in html
+    assert 'data-hybrid-query="wireless audio for private listening while traveling"' in html
+    assert 'data-hybrid-query="free and clear laundry detergent for sensitive skin"' in html
+    assert 'data-hybrid-query="whole bean medium roast coffee with cocoa and caramel notes"' in html
+    assert "docs/demo-valuewholesale-onprem.md" in html
     assert "fetch('/api/context/hybrid-product-search'" in html
+    assert "hybridFinder.requestSubmit()" in html
     assert "function resetMemberMemory()" in html
+    assert (root / "docs/demo-valuewholesale-onprem.md").is_file()
     assert (path.parent / "assets/redis-r.png").is_file()
     assert (path.parent / "themes/norlings.css").is_file()
 
