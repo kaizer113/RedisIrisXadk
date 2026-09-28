@@ -31,9 +31,10 @@ Prompt:
 - Expected leading results: Northstar Wireless Earbuds Value Pack at `$49.99`, followed by the
   Family Pack at `$67.49`.
 
-This is the strongest prompt for explaining the combination of semantic intent, lexical signals,
-and governed structured filters. Lower-ranked results may be broader wireless electronics because
-the current endpoint returns the top five hybrid-ranked matches without a score cutoff.
+The `$80` limit is an inclusive structured pre-filter, not part of semantic relevance. Context
+Retriever applies the category and member-price predicates before its lexical and vector ranking
+legs. The natural-language phrase demonstrates the hybrid ranking; the price demonstrates governed
+filtering. A semantic-distance guardrail removes broader wireless electronics before display.
 
 ### Sensitive-skin laundry
 
@@ -74,13 +75,19 @@ Prompt:
 
 ## 2. Explain the trace
 
-For each Hybrid Product Finder request, point to the single Context Retriever trace step:
+For each Hybrid Product Finder request, point to the two Context Retriever trace steps:
+
+`Context Retriever · semantic relevance guardrail`
 
 `Context Retriever · search_product_by_semantic_embedding_hybrid`
 
-Expand the results beneath that step. The trace reports the tool latency, the number of products,
-the hybrid RRF ranking method, and the selected product names and member prices. The application
-does not send this request through Gemini: the result is a direct, governed retrieval demonstration.
+The semantic step shows the calibrated cosine-distance cutoff. The hybrid step shows each retained
+product's hybrid rank, semantic rank and distance, and its rank in a companion lexical search.
+Explain that the companion searches make the two retrieval signals visible; the hybrid tool's RRF
+order remains authoritative. The lexical tool does not accept the hybrid tool's structured-filter
+arguments, so its rank is diagnostic: the application reapplies the same category and price
+eligibility when presenting that companion list. The application does not send this request through
+Gemini: the result is a direct, governed retrieval demonstration.
 
 ## 3. Compare with the normal shopping-agent path
 
@@ -112,7 +119,9 @@ Use these prompts in the regular chat to demonstrate parity with the Redis Cloud
   capability is gated by `CONTEXT_HYBRID_PRODUCT_FINDER_ENABLED` and is enabled only here.
 - Redis remains the operational source for catalog, price, and inventory data. Agent Memory is
   used for conversational and durable user context, not as the source of truth for commerce data.
-- Hybrid ranking is relative. Lead with the first results and describe later results as broader
-  candidates unless a production relevance threshold has been configured.
+- Hybrid RRF scores are relative and are not used as a portable relevance threshold. The demo uses
+  a semantic guardrail: cosine distance must be at most `0.35` and within `0.06` of the best match.
+  Those values are calibrated for this demo dataset and embedding model and require evaluation
+  before reuse elsewhere.
 - If a service call fails, verify the GKE services and private VM-to-GKE connectivity before
   changing application behavior.

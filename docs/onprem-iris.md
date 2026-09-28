@@ -35,7 +35,9 @@ Only the self-managed comparison enables `CONTEXT_HYBRID_PRODUCT_FINDER_ENABLED`
 shows an additive Hybrid Product Finder with a natural-language query, category filter, and
 maximum member-price filter. The server invokes the fixed governed Context Retriever tool
 `search_product_by_semantic_embedding_hybrid`; results appear in the conversation and the call is
-rendered through the existing live agent trace and Redis service board. The Redis Cloud Value
+rendered through the existing live agent trace and Redis service board. A companion semantic call
+applies a demo-calibrated cosine-distance guardrail, while semantic and lexical companion ranks
+make the hybrid result evidence visible in the trace. The Redis Cloud Value
 Wholesale and Norling's demos leave the flag disabled, hide the control, and return HTTP 404 from
 the dedicated endpoint. Their existing chat and RedisVL behavior is unchanged.
 

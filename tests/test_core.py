@@ -2187,28 +2187,57 @@ async def test_governed_context_tools_are_registered_and_callable(monkeypatch) -
     }
 
 
-async def test_hybrid_product_finder_calls_fixed_governed_tool(monkeypatch) -> None:
+async def test_hybrid_product_finder_combines_rank_evidence_and_distance_guardrail(
+    monkeypatch,
+) -> None:
     calls = []
 
     async def list_tools():
-        return [{"name": api_module.CONTEXT_HYBRID_PRODUCT_TOOL}]
+        return [
+            {"name": api_module.CONTEXT_HYBRID_PRODUCT_TOOL},
+            {"name": api_module.CONTEXT_SEMANTIC_PRODUCT_TOOL},
+            {"name": api_module.CONTEXT_TEXT_PRODUCT_TOOL},
+        ]
 
     async def call(name, arguments):
         calls.append((name, arguments))
-        return {
-            "results": [
-                {
-                    "sku": "VH-6055",
-                    "name": "Northstar Wireless Earbuds, Value Pack",
-                    "description": "Noise-isolating wireless earbuds with a charging case.",
-                    "category": "electronics",
-                    "price": 56.99,
-                    "member_price": 49.99,
-                    "_retrieval": {"hybrid_score": 0.0325},
-                }
-            ],
-            "operation_duration_ms": 42.5,
-        }
+        products = [
+            {
+                "sku": "VH-2002",
+                "name": "Clear Tide Laundry Pods, 152 count",
+                "description": "Free-and-clear concentrated laundry detergent pods.",
+                "category": "household",
+                "price": 36.99,
+                "member_price": 31.99,
+            },
+            {
+                "sku": "VH-6020",
+                "name": "Clear Harbor Dishwasher Tablets, Family Pack",
+                "description": "Unscented concentrated dishwasher tablets.",
+                "category": "household",
+                "price": 27.69,
+                "member_price": 24.29,
+            },
+        ]
+        if name == api_module.CONTEXT_HYBRID_PRODUCT_TOOL:
+            rows = [
+                {**products[0], "_retrieval": {"hybrid_score": 0.0328}},
+                {**products[1], "_retrieval": {"hybrid_score": 0.0159}},
+            ]
+            return {
+                "results": rows,
+                "ranking_method": "rrf",
+                "operation_duration_ms": 42.5,
+            }
+        if name == api_module.CONTEXT_SEMANTIC_PRODUCT_TOOL:
+            return {
+                "results": [
+                    {**products[0], "vector_distance": 0.192, "distance_metric": "cosine"},
+                    {**products[1], "vector_distance": 0.318, "distance_metric": "cosine"},
+                ],
+                "operation_duration_ms": 30.5,
+            }
+        return {"results": products, "operation_duration_ms": 12.0}
 
     monkeypatch.setattr(api_module.settings, "context_hybrid_product_finder_enabled", True)
     monkeypatch.setattr(services.context, "list_tools", list_tools)
@@ -2216,34 +2245,54 @@ async def test_hybrid_product_finder_calls_fixed_governed_tool(monkeypatch) -> N
 
     response = await api_module.context_hybrid_product_search(
         api_module.HybridProductSearchRequest(
-            query="wireless audio for private listening",
-            category="electronics",
-            max_member_price=80,
+            query="free and clear laundry detergent for sensitive skin",
+            category="household",
+            max_member_price=35,
         )
     )
 
-    assert calls == [
-        (
-            api_module.CONTEXT_HYBRID_PRODUCT_TOOL,
-            {
-                "query_text": "wireless audio for private listening",
-                "match_mode": "any",
-                "top_k": 5,
-                "tag_conditions": [{"field": "category", "value": "electronics"}],
-                "numeric_conditions": [{"field": "member_price", "max_value": 80.0}],
-            },
-        )
-    ]
-    assert response["products"][0] == {
-        "sku": "VH-6055",
-        "name": "Northstar Wireless Earbuds, Value Pack",
-        "description": "Noise-isolating wireless earbuds with a charging case.",
-        "category": "electronics",
-        "price": 56.99,
-        "member_price": 49.99,
-        "hybrid_score": 0.0325,
+    calls_by_name = {name: arguments for name, arguments in calls}
+    assert calls_by_name[api_module.CONTEXT_HYBRID_PRODUCT_TOOL] == {
+        "query_text": "free and clear laundry detergent for sensitive skin",
+        "match_mode": "any",
+        "top_k": 10,
+        "tag_conditions": [{"field": "category", "value": "household"}],
+        "numeric_conditions": [{"field": "member_price", "max_value": 35.0}],
     }
-    assert response["trace"][0]["summary"] == "1 products found · hybrid RRF ranking"
+    assert calls_by_name[api_module.CONTEXT_SEMANTIC_PRODUCT_TOOL] == {
+        "query_text": "free and clear laundry detergent for sensitive skin",
+        "top_k": 25,
+        "tag_conditions": [{"field": "category", "value": "household"}],
+        "numeric_conditions": [{"field": "member_price", "max_value": 35.0}],
+    }
+    assert calls_by_name[api_module.CONTEXT_TEXT_PRODUCT_TOOL] == {
+        "query": "free and clear laundry detergent for sensitive skin",
+        "match_mode": "any",
+        "limit": 100,
+    }
+    assert len(response["products"]) == 1
+    assert response["products"][0] == {
+        "sku": "VH-2002",
+        "name": "Clear Tide Laundry Pods, 152 count",
+        "description": "Free-and-clear concentrated laundry detergent pods.",
+        "category": "household",
+        "price": 36.99,
+        "member_price": 31.99,
+        "hybrid_rank": 1,
+        "hybrid_score": 0.0328,
+        "semantic_rank": 1,
+        "vector_distance": 0.192,
+        "distance_metric": "cosine",
+        "text_rank": 1,
+    }
+    assert response["retrieval"]["vector_distance_cutoff"] == 0.252
+    assert response["trace"][0]["summary"] == "Cosine distance ≤ 0.252 · 1 results retained"
+    assert response["trace"][1]["summary"] == "Text + vector → RRF · 1 relevant product"
+    assert response["trace"][1]["details"] == [
+        "Structured pre-filter · category = household · member_price ≤ $35.00",
+        "Hybrid #1 · Semantic #1 (cosine 0.192) · Lexical companion #1 · "
+        "Clear Tide Laundry Pods, 152 count · member $31.99"
+    ]
 
 
 async def test_governed_context_toolset_is_empty_when_disabled(monkeypatch) -> None:

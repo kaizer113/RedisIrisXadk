@@ -53,6 +53,12 @@ WAREHOUSES = dataset.warehouses
 MEMBERS = dataset.members
 show_adk_fallback = False
 CONTEXT_HYBRID_PRODUCT_TOOL = "search_product_by_semantic_embedding_hybrid"
+CONTEXT_SEMANTIC_PRODUCT_TOOL = "search_product_by_semantic_embedding_semantic"
+CONTEXT_TEXT_PRODUCT_TOOL = "search_product_by_text"
+HYBRID_CANDIDATE_LIMIT = 10
+HYBRID_RESULT_LIMIT = 5
+HYBRID_VECTOR_DISTANCE_CEILING = 0.35
+HYBRID_VECTOR_DISTANCE_WINDOW = 0.06
 
 
 class DemoVertexMemoryBankService(VertexAiMemoryBankService):
@@ -1638,13 +1644,18 @@ async def context_hybrid_product_search(request: HybridProductSearchRequest) -> 
         raise HTTPException(status_code=422, detail="Unknown product category")
 
     tools = await services.context.list_tools()
-    if not any(tool.get("name") == CONTEXT_HYBRID_PRODUCT_TOOL for tool in tools):
-        raise HTTPException(status_code=503, detail="Context Retriever hybrid tool is unavailable")
+    tool_names = {tool.get("name") for tool in tools}
+    required_tools = {CONTEXT_HYBRID_PRODUCT_TOOL, CONTEXT_SEMANTIC_PRODUCT_TOOL}
+    if not required_tools <= tool_names:
+        raise HTTPException(
+            status_code=503,
+            detail="Context Retriever hybrid or semantic search tool is unavailable",
+        )
 
     arguments: dict[str, Any] = {
         "query_text": request.query.strip(),
         "match_mode": "any",
-        "top_k": 5,
+        "top_k": HYBRID_CANDIDATE_LIMIT,
     }
     if category:
         arguments["tag_conditions"] = [{"field": "category", "value": category}]
@@ -1653,19 +1664,100 @@ async def context_hybrid_product_search(request: HybridProductSearchRequest) -> 
             {"field": "member_price", "max_value": request.max_member_price}
         ]
 
-    result = await services.context.call(CONTEXT_HYBRID_PRODUCT_TOOL, arguments)
-    if result.get("ok") is False:
+    semantic_arguments = {
+        key: value for key, value in arguments.items() if key != "match_mode"
+    }
+    semantic_arguments["top_k"] = 25
+    text_arguments = {
+        "query": request.query.strip(),
+        "match_mode": "any",
+        "limit": 100,
+    }
+    hybrid_result, semantic_result, text_result = await asyncio.gather(
+        services.context.call(CONTEXT_HYBRID_PRODUCT_TOOL, arguments),
+        services.context.call(CONTEXT_SEMANTIC_PRODUCT_TOOL, semantic_arguments),
+        services.context.call(CONTEXT_TEXT_PRODUCT_TOOL, text_arguments)
+        if CONTEXT_TEXT_PRODUCT_TOOL in tool_names
+        else asyncio.sleep(0, result={"results": []}),
+    )
+    if hybrid_result.get("ok") is False:
         raise HTTPException(
             status_code=502,
             detail=(
                 "Context Retriever hybrid search failed: "
-                f"{result.get('error', 'unknown error')}"
+                f"{hybrid_result.get('error', 'unknown error')}"
+            ),
+        )
+    if semantic_result.get("ok") is False:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Context Retriever semantic guardrail failed: "
+                f"{semantic_result.get('error', 'unknown error')}"
             ),
         )
 
+    semantic_rows = semantic_result.get("results", [])
+    semantic_by_sku = {
+        row.get("sku"): {
+            "rank": rank,
+            "distance": row.get("vector_distance"),
+            "metric": row.get("distance_metric"),
+        }
+        for rank, row in enumerate(semantic_rows, start=1)
+        if isinstance(row, dict) and row.get("sku")
+    }
+    semantic_distances = [
+        evidence["distance"]
+        for evidence in semantic_by_sku.values()
+        if isinstance(evidence.get("distance"), (int, float))
+    ]
+    best_distance = min(semantic_distances) if semantic_distances else None
+    distance_cutoff = (
+        min(
+            HYBRID_VECTOR_DISTANCE_CEILING,
+            best_distance + HYBRID_VECTOR_DISTANCE_WINDOW,
+        )
+        if best_distance is not None
+        else None
+    )
+
+    def matches_structured_filters(row: dict[str, Any]) -> bool:
+        if category and row.get("category") != category:
+            return False
+        if request.max_member_price is None:
+            return True
+        price = row.get("member_price")
+        return isinstance(price, (int, float)) and price <= request.max_member_price
+
+    eligible_text_rows = [
+        row
+        for row in text_result.get("results", [])
+        if isinstance(row, dict) and matches_structured_filters(row)
+    ]
+    text_rank_by_sku = {
+        row.get("sku"): rank
+        for rank, row in enumerate(eligible_text_rows, start=1)
+        if row.get("sku")
+    }
+
     products = []
-    for row in result.get("results", [])[:5]:
+    last_score: float | None = None
+    last_rank = 0
+    for position, row in enumerate(hybrid_result.get("results", []), start=1):
         retrieval = row.get("_retrieval", {}) if isinstance(row, dict) else {}
+        score = retrieval.get("hybrid_score")
+        if not isinstance(score, (int, float)) or score != last_score:
+            last_rank = position
+            last_score = score if isinstance(score, (int, float)) else None
+        semantic_evidence = semantic_by_sku.get(row.get("sku"), {})
+        vector_distance = semantic_evidence.get("distance")
+        if (
+            distance_cutoff is None
+            or not isinstance(vector_distance, (int, float))
+            or vector_distance > distance_cutoff
+        ):
+            continue
         products.append(
             {
                 "sku": row.get("sku"),
@@ -1674,24 +1766,89 @@ async def context_hybrid_product_search(request: HybridProductSearchRequest) -> 
                 "category": row.get("category"),
                 "price": row.get("price"),
                 "member_price": row.get("member_price"),
-                "hybrid_score": retrieval.get("hybrid_score"),
+                "hybrid_rank": last_rank,
+                "hybrid_score": score,
+                "semantic_rank": semantic_evidence.get("rank"),
+                "vector_distance": vector_distance,
+                "distance_metric": semantic_evidence.get("metric"),
+                "text_rank": text_rank_by_sku.get(row.get("sku")),
             }
         )
+        if len(products) == HYBRID_RESULT_LIMIT:
+            break
 
-    duration_ms = result.get("operation_duration_ms")
-    details = [
-        f"{product['name']} · member ${float(product['member_price']):.2f}"
-        for product in products
-        if product.get("name") and isinstance(product.get("member_price"), (int, float))
-    ]
-    step = trace_event(
+    semantic_duration_ms = semantic_result.get("operation_duration_ms")
+    cutoff_text = f"{distance_cutoff:.3f}" if distance_cutoff is not None else "unavailable"
+    semantic_step = trace_event(
+        "context-hybrid-semantic-guardrail",
+        "Context Retriever · semantic relevance guardrail",
+        duration_ms=(
+            float(semantic_duration_ms)
+            if isinstance(semantic_duration_ms, (int, float))
+            else None
+        ),
+        summary=f"Cosine distance ≤ {cutoff_text} · {len(products)} results retained",
+        details=[
+            (
+                f"Cutoff = min({HYBRID_VECTOR_DISTANCE_CEILING:.2f} ceiling, "
+                f"best distance + {HYBRID_VECTOR_DISTANCE_WINDOW:.2f})"
+            ),
+            f"Best semantic distance: {best_distance:.3f}"
+            if best_distance is not None
+            else "No semantic candidates returned",
+        ],
+    )["step"]
+    filter_evidence = []
+    if category:
+        filter_evidence.append(f"category = {category}")
+    if request.max_member_price is not None:
+        filter_evidence.append(f"member_price ≤ ${request.max_member_price:.2f}")
+    details = (
+        [f"Structured pre-filter · {' · '.join(filter_evidence)}"]
+        if filter_evidence
+        else []
+    )
+    for product in products:
+        lexical = (
+            f"Lexical companion #{product['text_rank']}"
+            if product.get("text_rank") is not None
+            else "No lexical companion rank"
+        )
+        price = product.get("member_price")
+        price_text = f" · member ${float(price):.2f}" if isinstance(price, (int, float)) else ""
+        details.append(
+            f"Hybrid #{product['hybrid_rank']} · Semantic #{product['semantic_rank']} "
+            f"({product['distance_metric']} {float(product['vector_distance']):.3f}) · "
+            f"{lexical} · {product['name']}{price_text}"
+        )
+    hybrid_duration_ms = hybrid_result.get("operation_duration_ms")
+    hybrid_step = trace_event(
         "context-hybrid-product-search",
         f"Context Retriever · {CONTEXT_HYBRID_PRODUCT_TOOL}",
-        duration_ms=float(duration_ms) if isinstance(duration_ms, (int, float)) else None,
-        summary=f"{len(products)} products found · hybrid RRF ranking",
+        duration_ms=(
+            float(hybrid_duration_ms)
+            if isinstance(hybrid_duration_ms, (int, float))
+            else None
+        ),
+        summary=(
+            f"Text + vector → RRF · {len(products)} relevant "
+            f"{'product' if len(products) == 1 else 'products'}"
+        ),
         details=details,
     )["step"]
-    return {"ok": True, "products": products, "trace": [step]}
+    return {
+        "ok": True,
+        "products": products,
+        "retrieval": {
+            "ranking_method": hybrid_result.get("ranking_method", "rrf"),
+            "distance_metric": "cosine",
+            "best_vector_distance": best_distance,
+            "vector_distance_cutoff": distance_cutoff,
+            "absolute_distance_ceiling": HYBRID_VECTOR_DISTANCE_CEILING,
+            "distance_window_from_best": HYBRID_VECTOR_DISTANCE_WINDOW,
+        },
+        "trace": [semantic_step, hybrid_step],
+    }
 
 
 @app.get("/api/latency-stats")
