@@ -27,6 +27,10 @@ class Product(ContextModel):
     )
     description: str = ContextField(description="Product description", index="text")
     tags: list[str] = ContextField(description="Product discovery tags", index="tag")
+    semantic_embedding: list[float] = ContextField(
+        description="Embedding of the product description for semantic retrieval",
+        default_factory=list,
+    )
 
     inventory: Any = ContextRelationship(
         description="Warehouse inventory for this product",

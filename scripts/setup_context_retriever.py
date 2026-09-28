@@ -8,6 +8,8 @@ import json
 import os
 import subprocess
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,81 @@ from valuewholesale_agent.config import Settings, get_settings
 
 ROOT = Path(__file__).resolve().parents[1]
 MODELS_PATH = ROOT / "valuewholesale_agent" / "context_models.py"
+SEMANTIC_SEARCH_FLAG = "CONTEXT_SEMANTIC_SEARCH_ENABLED"
+DEFAULT_SEMANTIC_EMBEDDING_MODEL = "text-embedding-005"
+DEFAULT_SEMANTIC_EMBEDDING_DIMENSIONS = 768
+
+
+def env_flag(env: dict[str, str], name: str, *, default: bool = False) -> bool:
+    value = env.get(name)
+    if value is None or not value.strip():
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean value")
+
+
+def semantic_embedding_config(env: dict[str, str]) -> tuple[str, int]:
+    model = env.get("CONTEXT_SEMANTIC_EMBEDDING_MODEL", "").strip()
+    model = model or DEFAULT_SEMANTIC_EMBEDDING_MODEL
+    raw_dimensions = env.get("CONTEXT_SEMANTIC_EMBEDDING_DIMENSIONS", "").strip()
+    dimensions = int(raw_dimensions or DEFAULT_SEMANTIC_EMBEDDING_DIMENSIONS)
+    if dimensions <= 0:
+        raise ValueError("CONTEXT_SEMANTIC_EMBEDDING_DIMENSIONS must be positive")
+    return model, dimensions
+
+
+@contextmanager
+def surface_model_args(
+    env: dict[str, str],
+    settings: Settings,
+) -> Iterator[list[str]]:
+    if not env_flag(env, SEMANTIC_SEARCH_FLAG):
+        yield ["--models", str(MODELS_PATH)]
+        return
+
+    from context_surfaces.context_model import export_data_model
+
+    from valuewholesale_agent.context_models import (
+        Inventory,
+        Member,
+        Order,
+        OrderItem,
+        Product,
+        Warehouse,
+    )
+
+    model, dimensions = semantic_embedding_config(env)
+    description = (
+        f"Governed live ecommerce context for the "
+        f"{settings.experience.brand_name} ADK shopping agent."
+    )
+    data_model = export_data_model(
+        title=settings.effective_context_surface_name,
+        description=description,
+        entities=[Product, Warehouse, Inventory, Member, Order, OrderItem],
+    )
+    product = next(entity for entity in data_model["entities"] if entity["name"] == "Product")
+    embedding = next(
+        field for field in product["fields"] if field["name"] == "semantic_embedding"
+    )
+    embedding["redis_indices"] = [
+        {
+            "type": "vector",
+            "vector_dim": dimensions,
+            "distance_metric": "cosine",
+            "source_field": "description",
+            "embedding_model": model,
+        }
+    ]
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as data_model_file:
+        json.dump(data_model, data_model_file)
+        data_model_file.flush()
+        yield ["--datamodel", data_model_file.name]
 
 
 def upsert_env(path: Path, updates: dict[str, str]) -> None:
@@ -118,45 +195,44 @@ def ensure_surface(
                 surface_id = str(surface["id"])
                 break
 
-    if surface_id:
-        ctxctl(
-            "surface",
-            "update",
-            surface_id,
-            "--name",
-            settings.effective_context_surface_name,
-            "--description",
-            f"Governed live ecommerce context for the "
-            f"{settings.experience.brand_name} ADK shopping agent.",
-            "--models",
-            str(MODELS_PATH),
-            admin_key=admin_key,
-        )
-        print(f"Updated Context Surface {surface_id}")
-    else:
-        address, username, password, tls_enabled = redis_connection(redis_url)
-        create_args = [
-            "surface",
-            "create",
-            "--name",
-            settings.effective_context_surface_name,
-            "--description",
-            f"Governed live ecommerce context for the "
-            f"{settings.experience.brand_name} ADK shopping agent.",
-            "--models",
-            str(MODELS_PATH),
-            "--redis-addr",
-            address,
-            "--redis-username",
-            username,
-            "--redis-password",
-            password,
-        ]
-        if tls_enabled:
-            create_args.append("--redis-tls")
-        payload = ctxctl(*create_args, admin_key=admin_key)
-        surface_id = str(payload["id"])
-        print(f"Created Context Surface {surface_id}")
+    with surface_model_args(env, settings) as model_args:
+        if surface_id:
+            ctxctl(
+                "surface",
+                "update",
+                surface_id,
+                "--name",
+                settings.effective_context_surface_name,
+                "--description",
+                f"Governed live ecommerce context for the "
+                f"{settings.experience.brand_name} ADK shopping agent.",
+                *model_args,
+                admin_key=admin_key,
+            )
+            print(f"Updated Context Surface {surface_id}")
+        else:
+            address, username, password, tls_enabled = redis_connection(redis_url)
+            create_args = [
+                "surface",
+                "create",
+                "--name",
+                settings.effective_context_surface_name,
+                "--description",
+                f"Governed live ecommerce context for the "
+                f"{settings.experience.brand_name} ADK shopping agent.",
+                *model_args,
+                "--redis-addr",
+                address,
+                "--redis-username",
+                username,
+                "--redis-password",
+                password,
+            ]
+            if tls_enabled:
+                create_args.append("--redis-tls")
+            payload = ctxctl(*create_args, admin_key=admin_key)
+            surface_id = str(payload["id"])
+            print(f"Created Context Surface {surface_id}")
 
     agent_key = "" if force_agent_key else env.get("MCP_AGENT_KEY", "")
     if not agent_key:
@@ -182,6 +258,7 @@ async def import_records(
     surface_id: str,
     admin_key: str,
     settings: Settings,
+    env: dict[str, str],
 ) -> None:
     from valuewholesale_agent.context_models import (
         Inventory,
@@ -193,6 +270,41 @@ async def import_records(
     )
 
     datasets = records_for_experience(settings.experience_id)
+    if env_flag(env, SEMANTIC_SEARCH_FLAG):
+        from google import genai
+        from google.genai import types
+
+        project = env.get("GOOGLE_CLOUD_PROJECT", "").strip()
+        location = env.get("GOOGLE_CLOUD_LOCATION", "").strip() or "global"
+        if not project:
+            raise SystemExit(
+                "GOOGLE_CLOUD_PROJECT is required when Context Retriever semantic search is enabled"
+            )
+        model, dimensions = semantic_embedding_config(env)
+        products = datasets["products"]
+        client = genai.Client(
+            enterprise=True,
+            project=project,
+            location=location,
+            http_options=types.HttpOptions(timeout=60000),
+        )
+        result = client.models.embed_content(
+            model=model,
+            contents=[str(product["description"]) for product in products],
+            config=types.EmbedContentConfig(
+                output_dimensionality=dimensions,
+                task_type="SEMANTIC_SIMILARITY",
+            ),
+        )
+        vectors = result.embeddings or []
+        if len(vectors) != len(products):
+            raise RuntimeError("Vertex AI returned an unexpected number of product embeddings")
+        for product, embedding in zip(products, vectors, strict=True):
+            values = list(embedding.values or [])
+            if len(values) != dimensions:
+                raise RuntimeError("Vertex AI returned an embedding with unexpected dimensions")
+            product["semantic_embedding"] = values
+        print(f"Product: generated={len(products)} semantic embeddings")
     entities = {
         Product: datasets["products"],
         Warehouse: datasets["warehouses"],
@@ -233,7 +345,7 @@ async def main() -> None:
         env_path,
         force_agent_key=args.rotate_agent_key,
     )
-    await import_records(surface_id, env["CTX_ADMIN_KEY"], settings)
+    await import_records(surface_id, env["CTX_ADMIN_KEY"], settings, env)
     tools = await UnifiedClient().list_tools(agent_key)
     print(f"Context Retriever ready with {len(tools)} generated tools")
 

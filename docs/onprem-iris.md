@@ -80,7 +80,8 @@ Verified on September 28, 2026:
 - Context Retriever's MCP URL must include `/mcp`. The setup tool now builds an explicit `ctxctl`
   profile when `CTX_API_URL` or `CTX_MCP_URL` is supplied and accepts the on-prem empty-list
   response.
-- The Context Surface generated 36 governed tools, compared with 52 from the Redis Cloud surface.
+- Before semantic search was enabled, the Context Surface generated 36 governed tools, compared
+  with 52 from the Redis Cloud surface.
   The cloud service exposes field-specific names such as `filter_order_by_member_id`; self-managed
   `0.4.2` instead exposes generic tools such as `filter_order` plus `union_results`,
   `intersect_results`, `except_results`, and `expand_results`. This is not tool-name parity, but
@@ -88,9 +89,14 @@ Verified on September 28, 2026:
   the isolated keys.
 - The self-managed LangCache uses Vertex `text-embedding-005` at 768 dimensions. This is separate
   from the application's local 384-dimensional RedisVL embedding model and does not conflict.
-- Context Retriever logs report semantic search disabled in this deployment; the generated exact,
-  filter, sort, and relationship tools used by the demo work. Do not assume Context Retriever
-  semantic-text tools are equivalent until its embedding endpoint is configured and tested.
+- Context Retriever semantic search is enabled through the internal TLS endpoint
+  `https://vertex-embeddings-tls/v1`, backed by Vertex `text-embedding-005` at 768 dimensions.
+  The on-prem Product model links `semantic_embedding` to `description`. This adds
+  `search_product_by_semantic_embedding_semantic` and
+  `search_product_by_semantic_embedding_hybrid`, bringing the surface to 38 tools. Direct MCP
+  tests passed for unfiltered semantic search, hybrid search, and category-filtered semantic
+  search. The application still exposes its separate RedisVL catalog tool, so Gemini may choose
+  that existing tool for ordinary catalog prompts.
 - The two-worker container took longer than the old 60-second deployment readiness window while
   both workers loaded the local embedding model. The VM deploy script now allows two minutes.
 - Agent Memory and Context Retriever licenses expire November 27, 2026. LangCache's license also
