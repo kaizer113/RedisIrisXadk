@@ -234,7 +234,7 @@ fi
 
 echo "Waiting for the public health endpoint..."
 healthy=false
-for _ in $(seq 1 30); do
+for _ in $(seq 1 60); do
   if curl -fsS "$PUBLIC_URL/api/health" >/dev/null 2>&1; then
     healthy=true
     break

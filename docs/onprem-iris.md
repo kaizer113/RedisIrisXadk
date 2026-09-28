@@ -91,6 +91,8 @@ Verified on September 28, 2026:
 - Context Retriever logs report semantic search disabled in this deployment; the generated exact,
   filter, sort, and relationship tools used by the demo work. Do not assume Context Retriever
   semantic-text tools are equivalent until its embedding endpoint is configured and tested.
+- The two-worker container took longer than the old 60-second deployment readiness window while
+  both workers loaded the local embedding model. The VM deploy script now allows two minutes.
 - Agent Memory and Context Retriever licenses expire November 27, 2026. LangCache's license also
   expires November 27, 2026. Renew them before relying on the demo after that date.
 
