@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     context_surface_name: str = ""
     context_agent_name: str = ""
     context_agent_display_name: str = ""
+    context_hybrid_product_finder_enabled: bool = False
     memory_bank_display_name: str = ""
 
     google_cloud_project: str = ""

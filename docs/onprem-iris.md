@@ -27,6 +27,16 @@ holds metadata and data for the self-managed Iris services.
 Google ADK, Vertex sessions, Gemini models, and ADK Memory Bank remain configured exactly as in
 the original Value Wholesale `.env`.
 
+## Hybrid Product Finder
+
+Only the self-managed comparison enables `CONTEXT_HYBRID_PRODUCT_FINDER_ENABLED`. Its browser UI
+shows an additive Hybrid Product Finder with a natural-language query, category filter, and
+maximum member-price filter. The server invokes the fixed governed Context Retriever tool
+`search_product_by_semantic_embedding_hybrid`; results appear in the conversation and the call is
+rendered through the existing live agent trace and Redis service board. The Redis Cloud Value
+Wholesale and Norling's demos leave the flag disabled, hide the control, and return HTTP 404 from
+the dedicated endpoint. Their existing chat and RedisVL behavior is unchanged.
+
 ## Private service endpoints
 
 The saved runtime configuration uses the GKE private gateway on `10.42.0.9`:

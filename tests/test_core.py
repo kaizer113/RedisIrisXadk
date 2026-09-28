@@ -101,6 +101,7 @@ def test_safe_id_and_service_configuration() -> None:
     assert settings.valuewholesale_embedding_model == "redis/langcache-embed-v3-small"
     assert settings.valuewholesale_tool_cache_ttl_seconds == 43_200
     assert settings.valuewholesale_vector_search_enabled is True
+    assert settings.context_hybrid_product_finder_enabled is False
     assert settings.semantic_router_configured is False
     assert not settings.memory_configured
     assert settings.valuewholesale_agent_timeout_seconds == 90
@@ -176,6 +177,8 @@ def test_experiences_share_one_profile_driven_browser_ui() -> None:
     assert 'id="tools-modal"' in html
     assert "icon:'/static/assets/redis-r.png'" in html
     assert "function updateServiceBoard(step)" in html
+    assert 'id="hybrid-finder-toggle"' in html
+    assert "fetch('/api/context/hybrid-product-search'" in html
     assert "function resetMemberMemory()" in html
     assert (path.parent / "assets/redis-r.png").is_file()
     assert (path.parent / "themes/norlings.css").is_file()
@@ -2176,6 +2179,65 @@ async def test_governed_context_tools_are_registered_and_callable(monkeypatch) -
     }
 
 
+async def test_hybrid_product_finder_calls_fixed_governed_tool(monkeypatch) -> None:
+    calls = []
+
+    async def list_tools():
+        return [{"name": api_module.CONTEXT_HYBRID_PRODUCT_TOOL}]
+
+    async def call(name, arguments):
+        calls.append((name, arguments))
+        return {
+            "results": [
+                {
+                    "sku": "VH-6055",
+                    "name": "Northstar Wireless Earbuds, Value Pack",
+                    "description": "Noise-isolating wireless earbuds with a charging case.",
+                    "category": "electronics",
+                    "price": 56.99,
+                    "member_price": 49.99,
+                    "_retrieval": {"hybrid_score": 0.0325},
+                }
+            ],
+            "operation_duration_ms": 42.5,
+        }
+
+    monkeypatch.setattr(api_module.settings, "context_hybrid_product_finder_enabled", True)
+    monkeypatch.setattr(services.context, "list_tools", list_tools)
+    monkeypatch.setattr(services.context, "call", call)
+
+    response = await api_module.context_hybrid_product_search(
+        api_module.HybridProductSearchRequest(
+            query="wireless audio for private listening",
+            category="electronics",
+            max_member_price=80,
+        )
+    )
+
+    assert calls == [
+        (
+            api_module.CONTEXT_HYBRID_PRODUCT_TOOL,
+            {
+                "query_text": "wireless audio for private listening",
+                "match_mode": "any",
+                "top_k": 5,
+                "tag_conditions": [{"field": "category", "value": "electronics"}],
+                "numeric_conditions": [{"field": "member_price", "max_value": 80.0}],
+            },
+        )
+    ]
+    assert response["products"][0] == {
+        "sku": "VH-6055",
+        "name": "Northstar Wireless Earbuds, Value Pack",
+        "description": "Noise-isolating wireless earbuds with a charging case.",
+        "category": "electronics",
+        "price": 56.99,
+        "member_price": 49.99,
+        "hybrid_score": 0.0325,
+    }
+    assert response["trace"][0]["summary"] == "1 products found · hybrid RRF ranking"
+
+
 async def test_governed_context_toolset_is_empty_when_disabled(monkeypatch) -> None:
     async def unexpected():
         raise AssertionError("disabled toolset must not discover Context Retriever tools")
@@ -3206,7 +3268,16 @@ def test_health_and_unconfigured_memory_comparison() -> None:
         assert experience_response.json()["favicon"] == (
             "/static/assets/value-wholesale-favicon.svg"
         )
+        assert experience_response.json()["hybrid_product_finder_enabled"] is False
+        assert "electronics" in experience_response.json()["categories"]
         assert experience_response.json()["prompts"]
+        assert (
+            client.post(
+                "/api/context/hybrid-product-search",
+                json={"query": "wireless audio"},
+            ).status_code
+            == 404
+        )
         members = client.get("/api/members")
         assert members.status_code == 200
         assert [member["member_id"] for member in members.json()["members"]] == [

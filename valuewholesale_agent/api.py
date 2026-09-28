@@ -52,6 +52,7 @@ PRODUCTS = dataset.products
 WAREHOUSES = dataset.warehouses
 MEMBERS = dataset.members
 show_adk_fallback = False
+CONTEXT_HYBRID_PRODUCT_TOOL = "search_product_by_semantic_embedding_hybrid"
 
 
 class DemoVertexMemoryBankService(VertexAiMemoryBankService):
@@ -237,6 +238,12 @@ class MemoryCompareRequest(BaseModel):
 
 class MemoryResetRequest(BaseModel):
     member_id: str = Field(default=settings.valuewholesale_demo_member_id, max_length=64)
+
+
+class HybridProductSearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=500)
+    category: str = Field(default="", max_length=100)
+    max_member_price: float | None = Field(default=None, gt=0, le=100_000)
 
 
 def event_text(event: Any) -> str:
@@ -1261,6 +1268,8 @@ def experience_ui_payload() -> dict[str, Any]:
         "headline": experience.ui_headline,
         "headline_accent": experience.ui_headline_accent,
         "intro": experience.ui_intro,
+        "hybrid_product_finder_enabled": settings.context_hybrid_product_finder_enabled,
+        "categories": list(experience.categories),
         "prompts": [
             {"label": label, "message": message} for label, message in experience.ui_prompts
         ],
@@ -1616,6 +1625,73 @@ async def context_tools() -> dict[str, Any]:
         "duration_ms": round((time.perf_counter() - started) * 1000, 2),
         "tools": tools,
     }
+
+
+@app.post("/api/context/hybrid-product-search")
+async def context_hybrid_product_search(request: HybridProductSearchRequest) -> dict[str, Any]:
+    """Run the opt-in governed hybrid Product search used by the on-prem demo finder."""
+    if not settings.context_hybrid_product_finder_enabled:
+        raise HTTPException(status_code=404, detail="Hybrid Product Finder is not enabled")
+
+    category = request.category.strip()
+    if category and category not in experience.categories:
+        raise HTTPException(status_code=422, detail="Unknown product category")
+
+    tools = await services.context.list_tools()
+    if not any(tool.get("name") == CONTEXT_HYBRID_PRODUCT_TOOL for tool in tools):
+        raise HTTPException(status_code=503, detail="Context Retriever hybrid tool is unavailable")
+
+    arguments: dict[str, Any] = {
+        "query_text": request.query.strip(),
+        "match_mode": "any",
+        "top_k": 5,
+    }
+    if category:
+        arguments["tag_conditions"] = [{"field": "category", "value": category}]
+    if request.max_member_price is not None:
+        arguments["numeric_conditions"] = [
+            {"field": "member_price", "max_value": request.max_member_price}
+        ]
+
+    result = await services.context.call(CONTEXT_HYBRID_PRODUCT_TOOL, arguments)
+    if result.get("ok") is False:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Context Retriever hybrid search failed: "
+                f"{result.get('error', 'unknown error')}"
+            ),
+        )
+
+    products = []
+    for row in result.get("results", [])[:5]:
+        retrieval = row.get("_retrieval", {}) if isinstance(row, dict) else {}
+        products.append(
+            {
+                "sku": row.get("sku"),
+                "name": row.get("name"),
+                "description": row.get("description"),
+                "category": row.get("category"),
+                "price": row.get("price"),
+                "member_price": row.get("member_price"),
+                "hybrid_score": retrieval.get("hybrid_score"),
+            }
+        )
+
+    duration_ms = result.get("operation_duration_ms")
+    details = [
+        f"{product['name']} · member ${float(product['member_price']):.2f}"
+        for product in products
+        if product.get("name") and isinstance(product.get("member_price"), (int, float))
+    ]
+    step = trace_event(
+        "context-hybrid-product-search",
+        f"Context Retriever · {CONTEXT_HYBRID_PRODUCT_TOOL}",
+        duration_ms=float(duration_ms) if isinstance(duration_ms, (int, float)) else None,
+        summary=f"{len(products)} products found · hybrid RRF ranking",
+        details=details,
+    )["step"]
+    return {"ok": True, "products": products, "trace": [step]}
 
 
 @app.get("/api/latency-stats")
