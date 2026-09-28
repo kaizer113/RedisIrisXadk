@@ -2288,6 +2288,7 @@ async def test_hybrid_product_finder_combines_rank_evidence_and_distance_guardra
     assert response["retrieval"]["vector_distance_cutoff"] == 0.252
     assert response["trace"][0]["summary"] == "Cosine distance ≤ 0.252 · 1 results retained"
     assert response["trace"][1]["summary"] == "Text + vector → RRF · 1 relevant product"
+    assert response["trace"][1]["label"] == "Context Retriever · hybrid product search"
     assert response["trace"][1]["details"] == [
         "Structured pre-filter · category = household · member_price ≤ $35.00",
         "Hybrid #1 · Semantic #1 (cosine 0.192) · Lexical companion #1 · "

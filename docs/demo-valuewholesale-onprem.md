@@ -79,10 +79,11 @@ For each Hybrid Product Finder request, point to the two Context Retriever trace
 
 `Context Retriever · semantic relevance guardrail`
 
-`Context Retriever · search_product_by_semantic_embedding_hybrid`
+`Context Retriever · hybrid product search`
 
 The semantic step shows the calibrated cosine-distance cutoff. The hybrid step shows each retained
 product's hybrid rank, semantic rank and distance, and its rank in a companion lexical search.
+The short trace label maps to the governed tool `search_product_by_semantic_embedding_hybrid`.
 Explain that the companion searches make the two retrieval signals visible; the hybrid tool's RRF
 order remains authoritative. The lexical tool does not accept the hybrid tool's structured-filter
 arguments, so its rank is diagnostic: the application reapplies the same category and price

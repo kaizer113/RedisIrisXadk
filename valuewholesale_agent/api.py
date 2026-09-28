@@ -1824,7 +1824,7 @@ async def context_hybrid_product_search(request: HybridProductSearchRequest) -> 
     hybrid_duration_ms = hybrid_result.get("operation_duration_ms")
     hybrid_step = trace_event(
         "context-hybrid-product-search",
-        f"Context Retriever · {CONTEXT_HYBRID_PRODUCT_TOOL}",
+        "Context Retriever · hybrid product search",
         duration_ms=(
             float(hybrid_duration_ms)
             if isinstance(hybrid_duration_ms, (int, float))
