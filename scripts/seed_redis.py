@@ -6,6 +6,7 @@ from typing import Any
 
 from valuewholesale_agent.config import get_settings
 from valuewholesale_agent.services import (
+    ECOMMERCE_REFERENCES,
     ECOMMERCE_ROUTE,
     LOCAL_EMBEDDING_DIMS,
     NORLINGS_ECOMMERCE_REFERENCES,
@@ -183,12 +184,15 @@ def ensure_indexes(catalog: CatalogService) -> None:
 
 
 def ensure_semantic_router_references(catalog: CatalogService) -> int:
-    if catalog.settings.experience_id != "norlings" or catalog.redis is None:
+    if catalog.redis is None:
         return 0
     router = SemanticRouterService(catalog.settings, redis_client=catalog.redis)
+    references = list(ECOMMERCE_REFERENCES)
+    if catalog.settings.experience_id == "norlings":
+        references.extend(NORLINGS_ECOMMERCE_REFERENCES)
     added_keys = router.ensure_route_references(
         ECOMMERCE_ROUTE,
-        NORLINGS_ECOMMERCE_REFERENCES,
+        references,
     )
     return len(added_keys)
 

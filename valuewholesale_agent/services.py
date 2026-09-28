@@ -150,6 +150,9 @@ ECOMMERCE_REFERENCES = [
     "Which membership deal offers the best value?",
     "Do you sell fragrance-free detergent?",
     "What groceries should I buy for a large family?",
+    "I want private audio listening without cables. What products fit?",
+    "Which Value Wholesale wireless earbuds are best for private audio listening without cables?",
+    "Find products in the electronics category.",
 ]
 NORLINGS_ECOMMERCE_REFERENCES = [
     "Help me find a tailored work outfit.",

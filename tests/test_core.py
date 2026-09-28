@@ -1464,6 +1464,15 @@ def test_semantic_router_seed_adds_missing_vector_without_duplicate_config() -> 
     assert route.references.count(reference) == 1
 
 
+def test_value_wholesale_router_seeds_cover_product_discovery_phrasings() -> None:
+    from valuewholesale_agent.services import ECOMMERCE_REFERENCES
+
+    assert "I want private audio listening without cables. What products fit?" in (
+        ECOMMERCE_REFERENCES
+    )
+    assert "Find products in the electronics category." in ECOMMERCE_REFERENCES
+
+
 def test_unconfigured_semantic_router_fails_safe() -> None:
     router = SemanticRouterService(Settings(_env_file=None))
     decision = router.route("What is the electronics return policy?")
