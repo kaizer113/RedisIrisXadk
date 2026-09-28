@@ -172,6 +172,25 @@ Stop the VM when the demo is not needed:
 gcloud compute instances stop valuewholesale-demo --zone "$VALUEWHOLESALE_VM_ZONE"
 ```
 
+### Self-managed Iris comparison demo
+
+The same VM can run a third Value Wholesale container on port `8083`, using the self-managed
+Agent Memory, LangCache, and Context Retriever deployment on GKE while retaining the original
+Google ADK configuration. Copy `.env.onprem.example` to the ignored `.env.onprem`, add the private
+service credentials and resource IDs, and deploy with:
+
+```bash
+EXPERIENCE_ID=valuewholesale \
+VALUEWHOLESALE_VM_ENV_FILE=.env.onprem \
+VALUEWHOLESALE_SKIP_BUILD=true \
+./scripts/deploy_vm.sh
+```
+
+The profile shares the catalog Redis database but uses independent key, index, embedding-cache,
+semantic-router, Context Surface, LangCache, and Agent Memory namespaces. See
+[`docs/onprem-iris.md`](docs/onprem-iris.md) for setup, tunnel commands, compatibility findings,
+and security limitations.
+
 The deterministic JSONL dataset lives in [`data/generated`](data/generated) and includes products, warehouses, inventory, members, normalized orders, policies, identical memory seeds, and labeled retrieval-evaluation cases. See [`data/README.md`](data/README.md) for its schema and Redis key model.
 
 The semantic router and product index share the local

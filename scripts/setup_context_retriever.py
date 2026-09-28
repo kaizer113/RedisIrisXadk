@@ -7,10 +7,12 @@ import asyncio
 import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
 from context_surfaces import UnifiedClient
+from context_surfaces.constants import DEFAULT_API_URL, DEFAULT_MCP_URL
 from dotenv import dotenv_values
 
 from scripts.generate_dataset import records_for_experience
@@ -42,10 +44,37 @@ def ctxctl(*args: str, admin_key: str | None = None) -> Any:
     command = ["uv", "run", "ctxctl", "--no-color", "-o", "json", *args]
     if admin_key:
         command.extend(["--admin-key", admin_key])
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+
+    api_url = os.getenv("CTX_API_URL", "").strip()
+    mcp_url = os.getenv("CTX_MCP_URL", "").strip()
+    if api_url or mcp_url:
+        config = {
+            "default_profile": "deployment",
+            "profiles": {
+                "deployment": {
+                    "api_url": api_url or DEFAULT_API_URL,
+                    "mcp_url": mcp_url or DEFAULT_MCP_URL,
+                }
+            },
+        }
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json") as config_file:
+            json.dump(config, config_file)
+            config_file.flush()
+            command[3:3] = ["--config", config_file.name]
+            result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    else:
+        result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or "ctxctl command failed")
-    return json.loads(result.stdout) if result.stdout.strip() else None
+    output = result.stdout.strip()
+    if not output:
+        return None
+    if output == "No context surfaces found":
+        return []
+    try:
+        return json.loads(output)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"ctxctl returned unexpected output: {output}") from exc
 
 
 def redis_connection(redis_url: str) -> tuple[str, str, str, bool]:
@@ -192,7 +221,10 @@ async def main() -> None:
     env_path = args.env_file.resolve()
     raw_env = dotenv_values(env_path)
     env = {key: str(value or "") for key, value in raw_env.items()}
-    os.environ.update(env)
+    # Explicit process-level overrides are useful when a private deployment is reached
+    # through a temporary tunnel while the saved runtime MCP URL stays VM-private.
+    for key, value in env.items():
+        os.environ.setdefault(key, value)
     get_settings.cache_clear()
     settings = Settings(_env_file=env_path)
     surface_id, agent_key = ensure_surface(

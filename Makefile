@@ -1,4 +1,4 @@
-.PHONY: install dev dev-norlings test lint dataset seed setup-context setup-iris setup-memory-bank seed-scale-memory reset-demo deploy deploy-all deploy-vm check-gcp configure-secrets
+.PHONY: install dev dev-norlings dev-onprem test lint dataset seed setup-context setup-iris setup-memory-bank seed-scale-memory reset-demo deploy deploy-all deploy-vm check-gcp configure-secrets
 
 EXPERIENCE ?= valuewholesale
 ENV_FILE ?= .env
@@ -12,6 +12,9 @@ dev:
 
 dev-norlings:
 	$(MAKE) dev EXPERIENCE=norlings ENV_FILE=.env.norlings PORT=8081
+
+dev-onprem:
+	$(MAKE) dev EXPERIENCE=valuewholesale ENV_FILE=.env.onprem PORT=8083
 
 test:
 	uv run pytest
