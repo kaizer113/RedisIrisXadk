@@ -14,7 +14,7 @@ dev-norlings:
 	$(MAKE) dev EXPERIENCE=norlings ENV_FILE=.env.norlings PORT=8081
 
 dev-onprem:
-	$(MAKE) dev EXPERIENCE=valuewholesale ENV_FILE=.env.onprem PORT=8083
+	./onprem/run.sh
 
 test:
 	uv run pytest

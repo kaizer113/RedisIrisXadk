@@ -1,0 +1,76 @@
+{
+  "intents": [
+    {
+      "name": "policy",
+      "description": "Standalone general questions about published membership, return, pickup, or pricing policies.",
+      "target": {
+        "type": "handler",
+        "ref": "published_guidance"
+      },
+      "examples": [
+        "What is the electronics return policy?",
+        "How long is the return window for electronics?",
+        "How does warehouse pickup work?",
+        "How does Value Wholesale member pricing work?"
+      ]
+    },
+    {
+      "name": "product_education",
+      "description": "General product education without current inventory, member records, or prices.",
+      "target": {
+        "type": "handler",
+        "ref": "published_guidance"
+      },
+      "examples": [
+        "What is the difference between dark and milk chocolate?",
+        "Explain what extra virgin olive oil means.",
+        "How should I compare coffee roast levels?"
+      ]
+    },
+    {
+      "name": "shopping_guide",
+      "description": "General shopping procedures and comparisons; actual recommendations still require live tools.",
+      "target": {
+        "type": "handler",
+        "ref": "published_guidance"
+      },
+      "examples": [
+        "How should I compare products for a family gathering?",
+        "Give me a shopping comparison checklist.",
+        "What should I consider when choosing bulk pantry products?"
+      ]
+    },
+    {
+      "name": "ecommerce",
+      "description": "Product discovery, live commerce/account data, member preferences, and shopping shortlists.",
+      "target": {
+        "type": "handler",
+        "ref": "shopping"
+      },
+      "examples": [
+        "Find dark chocolate and check current inventory at my home warehouse.",
+        "Show my recent orders and explain their current status.",
+        "Compare dark chocolate options for a family gathering.",
+        "Remember that I prefer dark chocolate and avoid milk chocolate.",
+        "What chocolate preference do you remember for me?",
+        "Add two of an available dark chocolate option to my cart.",
+        "Show my cart.",
+        "Can I pick that up today?"
+      ]
+    },
+    {
+      "name": "out_of_domain",
+      "description": "Requests outside the fictional retailer shopping and membership scope.",
+      "target": {
+        "type": "handler",
+        "ref": "refuse"
+      },
+      "examples": [
+        "Write a romantic poem.",
+        "Give me legal advice about a lawsuit.",
+        "Explain how to repair my car engine.",
+        "Predict the stock market tomorrow."
+      ]
+    }
+  ]
+}

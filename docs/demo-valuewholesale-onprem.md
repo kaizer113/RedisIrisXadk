@@ -1,128 +1,180 @@
-# Value Wholesale self-managed Iris demo
+# Value Wholesale Iris GA presenter walkthrough
 
-This is a presenter flow for the Value Wholesale comparison demo whose LangCache, Context
-Retriever, and Agent Memory services run in the self-managed GKE deployment. Google ADK,
-Vertex sessions, Gemini, and ADK Memory Bank remain the same as in the Redis Cloud-backed demo.
+Use this sequence for the self-managed Value Wholesale application on port `8083`. Its isolated
+runtime uses a bounded Gemini tool loop through Vertex AI. The default Value Wholesale,
+Norling's, and Value Travel applications retain their existing behavior.
 
-Demo URL: `http://34.48.172.111:8083`
+**Acceptance status, November 4, 2026:** the GA suite/license and GKE recovery remain deployment
+prerequisites. These are intended demonstrations and verification checks, not claims that the
+prompts have passed against live GA services. Product matches, tool names, inventory counts,
+prices, scores, and latencies must come from the actual run.
 
-## Before the session
+Setup and operator commands are in [onprem-iris.md](onprem-iris.md).
 
-1. Open the demo and wait for the greeting and service warm-up to finish.
-2. Confirm **Context Retriever** is enabled in the Redis Iris services panel.
-3. Select **Alex Rivera** and leave **Gemini 3.1 Flash-Lite** selected.
-4. If prior activity could affect the walkthrough, use **Reset demo cache** and **Reset member
-   memory** under Presenter controls.
+## Before presenting
 
-## 1. Show Context Retriever hybrid product discovery
+1. Obtain the VM's current external address after startup and open `http://VM_IP:8083`.
+   Its address can change; do not reuse a historical IP from the preview deployment.
+2. Select a synthetic member, such as Alex, and enable **Context Gateway**.
+3. Refresh service status. Core probes must pass. **Gemini Configured** indicates client
+   configuration; **Lens Initialized** indicates SDK setup. Exercise a real turn and inspect
+   its export before presenting inference and Lens ingest as verified.
+4. Open **Explore tools** to confirm the intended shopping surface. Search mode may return a
+   discovered subset, not every tool from every upstream.
+5. Have the operator publish the intended FAQs and comparison skill, apply evaluated routing
+   intents, and disable result caching for current inventory, prices, orders, and balances.
 
-Click **Hybrid Product Finder**. The three bullets beside it are runnable demo prompts: clicking
-one fills its query and governed filters, runs the search, writes the results into the conversation,
-and records the call in the existing live agent trace.
+The selector uses synthetic personas, not customer sign-in. The demonstration performs no real
+purchase, payment, cancellation, or outbound message.
 
-### Travel audio with category and price filters
+## 1. An approved answer on the first request
 
-Prompt:
+Ask:
 
-> wireless audio for private listening while traveling
+> What is the electronics return policy?
 
-- Category: `electronics`
-- Maximum member price: `$80`
-- Expected leading results: Northstar Wireless Earbuds Value Pack at `$49.99`, followed by the
-  Family Pack at `$67.49`.
+Inspect **Routing decision**. Its intent must dispatch to `published_guidance`. When the
+published FAQ clears the application's `0.85` score floor and the question is eligible, Vale
+returns that approved answer directly. The response shows the entry key, version, and discovery
+score. Its answer event reports `model_calls: 0`, with no Gemini-call step for that answer.
+Memory still records the exchange.
 
-The `$80` limit is an inclusive structured pre-filter, not part of semantic relevance. Context
-Retriever applies the category and member-price predicates before its lexical and vector ranking
-legs. The natural-language phrase demonstrates the hybrid ranking; the price demonstrates governed
-filtering. A semantic-distance guardrail removes broader wireless electronics before display.
+Try the paraphrase:
 
-### Sensitive-skin laundry
+> How long is the return window for electronics?
 
-Prompt:
+This retrieves an approved publication. It does not depend on first generating and caching an
+answer. If either route or FAQ threshold is not met, explain the observed trace instead of
+claiming that a direct answer occurred. Scores require evaluation with the deployed embedder.
 
-> free and clear laundry detergent for sensitive skin
+For governance, have the operator prepare a draft revision and ask again before publication.
+The serving revision should remain unchanged. Deliberate publication should make the new version
+visible. Accepting a proposal creates a draft; publishing is a separate action. Runtime keys
+cannot author or publish. Restore the intended demo publication after this exercise.
 
-- Category: `household`
-- Maximum member price: `$35`
-- Expected leading result: Clear Tide Laundry Pods, 152 count, at `$31.99`.
+## 2. Current data through one Gateway
 
-This demonstrates that the customer's wording does not need to reproduce the catalog description
-exactly. The catalog describes the product as “free-and-clear concentrated laundry detergent
-pods,” while the query expresses the shopping intent.
+Ask:
 
-### Coffee described by flavor notes
+> Find dark chocolate and check current inventory at my home warehouse.
 
-Prompt:
+Follow the trace: Intent Router returns a scored dispatch target; Playbooks discovers published
+guidance; Agent Memory reads preferences and session context; Gemini discovers business tools,
+then calls exact returned names and schemas through Context Gateway. Current commercial and
+account facts must come from those live results. A failed inventory call means data is
+unavailable, not that stock is zero. Displayed call times are measured client timings, not
+server-side performance benchmarks.
 
-> whole bean medium roast coffee with cocoa and caramel notes
+Then ask:
 
-- Category: `beverages`
-- Maximum member price: `$30`
-- Expected leading result: Rain City Medium Roast Coffee, 3 lb, at `$25.49`.
+> Show my recent orders and explain their current status.
 
-This is a useful semantic-plus-lexical example: product type, roast, format, and flavor notes all
-contribute to ranking while category and price remain deterministic filters.
+Confirm the returned records belong to the selected member. The application binds supported
+member arguments to that persona. Use **Explore tools** to show the actual schemas; do not
+assume a tool name from the older deployment.
 
-### Additional reliable prompt
+Disable **Context Gateway**, then ask about current inventory. The answer should explain that
+the necessary live data is unavailable. It must not substitute a remembered fact, an approved
+FAQ, or a stale business result. Re-enable the Gateway for the remaining steps.
 
-Prompt:
+## 3. A skill guides the comparison
 
-> fresh vegetarian party snack with dip
+With `shopping-comparison` published and discoverable, ask:
 
-- Category: `fresh-food`
-- Maximum member price: `$20`
-- Expected leading result: Market Garden Vegetable Tray, 4 lb, at `$14.49`.
+> Compare dark chocolate options for a family gathering and explain the tradeoffs.
 
-## 2. Explain the trace
+The published menu contains the skill preview. If Gemini selects it, `load_published_skill`
+loads the exact published entry from this turn's menu; look for **Load published skill**.
+Its instructions guide the comparison while current product facts still come from business
+tools. A skill grants no permission to access another member or perform an external action.
 
-For each Hybrid Product Finder request, point to the two Context Retriever trace steps:
+For large-result handling, request a broader comparison supported by the configured Gateway.
+The agent can use `business_result_handle`, then `handle_operation` to describe, page, query,
+count, aggregate, or release the result using the advertised helper schemas. Only handles
+created in the current turn can be used. Verify the actual handle operations in the trace;
+a long-looking answer alone does not demonstrate compression or paging.
 
-`Context Retriever · semantic relevance guardrail`
+## 4. A preference survives a fresh session
 
-`Context Retriever · hybrid product search`
+Ask:
 
-The semantic step shows the calibrated cosine-distance cutoff. The hybrid step shows each retained
-product's hybrid rank, semantic rank and distance, and its rank in a companion lexical search.
-The short trace label maps to the governed tool `search_product_by_semantic_embedding_hybrid`.
-Explain that the companion searches make the two retrieval signals visible; the hybrid tool's RRF
-order remains authoritative. The lexical tool does not accept the hybrid tool's structured-filter
-arguments, so its rank is diagnostic: the application reapplies the same category and price
-eligibility when presenting that companion list. The application does not send this request through
-Gemini: the result is a direct, governed retrieval demonstration.
+> Remember that I prefer dark chocolate and avoid milk chocolate.
 
-## 3. Compare with the normal shopping-agent path
+Look for **Remember shopping preference**, then open **Member memory**. The write uses the
+member's owner and configured GA namespace. This explicit write does not require waiting for
+background memory extraction.
 
-Use the regular chat prompt:
+Select another member and verify their memory inventory does not include the preference.
+Select the original member again to create a fresh session, then ask:
 
-> Find family-size pantry staples under $30 and check Portland stock.
+> What chocolate preference do you remember for me? Use it to find suitable options.
 
-The regular agent path uses RedisVL catalog retrieval, calls governed Context Retriever tools for
-operational inventory, combines memory context, and asks Gemini to compose the response. Contrast
-that multi-step trace with the Hybrid Product Finder's single governed Context Retriever search.
+Durable preferences can survive the new session; current prices and stock still need live
+retrieval. Session continuity and long-term memory are separate capabilities.
 
-## 4. Exercise the self-managed services
+## 5. A persistent shopping shortlist
 
-Use these prompts in the regular chat to demonstrate parity with the Redis Cloud-backed demo:
+Ask:
 
-- LangCache policy miss/hit pair:
-  - `What is the electronics return policy?`
-  - `How long is the return window for electronics?`
-- Agent Memory retrieval:
-  - `What household products and pickup options do I prefer?`
-- Context Retriever order lookup:
-  - `What do you know about me?`
-- Combined memory, catalog, and inventory:
-  - `Based on what you remember, what laundry option should I consider and can I pick it up in Portland?`
+> Find suitable dark chocolate, check live stock, and add two of one available option to my cart.
 
-## Presenter notes
+The model must discover the SKU in this turn before `add_to_cart` accepts it. The cart stores
+member-scoped SKU quantities. It is a shortlist, not a purchase, quote, or stock reservation.
+Select the same member in another session and ask to view the cart. Verify persistence without
+inferring a current price or availability from the saved quantities.
 
-- The original Value Wholesale and Norling's demos do not expose Hybrid Product Finder. The
-  capability is gated by `CONTEXT_HYBRID_PRODUCT_FINDER_ENABLED` and is enabled only here.
-- Redis remains the operational source for catalog, price, and inventory data. Agent Memory is
-  used for conversational and durable user context, not as the source of truth for commerce data.
-- Hybrid RRF scores are relative and are not used as a portable relevance threshold. The demo uses
-  a semantic guardrail: cosine distance must be at most `0.35` and within `0.06` of the best match.
-  Those values are calibrated for this demo dataset and embedding model and require evaluation
-  before reuse elsewhere.
-- If a service call fails, verify the GKE services and private VM-to-GKE connectivity before
-  changing application behavior.
+## 6. Disconnect while Vale works
+
+Start a request requiring several business-tool calls. While events arrive, select
+**Disconnect**, wait briefly, then select **Reconnect**.
+
+The run ID stays the same and the cursor advances as retained events replay. Reconnect does
+not submit another chat request. The producer can continue without a connected client, and
+another serving worker can deliver the retained stream.
+
+Reload during an active run to exercise saved run/cursor recovery within the same browser
+session. If the event stream has expired, the application attempts a member-scoped snapshot,
+retained for 24 hours by default. Stream TTLs are configured separately.
+
+This recovers event delivery. Killing the worker executing Gemini can interrupt the computation;
+reconnecting does not restart it. Do not describe this as agent execution failover or exactly-once
+business operations.
+
+## 7. Inspect the same turn in Lens
+
+Copy the displayed trace ID and open the corresponding turn using the operator's Lens read
+access. Compare recalled memories, prompt assembly, tool calls, Gemini spans, and outcome.
+The application records Gemini spans explicitly; it does not rely on automatic Google-client
+instrumentation.
+
+Content capture defaults to off. Enable it only for the synthetic demonstration when captured
+content is needed. Model-usage attributes contain only token counts returned by Gemini; missing
+usage is not estimated. A displayed trace ID alone does not establish successful export.
+Lens and Agent Mesh remain beta features.
+
+## Keep the evidence
+
+| Demonstration | Record from the actual run |
+|---|---|
+| Published FAQ | Entry key/version, score, intent target, and zero-model-call answer event when eligible. |
+| Publication governance | Draft remained hidden; deliberately published revision became visible. |
+| Business context | Discovered schemas, member binding, and current inventory/order results. |
+| Skill and handles | Published skill version and the handle operations that actually ran. |
+| Durable memory | Preference recovered in a fresh session for its member and absent for another. |
+| Shortlist | Discovered SKUs persisted as quantities without a price/stock guarantee. |
+| Mesh | Same run ID, advancing cursor, one producer request, and replay or explicit snapshot recovery. |
+| Lens | Matching exported trace, capture configuration, and any returned model usage. |
+
+Local tests include native Agent Mesh replay against temporary Redis 8.10.1 and two HTTP
+replicas: disconnect/reconnect through the second replica, one producer, completed snapshot,
+and denial to another member passed. A browser audit with mocked endpoints also passed cursor
+and reload recovery. The existing project's lint and 86 tests passed. Deployed-network replay,
+GA service data access, real Vertex inference, and Lens-ingest acceptance remain pending until
+the GA deployment passes this checklist. Add actual outcomes to the shared Iris feature/migration
+record. Historical preview timings and expected prices are not GA measurements.
+
+Product references: [Agent Playbooks](https://redis.io/docs/latest/develop/ai/context-engine/agent-playbooks/),
+[Intent Router](https://redis.io/docs/latest/develop/ai/context-engine/intent-router/),
+[Context Gateway](https://redis.io/docs/latest/develop/ai/context-engine/context-gateway/),
+[Lens](https://redis.io/docs/latest/develop/ai/context-engine/lens/), and
+[Agent Mesh](https://redis.io/docs/latest/develop/ai/context-engine/agent-mesh/).

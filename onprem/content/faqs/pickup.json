@@ -1,0 +1,17 @@
+{
+  "entryKey": "pickup",
+  "question": "How does warehouse pickup work?",
+  "answer": "Pickup orders are held for three calendar days after the ready notification. The named member must present photo identification at the pickup desk.",
+  "intents": [
+    "Warehouse pickup"
+  ],
+  "attributes": {
+    "audience": "valuewholesale-demo",
+    "topic": "pickup"
+  },
+  "metadata": {
+    "source": "data/generated/policies.jsonl",
+    "source_id": "pickup",
+    "fictional_demo": true
+  }
+}

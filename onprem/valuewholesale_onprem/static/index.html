@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#12213b">
+  <title>Value Wholesale · Redis Iris</title>
+  <style>
+    :root{color-scheme:light;--ink:#12213b;--muted:#607087;--line:#dde4ec;--paper:#fff;--wash:#f4f6fa;--red:#c92e34;--green:#16674a;--amber:#875b15;--shadow:0 14px 45px #192b4210}
+    *{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button,select{cursor:pointer}button{border:1px solid var(--line);border-radius:10px;background:white;color:var(--ink);padding:9px 13px;font-weight:600}button:hover:not(:disabled){border-color:#8596ad;background:#f8fafc}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #8baadd;outline-offset:3px}button.primary{background:var(--red);border-color:var(--red);color:white}button.primary:hover:not(:disabled){background:#ac2028;border-color:#ac2028}.quiet{background:transparent}.small{font-size:12px;padding:5px 9px}a{color:#2355a2}h1,h2,h3,p{margin:0}header{background:var(--ink);color:white;padding:17px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{display:flex;align-items:center;gap:12px}.mark{width:40px;height:40px;border-radius:10px;background:var(--red);display:grid;place-items:center;font-weight:800;letter-spacing:-1px}.brand strong{display:block;font-size:17px;line-height:1.2}.brand small{font-size:11px;color:#c3cede;letter-spacing:.08em;text-transform:uppercase}.edition{border:1px solid #ffffff35;padding:5px 10px;border-radius:99px;color:#d7e1ee;font-size:12px}.shell{max-width:1500px;margin:auto;padding:26px;display:grid;grid-template-columns:290px minmax(360px,1fr) 280px;gap:22px;align-items:start}.panel{background:white;border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow)}.panel-head{padding:19px 20px 15px;border-bottom:1px solid var(--line)}.eyebrow{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:750;color:var(--muted)}h2{font-size:16px;margin-top:3px}.service-list{padding:8px 12px 13px}.service{padding:11px 8px;border-bottom:1px solid #edf0f4}.service:last-child{border:0}.service-top{display:flex;justify-content:space-between;align-items:center;gap:7px}.service-name{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:750}.dot{width:7px;height:7px;border-radius:50%;background:#a1aaba;flex:none}.service[data-state="configured"] .dot,.service[data-state="completed"] .dot{background:var(--green)}.service[data-state="running"] .dot{background:var(--red);animation:pulse 1s infinite}.service[data-state="failed"] .dot{background:#ad2630}.service-meta{font-size:10px;color:var(--muted);padding-left:15px;margin-top:4px}.service-time{font-size:10px;white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}.beta{font-size:9px;font-weight:600;border:1px solid #d6dfed;color:#536985;border-radius:4px;padding:1px 4px;margin-left:2px}.switch{display:flex;gap:8px;align-items:center;font-size:11px;padding:0 8px 10px;color:var(--muted)}.switch input{accent-color:var(--red)}.side-actions{padding:13px;border-top:1px solid var(--line);display:flex;gap:8px}.side-actions button{flex:1;font-size:11px}.note{font-size:11px;color:var(--muted);padding:14px 4px}.conversation{overflow:hidden;min-height:720px;display:flex;flex-direction:column}.intro{padding:25px 25px 19px;background:linear-gradient(130deg,#fff,#f5f7fc)}.intro .eyebrow{color:var(--red)}h1{font-size:clamp(23px,2.4vw,34px);letter-spacing:-.04em;line-height:1.15;margin:8px 0}.intro p{font-size:12px;color:var(--muted);max-width:410px}.persona{padding:13px 24px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:15px}.persona label{font-size:11px;color:var(--muted);display:block}.persona select{max-width:210px;border:0;background:#f0f3f8;padding:6px 10px;border-radius:7px;font-size:12px;color:var(--ink);margin-top:3px}.session-tag{font-size:10px;color:var(--muted);text-align:right;max-width:160px;overflow-wrap:anywhere}.shortcuts{padding:16px 24px 0;display:flex;flex-wrap:wrap;gap:7px}.shortcuts button{font-size:11px;padding:7px 10px;border-radius:99px;background:#fafbfe;font-weight:500}.messages{flex:1;padding:25px 24px;min-height:265px;max-height:560px;overflow-y:auto;scroll-behavior:smooth}.message{margin:0 0 18px;max-width:94%}.message.user{margin-left:auto}.message-label{font-size:9px;letter-spacing:.09em;text-transform:uppercase;font-weight:750;color:var(--muted);margin-bottom:5px}.message.user .message-label{text-align:right}.message-body{padding:13px 15px;border:1px solid var(--line);border-radius:3px 13px 13px;background:#f9fbff;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.message.user .message-body{background:var(--ink);color:#fff;border:0;border-radius:13px 3px 13px 13px}.message.failed .message-body{border-color:#edb4b7;color:#8c222a;background:#fff8f8}.provenance{font-size:10px;border:1px solid #bedbce;background:#f1f9f5;color:#205b46;padding:6px 9px;border-radius:7px;margin-top:7px;overflow-wrap:anywhere}.composer{margin-top:auto;padding:16px 23px 19px;border-top:1px solid var(--line)}.input-row{display:flex;gap:9px;align-items:stretch}.input-row textarea{resize:vertical;min-height:48px;max-height:150px;flex:1;width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:12px;font-size:12px;color:var(--ink)}.input-row button{min-width:67px}.composer-note{font-size:10px;color:var(--muted);margin-top:8px}.status{font-size:11px;min-height:18px;color:var(--muted);margin-top:10px}.status.error{color:#a02730}.stream-panel{padding:19px 20px}.stream-status{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;margin:8px 0 11px}.stream-status:before{content:"";width:7px;height:7px;background:#8996a9;border-radius:50%}.stream-status.connected:before{background:var(--green)}.stream-status.disconnected:before{background:var(--amber)}.stream-actions{display:flex;gap:7px}.stream-actions button{font-size:11px;flex:1;padding:7px 9px}.run-meta{font:10px/1.6 ui-monospace,SFMono-Regular,monospace;color:var(--muted);margin-top:13px;overflow-wrap:anywhere}.stream-description{font-size:11px;color:var(--muted);margin-top:12px}.trace-panel{margin-top:18px;overflow:hidden}.trace-empty{padding:20px;font-size:12px;color:var(--muted)}.trace-list{max-height:450px;overflow-y:auto}.trace-step{position:relative;padding:14px 17px 14px 30px;border-bottom:1px solid #edf0f4}.trace-step:before{position:absolute;content:"";left:16px;top:21px;width:5px;height:5px;background:#8d9bb0;border-radius:50%}.trace-step[data-state="completed"]:before{background:var(--green)}.trace-step[data-state="running"]:before{background:var(--red)}.trace-step[data-state="failed"]:before{background:#b02230}.trace-title{font-size:11px;font-weight:700}.trace-detail{font-size:10px;color:var(--muted);margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere}.trace-duration{font-size:10px;color:var(--muted);margin-top:5px;font-variant-numeric:tabular-nums}.lens-row{padding:14px 17px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}.lens-id{font:10px ui-monospace,SFMono-Regular,monospace;margin:6px 0 9px;overflow-wrap:anywhere}.health-row{padding:12px 20px;border-top:1px solid var(--line);font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:10px}dialog{width:min(720px,calc(100% - 30px));max-height:80vh;border:1px solid var(--line);border-radius:17px;box-shadow:0 20px 100px #10223f40;padding:0;color:var(--ink)}dialog::backdrop{background:#0c1b36a0;backdrop-filter:blur(3px)}.dialog-head{padding:19px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.dialog-head h2{margin:0}.dialog-content{padding:20px 22px}.dialog-status{font-size:12px;color:var(--muted)}.tool,.memory-item{padding:13px 0;border-bottom:1px solid var(--line)}.tool:last-child,.memory-item:last-child{border:0}.tool strong{font:12px ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}.tool p,.memory-item p{font-size:12px;margin-top:7px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.tool details{font-size:11px;margin-top:7px}.tool pre{padding:10px;background:var(--wash);border-radius:8px;overflow:auto;font-size:10px}.memory-item code{font-size:10px;color:var(--muted);overflow-wrap:anywhere}footer{max-width:1500px;margin:0 auto;padding:0 28px 24px;font-size:10px;color:var(--muted)}@keyframes pulse{50%{opacity:.25}}@media(max-width:1180px){.shell{grid-template-columns:245px minmax(340px,1fr)}.right-column{grid-column:1/-1;display:grid;grid-template-columns:245px 1fr;gap:22px}.trace-panel{margin:0}.trace-list{max-height:250px}}@media(max-width:720px){header{padding:15px 17px}.edition{font-size:10px}.shell{display:flex;flex-direction:column;padding:16px;gap:16px}.left-column,.center-column,.right-column{width:100%}.left-column{order:2}.center-column{order:1}.right-column{order:3;display:flex;flex-direction:column;gap:16px}.service-list{display:grid;grid-template-columns:1fr 1fr}.service{border-bottom:1px solid #edf0f4!important}.conversation{min-height:680px}.intro,.persona,.shortcuts,.messages{padding-left:19px;padding-right:19px}.composer{padding:15px 18px}.session-tag{max-width:120px}.trace-panel{margin:0}.stream-panel{width:100%}.trace-panel{width:100%}footer{padding:0 20px 20px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important}}
+  </style>
+</head>
+<body>
+  <header>
+    <div class="brand"><span class="mark" aria-hidden="true">VW</span><div><strong>Value Wholesale</strong><small>Member shopping, intelligently</small></div></div>
+    <span class="edition">Redis Iris · Self-managed</span>
+  </header>
+  <main class="shell">
+    <aside class="left-column" aria-label="Redis Iris services">
+      <section class="panel">
+        <div class="panel-head"><span class="eyebrow">The context behind every answer</span><h2>Redis Iris</h2></div>
+        <div id="services" class="service-list"></div>
+        <label class="switch"><input id="gateway-enabled" type="checkbox" checked> Use Context Gateway for this request</label>
+        <div class="side-actions"><button id="tools-button" type="button">Explore tools</button><button id="memory-button" type="button">Member memory</button></div>
+        <div class="health-row"><span id="health-status" role="status">Checking service status…</span><button id="refresh-health" class="small quiet" type="button">Refresh</button></div>
+      </section>
+      <p class="note">Approved answers come from published playbook entries. Shopping tools provide current business data.</p>
+    </aside>
+    <section class="center-column panel conversation" aria-labelledby="welcome-title">
+      <div class="intro"><span class="eyebrow">Meet Vale, your shopping assistant</span><h1 id="welcome-title">Stock the house.<br>Skip the guesswork.</h1><p>Find the right products, check what’s available, and pick up where you left off.</p></div>
+      <div class="persona"><div><label for="member">Shopping as a fictional member</label><select id="member" disabled><option>Loading members…</option></select></div><div id="session-tag" class="session-tag">Starting a session</div></div>
+      <div class="shortcuts" aria-label="Try a question">
+        <button type="button" data-prompt="What is the electronics return policy?">Returns policy</button>
+        <button type="button" data-prompt="Find dark chocolate and check current inventory at my home warehouse.">Check inventory</button>
+        <button type="button" data-prompt="Remember that I prefer dark chocolate and avoid milk chocolate.">Remember a preference</button>
+        <button type="button" data-prompt="Compare dark chocolate options for a family gathering.">Compare products</button>
+      </div>
+      <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text">
+        <div class="message"><div class="message-label">Vale</div><div class="message-body">Welcome to Value Wholesale. Choose a member and ask me about products, shopping, or membership policies.</div></div>
+      </div>
+      <form id="chat-form" class="composer">
+        <div class="input-row"><textarea id="message" rows="1" maxlength="8000" placeholder="What can I help you find?" aria-label="Your message" disabled required></textarea><button id="send" type="submit" class="primary" disabled>Send</button></div>
+        <p class="composer-note">Shift + Enter for a new line. Responses use fictional demo data.</p>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+    <aside class="right-column" aria-label="Turn details">
+      <section class="panel stream-panel">
+        <span class="eyebrow">Agent Mesh <span class="beta">Beta</span></span><h2>A conversation that reconnects</h2>
+        <p id="stream-status" class="stream-status">No active stream</p>
+        <div class="stream-actions"><button id="disconnect" type="button" disabled>Disconnect</button><button id="reconnect" type="button" disabled>Reconnect</button></div>
+        <p class="stream-description">Disconnect while Vale works, then reconnect to the same response. The client resumes after its last event.</p>
+        <div id="run-meta" class="run-meta">Run —<br>Cursor —</div>
+      </section>
+      <section class="panel trace-panel">
+        <div class="panel-head"><span class="eyebrow">Turn by turn</span><h2>Live context trace</h2></div>
+        <div id="trace" class="trace-list" aria-live="polite"><p class="trace-empty">Send a message to see which services contribute.</p></div>
+        <div class="lens-row">Lens <span class="beta">Beta</span><div id="lens-id" class="lens-id">No trace yet</div><button id="copy-trace" class="small" type="button" disabled>Copy trace ID</button></div>
+      </section>
+    </aside>
+  </main>
+  <footer>Value Wholesale is a fictional retailer. This self-managed demo uses synthetic members and supports no real purchases. Lens and Agent Mesh are beta features.</footer>
+  <dialog id="details-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><h2 id="dialog-title">Details</h2><button id="close-dialog" class="small" type="button" aria-label="Close details">Close</button></div><div id="dialog-content" class="dialog-content"></div></dialog>
+  <script>
+    'use strict';
+    const $ = selector => document.querySelector(selector);
+    const serviceLabels = {
+      agent_memory: ['Agent Memory', 'Session history and remembered preferences'],
+      agent_playbooks: ['Agent Playbooks', 'Published FAQs and procedures'],
+      context_gateway: ['Context Gateway', 'Governed tools and business data'],
+      intent_router: ['Intent Router', 'Intent scores and dispatch targets'],
+      lens: ['Lens', 'Turn context and model spans', true],
+      agent_mesh: ['Agent Mesh', 'Resumable event delivery', true],
+      gemini: ['Gemini', 'Shopping reasoning and tool calls'],
+    };
+    let session = null;
+    let activeRun = null;
+    let source = null;
+    let reconnectTimer = null;
+    let manualDisconnect = false;
+    let pending = false;
+    let assistantMessage = null;
+    let latestTrace = '';
+    let seenEvents = new Set();
+    let eventFailures = 0;
+    let sessionGeneration = 0;
+    const traceSteps = new Map();
+
+    function node(tag, text, className) {
+      const element = document.createElement(tag);
+      if (text !== undefined && text !== null) element.textContent = String(text);
+      if (className) element.className = className;
+      return element;
+    }
+
+    for (const [id, [label, description, beta]] of Object.entries(serviceLabels)) {
+      const card = node('div', null, 'service');
+      card.id = `service-${id}`;
+      card.dataset.state = 'unknown';
+      const top = node('div', null, 'service-top');
+      const title = node('span', null, 'service-name');
+      title.append(node('span', null, 'dot'), node('span', label));
+      if (beta) title.append(node('span', 'Beta', 'beta'));
+      top.append(title, node('span', 'Unchecked', 'service-time'));
+      card.append(top, node('p', description, 'service-meta'));
+      $('#services').append(card);
+    }
+
+    function setStatus(message, error = false) {
+      $('#status').textContent = message;
+      $('#status').classList.toggle('error', error);
+    }
+
+    async function api(path, options = {}) {
+      const response = await fetch(path, {credentials: 'same-origin', ...options});
+      let data;
+      try { data = await response.json(); }
+      catch { throw new Error(`The service returned HTTP ${response.status} without a readable response.`); }
+      if (!response.ok) {
+        const detail = typeof data.detail === 'string' ? data.detail : `Request failed (HTTP ${response.status}).`;
+        const error = new Error(detail);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    }
+
+    function uuid() {
+      if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+      const bytes = crypto.getRandomValues(new Uint8Array(16));
+      bytes[6] = (bytes[6] & 15) | 64;
+      bytes[8] = (bytes[8] & 63) | 128;
+      const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+
+    function storageKey() {
+      return session ? `valuewholesale-iris:${session.member_id}:${session.session_id}` : null;
+    }
+
+    function saveRun() {
+      if (!session || !activeRun) return;
+      try { sessionStorage.setItem(storageKey(), JSON.stringify(activeRun)); }
+      catch { /* Browsers may disable session storage; the active connection still works. */ }
+    }
+
+    function readRun() {
+      try { return JSON.parse(sessionStorage.getItem(storageKey()) || 'null'); }
+      catch { return null; }
+    }
+
+    function setBusy(value) {
+      pending = value;
+      $('#send').disabled = value || !session;
+      $('#message').disabled = !session;
+      $('#member').disabled = value || !session;
+      $('#gateway-enabled').disabled = value;
+      document.querySelectorAll('[data-prompt]').forEach(button => { button.disabled = value || !session; });
+      $('#send').textContent = value ? 'Working' : 'Send';
+    }
+
+    function addMessage(text, role = 'assistant') {
+      const wrapper = node('div', null, `message ${role}`);
+      wrapper.append(node('div', role === 'user' ? 'You' : 'Vale', 'message-label'), node('div', text, 'message-body'));
+      $('#messages').append(wrapper);
+      $('#messages').scrollTop = $('#messages').scrollHeight;
+      return wrapper;
+    }
+
+    function showAnswer(answer, published) {
+      if (!assistantMessage) assistantMessage = addMessage('');
+      assistantMessage.querySelector('.message-body').textContent = answer || 'The run completed without an answer.';
+      assistantMessage.querySelector('.provenance')?.remove();
+      if (published) {
+        const key = published.key || published.entry_id || 'FAQ';
+        const version = published.version !== undefined ? ` · version ${published.version}` : '';
+        const score = Number.isFinite(published.score) ? ` · score ${published.score.toFixed(3)}` : '';
+        assistantMessage.append(node('div', `Published playbook · ${key}${version}${score}`, 'provenance'));
+      }
+      $('#messages').scrollTop = $('#messages').scrollHeight;
+    }
+
+    function streamState(text, kind = '') {
+      const label = $('#stream-status');
+      label.textContent = text;
+      label.className = `stream-status ${kind}`;
+      $('#disconnect').disabled = !source;
+      $('#reconnect').disabled = !activeRun || Boolean(source) || activeRun.status === 'completed' || activeRun.status === 'failed';
+      $('#run-meta').replaceChildren(node('div', `Run ${activeRun?.run_id || '—'}`), node('div', `Cursor ${activeRun?.cursor || '—'}`));
+    }
+
+    function stopSource() {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      if (source) source.close();
+      source = null;
+    }
+
+    function trace(step) {
+      const service = step.service;
+      const title = step.title || service || 'Step';
+      const id = `${service || 'other'}:${title}`;
+      let item = traceSteps.get(id);
+      if (!item) {
+        $('#trace .trace-empty')?.remove();
+        item = node('div', null, 'trace-step');
+        item.append(node('div', title, 'trace-title'), node('div', '', 'trace-detail'), node('div', '', 'trace-duration'));
+        $('#trace').append(item);
+        traceSteps.set(id, item);
+      }
+      const state = step.status === 'error' ? 'failed' : (step.status || 'completed');
+      item.dataset.state = state;
+      item.querySelector('.trace-detail').textContent = typeof step.detail === 'object' ? JSON.stringify(step.detail, null, 2) : (step.detail || state);
+      const duration = Number.isFinite(step.duration_ms) ? `${step.duration_ms.toFixed(1)} ms` : '';
+      item.querySelector('.trace-duration').textContent = duration;
+      const card = document.getElementById(`service-${service}`);
+      if (card) {
+        card.dataset.state = state;
+        card.querySelector('.service-time').textContent = duration || state;
+      }
+      $('#trace').scrollTop = $('#trace').scrollHeight;
+    }
+
+    function setTraceId(value) {
+      latestTrace = String(value || '');
+      $('#lens-id').textContent = latestTrace || 'No trace yet';
+      $('#copy-trace').disabled = !latestTrace;
+    }
+
+    function handleEvent(event, namedType) {
+      if (!activeRun) return;
+      const id = event.lastEventId;
+      if (id && seenEvents.has(id)) return;
+      let data;
+      try { data = JSON.parse(event.data); }
+      catch { setStatus('A stream event could not be read. Reconnect to replay retained events.', true); return; }
+      const type = data.type || namedType;
+      eventFailures = 0;
+      if (type === 'trace') trace(data.step || data);
+      else if (type === 'answer') {
+        activeRun.answer = data.answer;
+        activeRun.published = data.published;
+        showAnswer(data.answer, data.published);
+      } else if (type === 'lens') {
+        activeRun.trace_id = data.trace_id;
+        setTraceId(data.trace_id);
+      } else if (type === 'completed') {
+        activeRun.status = 'completed';
+        stopSource();
+        setBusy(false);
+        setStatus('Complete. Ask another question to continue.');
+        streamState('Response complete', 'connected');
+      } else if (type === 'failed') {
+        activeRun.status = 'failed';
+        stopSource();
+        setBusy(false);
+        if (assistantMessage) assistantMessage.classList.add('failed');
+        showAnswer(data.message || data.error || 'The run failed. Check the service configuration and try a new request.');
+        setStatus('The run failed. The trace may identify the service that needs attention.', true);
+        streamState('Run failed', 'disconnected');
+      } else if (namedType === 'stream.end') {
+        stopSource();
+        setBusy(false);
+        activeRun.status = data.reason === 'done' ? 'completed' : 'failed';
+        streamState(data.reason === 'done' ? 'Response complete' : 'Producer stopped', data.reason === 'done' ? 'connected' : 'disconnected');
+        if (data.reason !== 'done') setStatus('The producer stopped. Saved results may be available, but reconnecting cannot restart its work.', true);
+        void recoverSnapshot();
+      }
+      if (id) {
+        seenEvents.add(id);
+        activeRun.cursor = id;
+      }
+      saveRun();
+      if (source) streamState('Receiving events', 'connected');
+      else streamState($('#stream-status').textContent, $('#stream-status').classList.contains('connected') ? 'connected' : 'disconnected');
+    }
+
+    async function recoverSnapshot() {
+      if (!activeRun || !session) return;
+      const runId = activeRun.run_id;
+      const generation = sessionGeneration;
+      try {
+        const snapshot = await api(`/api/runs/${encodeURIComponent(runId)}`);
+        if (!activeRun || activeRun.run_id !== runId || generation !== sessionGeneration) return;
+        if (snapshot.answer) {
+          activeRun.answer = snapshot.answer;
+          activeRun.published = snapshot.published;
+          showAnswer(snapshot.answer, snapshot.published);
+        }
+        if (snapshot.trace_id) { activeRun.trace_id = snapshot.trace_id; setTraceId(snapshot.trace_id); }
+        if (Array.isArray(snapshot.events)) snapshot.events.filter(event => event.type === 'trace').forEach(event => trace(event.step || event));
+        if (snapshot.status === 'completed' || snapshot.status === 'failed') {
+          activeRun.status = snapshot.status;
+          stopSource();
+          setBusy(false);
+          streamState(snapshot.status === 'completed' ? 'Saved response recovered' : 'Run failed', snapshot.status === 'completed' ? 'connected' : 'disconnected');
+          setStatus(snapshot.status === 'completed' ? 'Recovered the saved result.' : 'The run failed. Start a new request when the service is available.', snapshot.status === 'failed');
+        }
+        saveRun();
+      } catch (error) {
+        if (generation === sessionGeneration) setStatus(`Unable to retrieve the saved result: ${error.message}`, true);
+      }
+    }
+
+    function connectStream() {
+      if (!session || !activeRun || ['completed', 'failed'].includes(activeRun.status)) return;
+      stopSource();
+      manualDisconnect = false;
+      const url = new URL(activeRun.events_url || `/api/runs/${encodeURIComponent(activeRun.run_id)}/events`, location.origin);
+      if (url.origin !== location.origin) { setStatus('The stream URL is not on this demo’s origin.', true); return; }
+      if (activeRun.cursor) url.searchParams.set('after', activeRun.cursor);
+      const connection = new EventSource(url.pathname + url.search, {withCredentials: true});
+      source = connection;
+      const generation = sessionGeneration;
+      streamState('Connecting…');
+      connection.onopen = () => {
+        if (source !== connection || generation !== sessionGeneration) return;
+        streamState('Receiving events', 'connected');
+        setStatus('Vale is working. You can disconnect and resume this run.');
+      };
+      for (const type of ['trace', 'answer', 'lens', 'completed', 'failed', 'stream.end']) {
+        connection.addEventListener(type, event => {
+          if (source === connection && generation === sessionGeneration) handleEvent(event, type);
+        });
+      }
+      connection.onerror = () => {
+        if (source !== connection || generation !== sessionGeneration) return;
+        stopSource();
+        eventFailures++;
+        streamState('Connection interrupted', 'disconnected');
+        if (manualDisconnect) return;
+        void recoverSnapshot();
+        if (eventFailures <= 4) {
+          setStatus('Connection interrupted. Reconnecting with the last event cursor…');
+          reconnectTimer = setTimeout(() => {
+            if (generation === sessionGeneration && !manualDisconnect) connectStream();
+          }, Math.min(1000 * eventFailures, 4000));
+        } else {
+          setStatus('The stream is unavailable. Check the connection, then use Reconnect. A saved result will be shown if available.', true);
+        }
+      };
+    }
+
+    async function refreshHealth() {
+      $('#refresh-health').disabled = true;
+      try {
+        const data = await api('/api/health');
+        for (const id of Object.keys(serviceLabels)) {
+          const card = document.getElementById(`service-${id}`);
+          const check = data.checks?.[id];
+          const available = data.services?.[id] === true;
+          const configured = data.configured?.[id] ?? available;
+          const initializationOnly = id === 'gemini' || id === 'lens';
+          card.dataset.state = available ? 'configured' : (check ? 'failed' : 'unknown');
+          card.querySelector('.service-time').textContent = initializationOnly
+            ? (configured ? (id === 'lens' ? 'Initialized' : 'Configured') : 'Unavailable')
+            : (check ? (check.ok ? 'Ready' : 'Unavailable') : (available ? 'Configured' : 'Unavailable'));
+          const description = serviceLabels[id][1];
+          const detail = check?.detail || (id === 'gemini' ? 'Model configured; inference is verified by a shopping turn.' : id === 'lens' ? 'SDK initialization only; trace export is verified separately.' : 'No probe detail returned.');
+          card.title = `${description}. ${detail}`;
+          card.querySelector('.service-meta').textContent = check && !check.ok ? detail : description;
+        }
+        $('#health-status').textContent = data.ready === true ? 'Core service probes passed' : 'Some services need attention';
+      } catch (error) {
+        $('#health-status').textContent = 'Status unavailable';
+        setStatus(error.message, true);
+      } finally { $('#refresh-health').disabled = false; }
+    }
+
+    function displaySession() {
+      $('#member').value = session.member_id;
+      $('#session-tag').textContent = `Session ${session.session_id}`;
+      $('#member').disabled = false;
+      setBusy(false);
+    }
+
+    async function changeMember(memberId) {
+      stopSource();
+      sessionGeneration++;
+      manualDisconnect = true;
+      $('#details-dialog').close();
+      $('#dialog-content').replaceChildren();
+      activeRun = null;
+      assistantMessage = null;
+      seenEvents = new Set();
+      traceSteps.clear();
+      $('#trace').replaceChildren(node('p', 'Send a message to see which services contribute.', 'trace-empty'));
+      setTraceId('');
+      $('#member').disabled = true;
+      $('#send').disabled = true;
+      $('#message').disabled = true;
+      const oldMember = session?.member_id;
+      try {
+        session = await api('/api/session', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({member_id: memberId})});
+        displaySession();
+        $('#messages').replaceChildren();
+        addMessage('Welcome. This is a fresh session; your member’s durable preferences remain available through Agent Memory.');
+        streamState('No active stream');
+        setStatus('Ready for your next question.');
+        $('#message').focus();
+      } catch (error) {
+        if (session && oldMember) displaySession();
+        setStatus(`Unable to start the member session: ${error.message}`, true);
+      }
+    }
+
+    async function submitMessage(text) {
+      if (!session || pending || !text.trim()) return;
+      const message = text.trim();
+      stopSource();
+      activeRun = null;
+      manualDisconnect = false;
+      eventFailures = 0;
+      seenEvents = new Set();
+      traceSteps.clear();
+      $('#trace').replaceChildren(node('p', 'Waiting for the first context step…', 'trace-empty'));
+      setTraceId('');
+      addMessage(message, 'user');
+      assistantMessage = addMessage('Vale is checking…');
+      $('#message').value = '';
+      setBusy(true);
+      setStatus('Starting a run…');
+      const runId = uuid();
+      try {
+        const result = await api('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message, run_id: runId, context_gateway_enabled: $('#gateway-enabled').checked})});
+        activeRun = {run_id: result.run_id, events_url: result.events_url, cursor: '', status: 'running', question: message};
+        saveRun();
+        connectStream();
+      } catch (error) {
+        assistantMessage.classList.add('failed');
+        assistantMessage.querySelector('.message-body').textContent = `Unable to start the response: ${error.message}`;
+        setBusy(false);
+        setStatus('The request did not start successfully. Check service readiness before trying again.', true);
+        streamState('No stream started', 'disconnected');
+      }
+    }
+
+    function openDialog(title) {
+      $('#dialog-title').textContent = title;
+      $('#dialog-content').replaceChildren(node('p', 'Loading…', 'dialog-status'));
+      $('#details-dialog').showModal();
+    }
+
+    async function showTools() {
+      openDialog('Context Gateway tools');
+      try {
+        const data = await api('/api/tools');
+        const content = $('#dialog-content');
+        content.replaceChildren(node('p', `${data.tools?.length || 0} tools returned by this Gateway.`, 'dialog-status'));
+        for (const tool of data.tools || []) {
+          const item = node('div', null, 'tool');
+          item.append(node('strong', tool.name), node('p', tool.description || 'No description supplied.'));
+          if (tool.upstream_id || tool.original_name) item.append(node('p', `Upstream: ${tool.upstream_id || '—'} · Original name: ${tool.original_name || '—'}`));
+          const details = node('details');
+          details.append(node('summary', 'Input schema'), node('pre', JSON.stringify(tool.input_schema || {}, null, 2)));
+          item.append(details);
+          content.append(item);
+        }
+      } catch (error) { $('#dialog-content').replaceChildren(node('p', `Tools unavailable: ${error.message}`, 'dialog-status')); }
+    }
+
+    async function showMemory() {
+      const generation = sessionGeneration;
+      openDialog('This member’s remembered preferences');
+      try {
+        const data = await api('/api/memory');
+        if (generation !== sessionGeneration) return;
+        const content = $('#dialog-content');
+        content.replaceChildren(node('p', `${data.memories?.length || 0} memories · Namespace ${data.namespace_id || 'not reported'}`, 'dialog-status'));
+        for (const memory of data.memories || []) {
+          const item = node('div', null, 'memory-item');
+          item.append(node('p', memory.text || JSON.stringify(memory)), node('code', memory.memory_id || memory.id || ''));
+          content.append(item);
+        }
+        if (!data.memories?.length) content.append(node('p', 'No durable preferences were returned for this member.', 'note'));
+      } catch (error) { if (generation === sessionGeneration) $('#dialog-content').replaceChildren(node('p', `Memory unavailable: ${error.message}`, 'dialog-status')); }
+    }
+
+    $('#chat-form').addEventListener('submit', event => { event.preventDefault(); void submitMessage($('#message').value); });
+    $('#message').addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('#chat-form').requestSubmit(); }
+    });
+    document.querySelectorAll('[data-prompt]').forEach(button => { button.disabled = true; button.addEventListener('click', () => { void submitMessage(button.dataset.prompt); }); });
+    $('#member').addEventListener('change', () => { void changeMember($('#member').value); });
+    $('#disconnect').addEventListener('click', () => {
+      manualDisconnect = true;
+      stopSource();
+      streamState('Client disconnected', 'disconnected');
+      setStatus('The client disconnected. Reconnect to receive retained events from this same run.');
+    });
+    $('#reconnect').addEventListener('click', () => { eventFailures = 0; connectStream(); });
+    $('#refresh-health').addEventListener('click', () => { void refreshHealth(); });
+    $('#tools-button').addEventListener('click', () => { void showTools(); });
+    $('#memory-button').addEventListener('click', () => { void showMemory(); });
+    $('#close-dialog').addEventListener('click', () => $('#details-dialog').close());
+    $('#details-dialog').addEventListener('click', event => { if (event.target === $('#details-dialog')) $('#details-dialog').close(); });
+    $('#copy-trace').addEventListener('click', async () => {
+      try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard access needs HTTPS. Select the displayed trace ID to copy it.');
+        await navigator.clipboard.writeText(latestTrace);
+        setStatus('Lens trace ID copied.');
+      } catch (error) { setStatus(error.message, true); }
+    });
+    window.addEventListener('pagehide', () => { saveRun(); stopSource(); });
+
+    async function initialize() {
+      void refreshHealth();
+      try {
+        const data = await api('/api/members');
+        if (!data.members?.length) throw new Error('No synthetic members are configured.');
+        $('#member').replaceChildren(...data.members.map(member => {
+          const option = node('option', member.name || member.id);
+          option.value = member.id;
+          return option;
+        }));
+        try { session = await api('/api/session'); }
+        catch (error) { if (error.status !== 401) throw error; }
+        if (!session || !data.members.some(member => member.id === session.member_id)) {
+          await changeMember(data.members[0].id);
+          return;
+        }
+        displaySession();
+        const saved = readRun();
+        if (saved?.run_id && typeof saved.run_id === 'string') {
+          activeRun = saved;
+          if (saved.question) addMessage(saved.question, 'user');
+          assistantMessage = addMessage(saved.answer || 'Rejoining the saved run…');
+          if (saved.answer) showAnswer(saved.answer, saved.published);
+          if (saved.trace_id) setTraceId(saved.trace_id);
+          if (!['completed', 'failed'].includes(saved.status)) {
+            setBusy(true);
+            connectStream();
+          } else {
+            streamState(saved.status === 'completed' ? 'Saved response' : 'Previous run failed', saved.status === 'completed' ? 'connected' : 'disconnected');
+            void recoverSnapshot();
+          }
+        } else streamState('No active stream');
+      } catch (error) {
+        $('#session-tag').textContent = 'Session unavailable';
+        setStatus(`Unable to initialize the demo: ${error.message}`, true);
+      }
+    }
+    void initialize();
+  </script>
+</body>
+</html>

@@ -174,22 +174,22 @@ gcloud compute instances stop valuewholesale-demo --zone "$VALUEWHOLESALE_VM_ZON
 
 ### Self-managed Iris comparison demo
 
-The same VM can run a third Value Wholesale container on port `8083`, using the self-managed
-Agent Memory, LangCache, and Context Retriever deployment on GKE while retaining the original
-Google ADK configuration. Copy `.env.onprem.example` to the ignored `.env.onprem`, add the private
-service credentials and resource IDs, and deploy with:
+The port `8083` Value Wholesale application now has an isolated Redis Iris GA runtime in
+[`onprem/`](onprem/README.md): Agent Memory, published Agent Playbooks, Context Gateway,
+Intent Router, Lens, and resumable Agent Mesh streams. Its own dependency lock and container
+keep the original Value Wholesale, Norling's, and Value Travel runtimes unchanged. The GA
+shopping loop uses Google GenAI on Vertex rather than ADK. Copy `.env.onprem-ga.example` to
+the ignored `.env.onprem-ga`, fill the provisioned scoped keys and resource IDs, then run:
 
 ```bash
-EXPERIENCE_ID=valuewholesale \
-VALUEWHOLESALE_VM_ENV_FILE=.env.onprem \
-VALUEWHOLESALE_SKIP_BUILD=true \
-./scripts/deploy_vm.sh
+make dev-onprem
 ```
 
-The profile shares the catalog Redis database but uses independent key, index, embedding-cache,
-semantic-router, Context Surface, LangCache, and Agent Memory namespaces. See
-[`docs/onprem-iris.md`](docs/onprem-iris.md) for setup, tunnel commands, compatibility findings,
-and security limitations.
+The GA app reads live commerce records through Gateway tools and keeps member memory scoped by
+owner and GA namespace ID. This code is staged for the new suite; local checks are distinct from
+live deployment readiness. See [`docs/onprem-iris.md`](docs/onprem-iris.md) for setup and
+[`docs/demo-valuewholesale-onprem.md`](docs/demo-valuewholesale-onprem.md) for presenter checks.
+Use its dedicated `onprem/Dockerfile`; the default VM script deploys the original app.
 
 The deterministic JSONL dataset lives in [`data/generated`](data/generated) and includes products, warehouses, inventory, members, normalized orders, policies, identical memory seeds, and labeled retrieval-evaluation cases. See [`data/README.md`](data/README.md) for its schema and Redis key model.
 

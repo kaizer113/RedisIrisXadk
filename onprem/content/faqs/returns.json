@@ -1,0 +1,17 @@
+{
+  "entryKey": "returns",
+  "question": "What is the electronics return policy?",
+  "answer": "Most merchandise can be returned with proof of membership. Electronics have a 90-day return window. Perishable goods should be reported promptly with photos when practical.",
+  "intents": [
+    "Member satisfaction and returns"
+  ],
+  "attributes": {
+    "audience": "valuewholesale-demo",
+    "topic": "returns"
+  },
+  "metadata": {
+    "source": "data/generated/policies.jsonl",
+    "source_id": "returns",
+    "fictional_demo": true
+  }
+}

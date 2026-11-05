@@ -1,0 +1,31 @@
+[project]
+name = "valuewholesale-onprem"
+version = "1.0.0"
+description = "The isolated Value Wholesale demo for self-managed Redis Iris GA"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.162,<0.163",
+  "google-genai>=2.24,<3",
+  "jsonschema>=4.26,<5",
+  "pydantic-settings>=2.10,<3",
+  "redis-iris[fastapi-sse]==1.0.1",
+  "fastapi-redis-sdk==0.10.0b1",
+  "redis>=8.0.1,<9",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[dependency-groups]
+dev = ["pytest>=8.4,<10", "pytest-asyncio>=1.1,<2", "ruff>=0.12,<1", "fakeredis>=2.32,<3"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]

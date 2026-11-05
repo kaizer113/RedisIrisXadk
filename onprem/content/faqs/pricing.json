@@ -1,0 +1,17 @@
+{
+  "entryKey": "pricing",
+  "question": "How does Value Wholesale member pricing work?",
+  "answer": "Displayed member prices require an active Value Wholesale membership. Prices and inventory can vary by warehouse and are confirmed when the order is submitted.",
+  "intents": [
+    "Member pricing"
+  ],
+  "attributes": {
+    "audience": "valuewholesale-demo",
+    "topic": "pricing"
+  },
+  "metadata": {
+    "source": "data/generated/policies.jsonl",
+    "source_id": "pricing",
+    "fictional_demo": true
+  }
+}
