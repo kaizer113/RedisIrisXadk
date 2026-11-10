@@ -378,7 +378,7 @@ class Turn:
                         validate(args, definition.parameters_json_schema)
                         with lens.span("shopping.tool", **{"gen_ai.tool.name": call.name}):
                             result = await self.call(call.name, args)
-                    except (ValueError, KeyError, TypeError, ValidationError):
+                    except (ValueError, KeyError, TypeError, PermissionError, ValidationError):
                         result = {"ok": False, "error": "Tool arguments are invalid"}
                 results.append(types.Part.from_function_response(name=call.name, response=result))
                 fetched.append(

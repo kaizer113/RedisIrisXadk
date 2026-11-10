@@ -1,0 +1,33 @@
+# Submit only onprem/ as the source directory. No application environment is uploaded.
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --label
+      - org.opencontainers.image.revision=${_REVISION}
+      - -t
+      - ${_IMAGE}
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - run
+      - --rm
+      - --entrypoint
+      - /app/.venv/bin/python
+      - ${_IMAGE}
+      - -c
+      - >-
+        import importlib.metadata as m;
+        from pathlib import Path;
+        from valuewholesale_onprem.api import app;
+        assert m.version('redis-iris') == '1.0.1';
+        assert Path('/app/valuewholesale_onprem/static/index.html').is_file();
+        assert Path('/app/valuewholesale_onprem/members.jsonl').is_file();
+        print('Isolated GA image import and packaged assets passed')
+images:
+  - ${_IMAGE}
+tags:
+  - valuewholesale-onprem-ga
+  - owner-lionel-giavelli
+  - skip-deletion-yes
+timeout: 1200s

@@ -1,0 +1,534 @@
+{
+  "title": "Value Wholesale on-prem shopping",
+  "description": "Synthetic live shopping records for the isolated port 8083 demo.",
+  "entities": [
+    {
+      "name": "Product",
+      "description": "",
+      "redis_key_template": "valuewholesale-onprem:context:product:{sku}",
+      "fields": [
+        {
+          "name": "sku",
+          "type": "str",
+          "description": "Unique product SKU",
+          "is_key_component": true,
+          "redis_indices": []
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "description": "Product name",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "text",
+              "weight": 2.0
+            }
+          ]
+        },
+        {
+          "name": "category",
+          "type": "str",
+          "description": "Product category",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "price",
+          "type": "float",
+          "description": "Regular price",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric",
+              "sortable": true
+            }
+          ]
+        },
+        {
+          "name": "member_price",
+          "type": "float",
+          "description": "Value Wholesale member price",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric",
+              "sortable": true
+            }
+          ]
+        },
+        {
+          "name": "description",
+          "type": "str",
+          "description": "Product description",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "text",
+              "weight": 1.0
+            }
+          ]
+        },
+        {
+          "name": "tags",
+          "type": "list[str]",
+          "description": "Product discovery tags",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "semantic_embedding",
+          "type": "list[float]",
+          "description": "Embedding of the product description for semantic retrieval",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "vector",
+              "vector_dim": 768,
+              "distance_metric": "cosine",
+              "source_field": "description",
+              "embedding_model": "text-embedding-005"
+            }
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "name": "inventory",
+          "target": "Inventory",
+          "description": "Warehouse inventory for this product",
+          "source_field": "sku"
+        },
+        {
+          "name": "order_items",
+          "target": "OrderItem",
+          "description": "Order lines containing this product",
+          "source_field": "sku"
+        }
+      ],
+      "document_type": "json"
+    },
+    {
+      "name": "Warehouse",
+      "description": "",
+      "redis_key_template": "valuewholesale-onprem:context:warehouse:{warehouse_id}",
+      "fields": [
+        {
+          "name": "warehouse_id",
+          "type": "str",
+          "description": "Warehouse identifier",
+          "is_key_component": true,
+          "redis_indices": []
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "description": "Warehouse name",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "text",
+              "weight": 2.0
+            }
+          ]
+        },
+        {
+          "name": "city",
+          "type": "str",
+          "description": "Warehouse city",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "state",
+          "type": "str",
+          "description": "US state code",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "name": "inventory",
+          "target": "Inventory",
+          "description": "Products stocked at this warehouse",
+          "source_field": "warehouse_id"
+        }
+      ],
+      "document_type": "json"
+    },
+    {
+      "name": "Inventory",
+      "description": "",
+      "redis_key_template": "valuewholesale-onprem:context:inventory:{inventory_id}",
+      "fields": [
+        {
+          "name": "inventory_id",
+          "type": "str",
+          "description": "Inventory record ID",
+          "is_key_component": true,
+          "redis_indices": []
+        },
+        {
+          "name": "warehouse_id",
+          "type": "str",
+          "description": "Warehouse identifier",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "sku",
+          "type": "str",
+          "description": "Product SKU",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "quantity",
+          "type": "int",
+          "description": "Available units",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric",
+              "sortable": true
+            }
+          ]
+        },
+        {
+          "name": "updated_at",
+          "type": "str",
+          "description": "Inventory update timestamp",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "name": "product",
+          "target": "Product",
+          "description": "Product represented by this stock record",
+          "source_field": "sku"
+        },
+        {
+          "name": "warehouse",
+          "target": "Warehouse",
+          "description": "Warehouse holding this stock",
+          "source_field": "warehouse_id"
+        }
+      ],
+      "document_type": "json"
+    },
+    {
+      "name": "Member",
+      "description": "",
+      "redis_key_template": "valuewholesale-onprem:context:member:{member_id}",
+      "fields": [
+        {
+          "name": "member_id",
+          "type": "str",
+          "description": "Member identifier",
+          "is_key_component": true,
+          "redis_indices": []
+        },
+        {
+          "name": "name",
+          "type": "str",
+          "description": "Member name",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "text",
+              "weight": 2.0
+            }
+          ]
+        },
+        {
+          "name": "tier",
+          "type": "str",
+          "description": "Membership tier",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "home_warehouse",
+          "type": "str",
+          "description": "Preferred warehouse",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "reward_balance",
+          "type": "float",
+          "description": "Current reward balance",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric",
+              "sortable": true
+            }
+          ]
+        },
+        {
+          "name": "joined_at",
+          "type": "str",
+          "description": "Membership start date",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "name": "orders",
+          "target": "Order",
+          "description": "Orders placed by this member",
+          "source_field": "member_id"
+        }
+      ],
+      "document_type": "json"
+    },
+    {
+      "name": "Order",
+      "description": "",
+      "redis_key_template": "valuewholesale-onprem:context:order:{order_id}",
+      "fields": [
+        {
+          "name": "order_id",
+          "type": "str",
+          "description": "Order identifier",
+          "is_key_component": true,
+          "redis_indices": []
+        },
+        {
+          "name": "member_id",
+          "type": "str",
+          "description": "Member who placed the order",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "status",
+          "type": "str",
+          "description": "Current order status",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "warehouse",
+          "type": "str",
+          "description": "Fulfillment warehouse",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "fulfillment",
+          "type": "str",
+          "description": "Fulfillment method",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "placed_at",
+          "type": "str",
+          "description": "Order date",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "total",
+          "type": "float",
+          "description": "Order total",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric",
+              "sortable": true
+            }
+          ]
+        },
+        {
+          "name": "item_count",
+          "type": "int",
+          "description": "Number of order lines",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric"
+            }
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "name": "items",
+          "target": "OrderItem",
+          "description": "Line items in this order",
+          "source_field": "order_id"
+        },
+        {
+          "name": "member",
+          "target": "Member",
+          "description": "Member who placed this order",
+          "source_field": "member_id"
+        }
+      ],
+      "document_type": "json"
+    },
+    {
+      "name": "OrderItem",
+      "description": "",
+      "redis_key_template": "valuewholesale-onprem:context:order-item:{order_item_id}",
+      "fields": [
+        {
+          "name": "order_item_id",
+          "type": "str",
+          "description": "Order-line identifier",
+          "is_key_component": true,
+          "redis_indices": []
+        },
+        {
+          "name": "order_id",
+          "type": "str",
+          "description": "Parent order",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "line_number",
+          "type": "int",
+          "description": "Line number",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric"
+            }
+          ]
+        },
+        {
+          "name": "sku",
+          "type": "str",
+          "description": "Product SKU",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "tag"
+            }
+          ]
+        },
+        {
+          "name": "product_name",
+          "type": "str",
+          "description": "Product name at purchase",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "text",
+              "weight": 1.0
+            }
+          ]
+        },
+        {
+          "name": "quantity",
+          "type": "int",
+          "description": "Purchased quantity",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric"
+            }
+          ]
+        },
+        {
+          "name": "unit_price",
+          "type": "float",
+          "description": "Unit price",
+          "is_key_component": false,
+          "redis_indices": [
+            {
+              "type": "numeric"
+            }
+          ]
+        }
+      ],
+      "relationships": [
+        {
+          "name": "order",
+          "target": "Order",
+          "description": "Parent order",
+          "source_field": "order_id"
+        },
+        {
+          "name": "product",
+          "target": "Product",
+          "description": "Purchased product",
+          "source_field": "sku"
+        }
+      ],
+      "document_type": "json"
+    }
+  ]
+}

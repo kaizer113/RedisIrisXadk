@@ -23,7 +23,9 @@ class Identity:
 
     @property
     def owner(self) -> str:
-        return f"valuewholesale-onprem:{self.member_id}"
+        # Agent Memory uses the first user actor as the session owner. Its actor
+        # identifier contract accepts letters/digits/_+=.@- and at most 64 chars.
+        return f"valuewholesale-onprem-{self.member_id}"
 
 
 def issue(member_id: str, secret: str) -> tuple[Identity, str]:

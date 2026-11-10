@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -9,6 +10,7 @@ from fakeredis.aioredis import FakeRedis
 from fastapi.responses import JSONResponse
 from google.genai import types
 from pydantic import SecretStr
+from redis_agent_memory import models
 from redis_iris.agent_playbooks.values import DiscoveredEntry, Discovery, Faq
 from redis_iris.context_gateway.values import GatewayTool, Handle, ToolResult
 from redis_iris.intent_router.values import Match, Matches, Target
@@ -17,7 +19,14 @@ from valuewholesale_onprem.api import create_app, produce, run_key
 from valuewholesale_onprem.config import Settings
 from valuewholesale_onprem.engine import Turn
 from valuewholesale_onprem.identity import Identity, issue, verify
-from valuewholesale_onprem.services import Memory, Services, published_direct_answer, read_tool
+from valuewholesale_onprem.services import (
+    Memory,
+    Services,
+    member_arguments,
+    member_bound,
+    published_direct_answer,
+    read_tool,
+)
 
 
 @pytest.fixture
@@ -67,6 +76,27 @@ async def test_ga_memory_serialization_preserves_both_scope_filters(settings):
     assert "id" not in wire and "namespace" not in wire
 
 
+async def test_memory_recall_normalizes_actual_sdk_model_and_verifies_scope(settings):
+    identity = Identity("member-1001", "session-a")
+    now = datetime.now(UTC)
+    item = models.MemoryRecord(
+        memory_id="actual-id",
+        text="Dark chocolate preference",
+        owner_id=identity.owner,
+        namespace_id="ga-namespace",
+        created_at=now,
+        updated_at=now,
+    )
+    client = SimpleNamespace(
+        search_long_term_memory_async=AsyncMock(return_value=SimpleNamespace(items=[item]))
+    )
+    memory = Memory(settings, client)
+    assert (await memory.recall(identity))[0]["memory_id"] == "actual-id"
+    item.owner_id = "another-member"
+    with pytest.raises(PermissionError):
+        await memory.recall(identity)
+
+
 async def test_session_transcript_checks_owner_and_namespace(settings):
     identity = Identity("member-1001", "session-a")
     client = SimpleNamespace(
@@ -113,6 +143,124 @@ def test_explicit_non_readonly_annotation_overrides_a_read_like_tool_name():
         annotations={"readOnlyHint": True},
     )
     assert read_tool(read) is True
+
+
+async def test_surface_order_filter_forces_member_and_excludes_foreign_rows(settings):
+    # This is the schema actually advertised by the GA Context Surface.
+    tool = GatewayTool(
+        "shopping__filter_order",
+        "Filter orders",
+        {
+            "type": "object",
+            "properties": {
+                "tag_conditions": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": {"enum": ["member_id", "status"]},
+                            "value": {"type": "string"},
+                            "exclude": {"type": "boolean"},
+                        },
+                    },
+                }
+            },
+        },
+        original_name="filter_order",
+        annotations={"readOnlyHint": True},
+    )
+    identity = Identity("member-1001", "session-a")
+    args = member_arguments(
+        tool,
+        {
+            "tag_conditions": [
+                {"field": "member_id", "value": "member-1002", "exclude": True},
+                {"field": "status", "value": "delivered"},
+            ]
+        },
+        identity,
+    )
+    assert args["tag_conditions"] == [
+        {"field": "status", "value": "delivered"},
+        {"field": "member_id", "value": "member-1001"},
+    ]
+    assert member_bound(tool)
+    services = Services(settings, None)
+    services.gateway = SimpleNamespace(
+        acall=AsyncMock(
+            side_effect=[
+                ToolResult(
+                    "",
+                    {
+                        "count": 1,
+                        "total_count": 1,
+                        "results": [
+                            {"order_id": "own", "member_id": "member-1001"},
+                        ],
+                    },
+                ),
+                ToolResult(
+                    "",
+                    {
+                        "count": 1,
+                        "results": [
+                            {"order_id": "foreign", "member_id": "member-1002"},
+                        ],
+                    },
+                ),
+            ]
+        )
+    )
+    assert (await services.gateway_call(tool, {}, identity))["ok"]
+    assert not (await services.gateway_call(tool, {}, identity))["ok"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {"set": {"entity": "Member"}, "relationship": "orders"},
+        {"sets": [{"entity": "Product"}, {"entity": "Order"}]},
+        {"set": {"entity": "Product"}, "relationship": "order_items"},
+        {"sets": [{"entity": "Product", "expand_to": "order_items"}]},
+    ],
+)
+async def test_generic_surface_sets_reject_accounts_before_call(settings, arguments):
+    tool = GatewayTool(
+        "shopping__expand_results",
+        "Set operations",
+        {},
+        original_name="expand_results",
+        annotations={"readOnlyHint": True},
+    )
+    services = Services(settings, None)
+    services.gateway = SimpleNamespace(acall=AsyncMock())
+    with pytest.raises(PermissionError):
+        await services.gateway_call(tool, arguments, Identity("member-1001", "session-a"))
+    services.gateway.acall.assert_not_awaited()
+
+
+def test_generic_surface_sets_allow_only_public_commerce_joins():
+    tool = GatewayTool(
+        "shopping__expand_results", "Set operations", {}, original_name="expand_results"
+    )
+    args = {"set": {"entity": "Product", "text_query": "chocolate"}, "relationship": "inventory"}
+    assert member_arguments(tool, args, Identity("member-1001", "session-a")) == args
+
+
+def test_namespaced_generic_tool_without_original_name_still_checks_entity():
+    tool = GatewayTool("shopping__expand_results", "Set operations", {})
+    with pytest.raises(PermissionError):
+        member_arguments(tool, {"set": {"entity": "Member"}}, Identity("member-1001", "s"))
+
+
+async def test_gateway_core_helpers_cannot_bypass_current_turn_handle_boundary(settings):
+    tool = GatewayTool("page_results", "Page a handle", {}, annotations={"readOnlyHint": True})
+    assert not read_tool(tool)
+    services = Services(settings, None)
+    services.gateway = SimpleNamespace(acall=AsyncMock())
+    result = await services.gateway_call(tool, {"handle": "foreign"}, Identity("member-1001", "s"))
+    assert not result["ok"]
+    services.gateway.acall.assert_not_awaited()
 
 
 def faq():

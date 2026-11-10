@@ -49,7 +49,20 @@ class Memory:
             response = await self.client.search_long_term_memory_async(
                 request=self.search_request(identity, query),
             )
-            records = [item.model_dump(mode="json", by_alias=False) for item in response.items]
+            records = []
+            for item in response.items:
+                if item.owner_id != identity.owner or item.namespace_id != self.namespace_id:
+                    raise PermissionError("Recalled memory has a different member or namespace")
+                # The generated SDK's custom serializer emits aliases even
+                # with by_alias=False. Read public model attributes directly.
+                records.append(
+                    {
+                        "memory_id": item.memory_id,
+                        "text": item.text,
+                        "owner_id": item.owner_id,
+                        "namespace_id": item.namespace_id,
+                    }
+                )
             span.results([{"id": item["memory_id"], "text": item["text"]} for item in records])
             return records
 
@@ -124,9 +137,11 @@ def published_direct_answer(message: str, match: Any, discovery: Any) -> Any:
 
 
 def read_tool(tool: Any) -> bool:
+    original = original_tool_name(tool)
+    if original in GATEWAY_CORE_TOOLS:
+        return False
     if "readOnlyHint" in tool.annotations:
         return tool.annotations["readOnlyHint"] is True
-    original = tool.original_name or tool.name
     return bool(
         tool.annotations.get("readOnlyHint") is True
         or re.match(
@@ -140,12 +155,22 @@ def member_arguments(tool: Any, arguments: dict, identity: Identity) -> dict:
     """The model cannot choose another member for account-specific tool calls."""
     args = dict(arguments)
     properties = tool.input_schema.get("properties", {})
+    original = original_tool_name(tool)
+    if original in GENERIC_SET_TOOLS:
+        validate_public_sets(args)
     for key in MEMBER_FIELDS:
         if key in properties or key in args:
             args[key] = identity.member_id
-    original = tool.original_name or tool.name
     if re.search(r"(member|customer|user|profile)", original, re.I) and "id" in properties:
         args["id"] = identity.member_id
+    field = condition_member_field(tool)
+    if field:
+        conditions = args.get("tag_conditions", [])
+        if not isinstance(conditions, list) or not all(isinstance(c, dict) for c in conditions):
+            raise ValueError("Tag conditions must be a list of field/value objects")
+        args["tag_conditions"] = [c for c in conditions if c.get("field") not in MEMBER_FIELDS] + [
+            {"field": field, "value": identity.member_id}
+        ]
     return args
 
 
@@ -162,12 +187,63 @@ MEMBER_FIELDS = frozenset(
     }
 )
 
+GENERIC_SET_TOOLS = frozenset(
+    {"expand_results", "intersect_results", "union_results", "except_results"}
+)
+GATEWAY_CORE_TOOLS = frozenset(
+    {
+        "search_tools",
+        "run_tool",
+        "run_tool_as_handle",
+        "page_results",
+        "query_results",
+        "count_results",
+        "aggregate_results",
+        "describe_result",
+        "release_results",
+    }
+)
+PUBLIC_ENTITIES = frozenset({"Product", "Warehouse", "Inventory"})
+PUBLIC_RELATIONSHIPS = frozenset({"inventory", "product", "warehouse"})
+
+
+def original_tool_name(tool: Any) -> str:
+    return tool.original_name or tool.name.rsplit("__", 1)[-1]
+
+
+def validate_public_sets(value: Any) -> None:
+    """Generic set tools may join public commerce data, never account records.
+
+    These tools have entity-neutral names, so classifying only their name would
+    miss member/order selections or a public-to-private relationship expansion.
+    """
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key == "entity" and child not in PUBLIC_ENTITIES:
+                raise PermissionError("Use a member-scoped account tool for account records")
+            if key in {"relationship", "expand_to"} and (
+                not isinstance(child, str) or child not in PUBLIC_RELATIONSHIPS
+            ):
+                raise PermissionError("Account relationship expansion is unavailable")
+            validate_public_sets(child)
+    elif isinstance(value, list):
+        for child in value:
+            validate_public_sets(child)
+
+
+def condition_member_field(tool: Any) -> str | None:
+    """Recognize the actual GA Surface filter schema's member TAG field."""
+    properties = tool.input_schema.get("properties", {})
+    condition = properties.get("tag_conditions", {}).get("items", {})
+    fields = condition.get("properties", {}).get("field", {}).get("enum", [])
+    return next((field for field in fields if field in MEMBER_FIELDS), None)
+
 
 def account_tool(tool: Any) -> bool:
     return bool(
         re.search(
             r"(member|customer|user|profile|order|reservation|account|reward|balance)",
-            tool.original_name or tool.name,
+            original_tool_name(tool),
             re.I,
         )
     )
@@ -177,8 +253,9 @@ def member_bound(tool: Any) -> bool:
     properties = tool.input_schema.get("properties", {})
     return bool(
         MEMBER_FIELDS.intersection(properties)
+        or condition_member_field(tool)
         or (
-            re.search(r"(member|customer|user|profile)", tool.original_name or tool.name, re.I)
+            re.search(r"(member|customer|user|profile)", original_tool_name(tool), re.I)
             and "id" in properties
         )
     )
@@ -306,6 +383,8 @@ class Services:
         return await self.cart(identity)
 
     async def gateway_call(self, tool: Any, arguments: dict, identity: Identity) -> dict:
+        if not read_tool(tool):
+            return {"ok": False, "error": "Use the turn-scoped operation for Gateway handles"}
         result = await self.gateway.acall(tool.name, member_arguments(tool, arguments, identity))
         if account_tool(tool):
             if result.is_error or not owned_payload(result.data, identity, member_bound(tool)):

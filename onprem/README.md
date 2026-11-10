@@ -30,6 +30,53 @@ name such as `valuewholesale-onprem-ga`, and replace only container `valuewholes
 on `valuewholesale-demo`. Do not use the default app image or `scripts/deploy_vm.sh` for this
 runtime. The latter also changes shared infrastructure and filters out the new GA settings.
 
+Submit the isolated image to the existing Cloud Build/Artifact Registry project:
+
+```sh
+revision=$(git rev-parse HEAD)
+image="us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga:${revision}"
+gcloud builds submit onprem --project central-beach-194106 \
+  --config onprem/cloudbuild.yaml \
+  --substitutions="_IMAGE=${image},_REVISION=${revision}"
+```
+
+The upload excludes local credentials, environments, tests, and caches. The build checks the
+packaged application import, Iris version, UI, and member fixture before publishing. Record
+the resulting image digest and use that digest for the port-8083 cutover. Keep the existing
+suite CA in a read-only runtime mount and point `SSL_CERT_FILE` to its combined public/private
+trust bundle when the private Gateway endpoint uses the demo CA.
+
+After the suite resources and scoped credentials pass their live checks, deploy the exact
+image digest with the dedicated script:
+
+```sh
+./scripts/deploy_onprem_ga.sh \
+  'us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:ACTUAL_DIGEST' \
+  /absolute/path/to/.env.onprem-ga /absolute/path/to/onprem-ca.crt
+```
+
+Use unquoted Docker `KEY=VALUE` lines in the environment file. The script checks a temporary
+localhost-only canary before replacing port 8083. It retains the stopped previous container
+and root-only configuration/metadata under `/var/backups/valuewholesale-onprem-ga/` on the VM.
+If the replacement fails its readiness check, it restarts the previous container. It does not
+create infrastructure, regenerate credentials, or alter the other demo containers.
+
+Pass a fourth argument `canary` to stop after starting the new container on the VM's
+localhost port 18083, leaving the public demo unchanged. Run the functional check against
+that canary (or the deployed port 8083):
+
+```sh
+uv run --directory onprem python ../scripts/smoke_onprem_ga.py \
+  --base-url http://VM_ADDRESS:8083 --output /private/path/ga-smoke.json
+```
+
+The check creates synthetic member sessions/conversations and one explicit shopping
+preference. It verifies published FAQ bypass, live shopping inference and Gateway calls,
+member memory separation, disconnect/cursor replay, retry deduplication, and retained results.
+It does not claim a particular worker served either request. The localhost canary is reachable
+only from the VM; run the check there or through an authenticated local tunnel. Remove only
+`valuewholesale-onprem-ga-canary` after its checks, before running the final deploy.
+
 Verify locally:
 
 ```sh
