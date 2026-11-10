@@ -24,10 +24,32 @@ steps:
         assert Path('/app/valuewholesale_onprem/static/index.html').is_file();
         assert Path('/app/valuewholesale_onprem/members.jsonl').is_file();
         print('Isolated GA image import and packaged assets passed')
+  - name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    env:
+      - SMOKE_IMAGE=${_IMAGE}
+    args:
+      - -c
+      - |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        trap 'docker rm -f ga-image-smoke >/dev/null 2>&1 || true' EXIT
+        docker run -d --name ga-image-smoke "$$SMOKE_IMAGE" >/dev/null
+        for _ in $$(seq 1 25); do
+          if docker exec ga-image-smoke /app/.venv/bin/python -c \
+            'import json,urllib.request; d=json.load(urllib.request.urlopen("http://127.0.0.1:8080/api/health",timeout=5)); assert d["release"]=="1.0" and d["ready"] is False' \
+            >/dev/null 2>&1; then
+            echo 'Nonroot image entrypoint and HTTP health passed without credentials'
+            exit 0
+          fi
+          sleep 1
+        done
+        docker logs ga-image-smoke
+        exit 1
 images:
   - ${_IMAGE}
 tags:
   - valuewholesale-onprem-ga
-  - owner-lionel-giavelli
-  - skip-deletion-yes
+  - owner=lionel_giavelli
+  - skip_deletion=yes
 timeout: 1200s

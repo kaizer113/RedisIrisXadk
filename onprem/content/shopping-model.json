@@ -100,20 +100,7 @@
           ]
         }
       ],
-      "relationships": [
-        {
-          "name": "inventory",
-          "target": "Inventory",
-          "description": "Warehouse inventory for this product",
-          "source_field": "sku"
-        },
-        {
-          "name": "order_items",
-          "target": "OrderItem",
-          "description": "Order lines containing this product",
-          "source_field": "sku"
-        }
-      ],
+      "relationships": [],
       "document_type": "json"
     },
     {
@@ -163,14 +150,7 @@
           ]
         }
       ],
-      "relationships": [
-        {
-          "name": "inventory",
-          "target": "Inventory",
-          "description": "Products stocked at this warehouse",
-          "source_field": "warehouse_id"
-        }
-      ],
+      "relationships": [],
       "document_type": "json"
     },
     {
@@ -319,10 +299,10 @@
       ],
       "relationships": [
         {
-          "name": "orders",
-          "target": "Order",
-          "description": "Orders placed by this member",
-          "source_field": "member_id"
+          "name": "warehouse",
+          "target": "Warehouse",
+          "description": "Member's preferred warehouse",
+          "source_field": "home_warehouse"
         }
       ],
       "document_type": "json"
@@ -419,12 +399,6 @@
         }
       ],
       "relationships": [
-        {
-          "name": "items",
-          "target": "OrderItem",
-          "description": "Line items in this order",
-          "source_field": "order_id"
-        },
         {
           "name": "member",
           "target": "Member",
