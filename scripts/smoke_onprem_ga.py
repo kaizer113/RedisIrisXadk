@@ -70,7 +70,7 @@ async def turn(client: httpx.AsyncClient, message: str) -> tuple[dict, dict, dic
     return body, started, saved
 
 
-async def run(base_url: str, receipts: dict) -> None:
+async def run(base_url: str, receipts: dict, replay_base_url: str | None = None) -> None:
     timeout = httpx.Timeout(200, connect=10)
     async with (
         httpx.AsyncClient(base_url=base_url, timeout=timeout) as first,
@@ -97,7 +97,8 @@ async def run(base_url: str, receipts: dict) -> None:
         )
 
         # Attach early, close the subscriber, retry through a new connection, then resume
-        # from the actual last event id. This does not identify which Uvicorn worker served it.
+        # from the actual last event id. An explicit trusted peer can prove process isolation
+        # when the operator supplies independently verified container endpoints.
         body = {
             "message": "Find dark chocolate and check current inventory at my home warehouse.",
             "run_id": str(uuid4()),
@@ -114,9 +115,15 @@ async def run(base_url: str, receipts: dict) -> None:
         require(first_event is not None, "No trace event was received before disconnect")
         during = await json_request(first, "GET", f"/api/runs/{body['run_id']}")
         require(during["status"] == "running", "Turn finished before disconnect could be tested")
-        async with httpx.AsyncClient(
-            base_url=base_url, cookies=first.cookies, timeout=timeout
-        ) as reconnected:
+        replay_endpoint = replay_base_url or base_url
+        cookie = first.cookies.get("valuewholesale_ga_session")
+        require(bool(cookie), "No signed synthetic session cookie was issued")
+        async with httpx.AsyncClient(base_url=replay_endpoint, timeout=timeout) as reconnected:
+            peer_health = await json_request(reconnected, "GET", "/api/health")
+            require(peer_health.get("ready") is True, "Replay endpoint is not ready")
+            # Cookie jars retain the first host's domain. Copy only this synthetic cookie
+            # explicitly to the user-selected trusted peer; never print or persist it.
+            reconnected.cookies.set("valuewholesale_ga_session", cookie)
             retry = await json_request(reconnected, "POST", "/api/chat", json=body)
             require(retry["created"] is False, "Retry created another producer")
             resumed = []
@@ -148,6 +155,10 @@ async def run(base_url: str, receipts: dict) -> None:
             require(retained_retry["created"] is False, "Retained run restarted")
             same = await snapshot(reconnected, body["run_id"])
             require(same == shopping, "Retry changed the retained result")
+            first_saved = await snapshot(first, body["run_id"])
+            require(
+                first_saved == shopping, "First and replay endpoints returned different snapshots"
+            )
         for path in (started["events_url"], f"/api/runs/{body['run_id']}"):
             denied = await other.get(path)
             require(denied.status_code == 404, "Another member could read the run")
@@ -159,7 +170,9 @@ async def run(base_url: str, receipts: dict) -> None:
             "retry_created": retry["created"],
             "retained_snapshot_unchanged": True,
             "cross_member_status": 404,
-            "worker_assignment": "Not observed; no cross-worker claim",
+            "replay_endpoint": replay_endpoint,
+            "independent_peer_supplied": replay_base_url is not None,
+            "worker_assignment": "Worker unobserved; container identity verified externally",
             "snapshot": shopping,
         }
 
@@ -203,12 +216,18 @@ async def run(base_url: str, receipts: dict) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--base-url", required=True)
+    parser.add_argument(
+        "--replay-base-url",
+        help="Explicit trusted independent peer; the synthetic session cookie is copied in memory",
+    )
     parser.add_argument("--output", required=True, type=Path, help="Private JSON receipt file")
     args = parser.parse_args()
+    if args.replay_base_url == args.base_url:
+        parser.error("Use a distinct independently verified replay endpoint")
     os.umask(0o077)
     receipts = {"base_url": args.base_url, "passed": False}
     try:
-        asyncio.run(run(args.base_url, receipts))
+        asyncio.run(run(args.base_url, receipts, args.replay_base_url))
         receipts["passed"] = True
     except Exception as exc:
         receipts["error"] = {"type": type(exc).__name__, "message": str(exc)}

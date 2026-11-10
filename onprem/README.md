@@ -77,6 +77,19 @@ It does not claim a particular worker served either request. The localhost canar
 only from the VM; run the check there or through an authenticated local tunnel. Remove only
 `valuewholesale-onprem-ga-canary` after its checks, before running the final deploy.
 
+For a live replay check across independent processes, start a second temporary container with
+the same image, environment, CA bundle, and stable session secret, without publishing a host
+port. Supply its independently inspected bridge address as `--replay-base-url`. The check
+copies only the synthetic session cookie to that explicitly trusted peer in memory, resumes
+the cursor there, and compares saved results from both endpoints. Retain the two container IDs
+with the receipt as evidence, then remove the temporary peer. Individual Uvicorn worker
+assignment remains unobserved.
+
+Native Mesh blocks each Redis stream read for its heartbeat interval (15 seconds by default).
+`REDIS_SOCKET_TIMEOUT=30` allows that blocking read to finish; an eight-second timeout prevents
+the SDK stream builder from starting. The deployment preflight calls the installed SDK's
+stream-settings validator before uploading any configuration.
+
 Verify locally:
 
 ```sh

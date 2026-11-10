@@ -50,6 +50,12 @@ if values.get('SSL_CERT_FILE') != '/etc/iris-ca/ca.crt':
 if values.get('GOOGLE_CLOUD_PROJECT') != 'central-beach-194106':
     raise SystemExit('Unexpected Google Cloud project')
 ssl.create_default_context(cafile=sys.argv[2])
+# Validate the native Mesh builder's real settings before touching the VM.
+from redis_fastapi.streams import check_stream_settings
+try:
+    check_stream_settings()
+except Exception as exc:
+    raise SystemExit('Native Mesh settings validation failed (' + type(exc).__name__ + ')') from None
 print('Runtime configuration and CA bundle validated; no credentials displayed')
 PY
 
