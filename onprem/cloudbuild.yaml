@@ -50,6 +50,7 @@ images:
   - ${_IMAGE}
 tags:
   - valuewholesale-onprem-ga
-  - owner=lionel_giavelli
-  - skip_deletion=yes
+  # Cloud Build annotation tags reject '='; Docker labels preserve exact key/value labels.
+  - owner_lionel_giavelli
+  - skip_deletion_yes
 timeout: 1200s
