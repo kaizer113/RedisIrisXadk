@@ -792,12 +792,13 @@ body[data-experience="valuewholesale"] #brand-name {
       traceSteps.clear();
       $('#trace').replaceChildren();
       setTraceId('');
+      document.querySelectorAll('.service').forEach(card => { card.classList.remove('used', 'hit'); });
       addMessage(`Hybrid Product Finder: ${query}`, 'user');
       assistantMessage = addMessage('Context Gateway is running hybrid product search…');
       setBusy(true);
       $('#trace-live').classList.add('active');
       $('#trace-live span:last-child').textContent = 'running';
-      trace({service: 'context_gateway', title: 'Hybrid product search', status: 'running'});
+      trace({service: 'context_gateway', title: 'Context Gateway · hybrid product search', status: 'running'});
       try {
         const body = {query, category: $('#hybrid-category').value || null};
         if ($('#hybrid-max-price').value.trim()) body.max_member_price = Number($('#hybrid-max-price').value);
@@ -807,7 +808,7 @@ body[data-experience="valuewholesale"] #brand-name {
         setTraceId(data.trace_id);
         setStatus(`Hybrid search complete · ${data.count ?? data.products?.length ?? 0} products · no model call`);
       } catch (error) {
-        trace({service: 'context_gateway', title: 'Hybrid product search', status: 'failed', detail: error.message});
+        trace({service: 'context_gateway', title: 'Context Gateway · hybrid product search', status: 'failed', detail: error.message});
         showAnswer(`Hybrid Product Finder could not complete: ${error.message}`);
         setStatus('Hybrid search failed.', true);
       } finally {

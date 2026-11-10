@@ -187,7 +187,7 @@ def create_app(
 
     @application.get("/")
     async def index():
-        return FileResponse(STATIC / "index.html")
+        return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-store"})
 
     @application.get("/api/members")
     async def list_members():
