@@ -106,6 +106,24 @@ a local `redis-server` version 8.6.2 or later; otherwise that test is skipped. I
 Redis Cloud, GKE, failover, or actual Iris service connectivity.
 
 See [deployment and operator setup](../docs/onprem-iris.md) and
-[the presenter walkthrough](../docs/demo-valuewholesale-onprem.md). The checked-in code and
-content are ready for review; live GA service checks require the suite chart, license,
-provisioned resources, Gateway data model, and scoped runtime keys.
+[the presenter walkthrough](../docs/demo-valuewholesale-onprem.md) for repeatable checks and
+content updates. The current deployment is licensed and provisioned; scoped keys remain in
+the ignored runtime environment file.
+
+On November 10, 2026, the licensed GKE suite and this application passed live canary checks
+using application source commit `239d72fca2297d2c7fc47b720fd79c7777057487`. Its verified image is
+`us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:60fa2beaf97186b09eaf54215f0ab6d7a941a48b32bc02f74474ba5a43886efb`.
+The pickup FAQ returned published version 1 with zero model calls. A live shopping turn used
+six model calls plus member/product/inventory Gateway tools; an explicit preference used two
+model calls and survived a new session while remaining absent for another member. Hybrid
+RRF search, public relationship traversal, and handle operations passed separate Gateway checks;
+the application shopping turn chose lexical search.
+
+The native Mesh check disconnected during generation, reconnected to a distinct temporary
+container/PID using the same Redis 8.6.2 catalog and shared session secret, resumed from the
+last event ID, and verified retry deduplication, identical retained results from both containers,
+and cross-member denial. The peer published no host port and was removed afterward. Operator
+receipts retain the two container identities and trace IDs; exact Uvicorn worker assignment was
+not observed. Final deployment to public port 8083 then passed the dedicated readiness gate.
+Public health reports all seven services configured/ready, and browser verification displayed
+the published returns FAQ version 1 and trace. Other demo containers are unchanged.

@@ -6,12 +6,7 @@ Context Gateway, Lens, and Agent Mesh. Its shopping workflow is a bounded Google
 through Vertex AI. The default Value Wholesale, Norling's, and Value Travel demos keep their
 existing runtimes and dependencies.
 
-**Status, November 4, 2026:** the isolated GA application passes local validation. GKE and the
-shared demo VM are running; RDI 2.2.1, monitoring, and the rebuilt synthetic SQL source have
-passed live checks. A source-built suite 1.0.0 package is prepared from pinned official Redis
-source with verified published dependencies. The issued suite license is still pending, so
-GA service deployment, resource/key provisioning, and the port-8083 cutover have not occurred.
-The older port-8083 container remains running until licensed live checks pass.
+**Status, November 10, 2026:** live at <http://34.86.132.98:8083>. The issued license validated in all five services, and the published Iris 1.0.0 suite is deployed. Only the port-8083 application container was replaced; other demo health checks and exact container IDs are unchanged. Root lint/86 tests, isolated lint/25 tests, live product checks and actual HTTP application acceptance passed. Native Redis 8.6.2 replay was verified across distinct temporary application containers, followed by public health and browser policy-answer checks. Detailed operator evidence stays private under `/Users/redis/code/Iris/.secrets/iris-suite/`.
 See [the presenter walkthrough](demo-valuewholesale-onprem.md).
 
 ## Isolated runtime
@@ -31,6 +26,8 @@ Configure the ignored `.env.onprem-ga` before launching. `onprem/pyproject.toml`
 
 | Settings | Required value |
 |---|---|
+| `REDIS_SOCKET_TIMEOUT` | `30`; native Mesh blocking reads require longer than its 15-second heartbeat. The deployment preflight checks actual SDK settings. |
+| `SSL_CERT_FILE` | `/etc/iris-ca/ca.crt` in the deployed container, mounted from the combined public/demo CA bundle. |
 | `REDIS_URL` | Redis for Agent Mesh streams, saved run snapshots, and member shortlists; also read by the streaming SDK. |
 | `ONPREM_SESSION_SECRET` | A stable random secret of at least 32 characters, identical across workers and redeployments. |
 | `IRIS_AGENT_MEMORY_URL`, `IRIS_AGENT_MEMORY_STORE_ID`, `IRIS_AGENT_MEMORY_API_KEY` | The GA data plane, a store dedicated to this demo, and a store-scoped `read,write` key. |
@@ -67,11 +64,7 @@ operator/deployment storage. The application environment contains scoped runtime
 
 First install the supported umbrella chart and configure its databases, Identity Service,
 license, and inference providers. Follow the [suite installation guide](https://redis.io/docs/latest/operate/iris/self-managed/).
-The verified suite package is prepared in `/Users/redis/code/Iris/.cache/ga-2026-11-04/`;
-its provenance and deployment instructions are in that project’s `docs/suite-setup.md`. The
-public index lacks the umbrella package, so this is explicitly a local source build with
-minimal ownership-label patches, not an officially published suite archive. A valid suite
-license is required before deployment.
+The published suite 1.0.0 archive was verified against the official Helm-index SHA-256. Local packaging adds only required ownership labels to Helm test hooks; vendor tests remain enabled. Provenance, runtime configuration findings, private endpoint mappings and repeatable provisioning are in `/Users/redis/code/Iris/docs/suite-setup.md` and `docs/onprem-ga-provisioning.md` in that sibling project. The supplied license expires December 10, 2026 at 03:22:22 UTC.
 
 The command shapes below were checked against `redis-iris==1.0.1`. Run them from an operator
 shell with a private file containing control-plane URLs, Identity credentials, and operator
@@ -255,3 +248,9 @@ curl --fail http://127.0.0.1:8083/api/health
 `/api/health` probes core services. Gemini reports client configuration; Lens reports SDK
 initialization. Full inference and trace ingest remain separate checks. Record actual deployed
 versions, fixture revisions, and acceptance outcomes in the shared Iris migration record.
+
+## Verified deployed image
+
+The application image is `us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:60fa2beaf97186b09eaf54215f0ab6d7a941a48b32bc02f74474ba5a43886efb`, built from source `239d72fca2297d2c7fc47b720fd79c7777057487`. Later commits change helpers/documentation without changing that runtime. The actual nonroot entrypoint starts its installed Uvicorn directly; no dependency resolution runs at startup.
+
+Use `scripts/deploy_onprem_ga.sh` for a future scoped deployment. It validates stream settings and CA trust, gates replacement on a local two-worker canary, and retains private rollback metadata. The previous container is stopped as `valuewholesale-onprem-agent-before-20261110T212745Z`; its backup directory is `/var/backups/valuewholesale-onprem-ga/20261110T212745Z` on the VM.

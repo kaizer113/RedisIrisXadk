@@ -4,10 +4,7 @@ Use this sequence for the self-managed Value Wholesale application on port `8083
 runtime uses a bounded Gemini tool loop through Vertex AI. The default Value Wholesale,
 Norling's, and Value Travel applications retain their existing behavior.
 
-**Acceptance status, November 4, 2026:** the GA suite/license and GKE recovery remain deployment
-prerequisites. These are intended demonstrations and verification checks, not claims that the
-prompts have passed against live GA services. Product matches, tool names, inventory counts,
-prices, scores, and latencies must come from the actual run.
+**Acceptance status, November 10, 2026:** live at <http://34.86.132.98:8083>. Observed: published FAQ answers without generation, live shopping/member/inventory tools, persisted preferences with member separation, completed Lens traces and token usage, and native Mesh replay through a distinct application container. Separate SDK checks verified hybrid RRF search, comparison Skill loading and all handle operations. The recorded HTTP shopping turn selected lexical search; it did not demonstrate model-selected Skill loading. Product facts, scores and timing must come from each new run. Publication/withdrawal exercises below remain operator walkthroughs rather than completed acceptance claims.
 
 Setup and operator commands are in [onprem-iris.md](onprem-iris.md).
 
