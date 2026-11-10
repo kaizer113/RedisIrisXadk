@@ -142,3 +142,9 @@ can select only configured IDs. The original `gemini-3.1-flash-lite` and
 `gemini-3.1-pro-preview` choices were verified with actual Vertex inference. The Hybrid Product
 Finder calls the read-only `/api/catalog/hybrid-search` API with structured category/price
 filters through Context Gateway and returns public Product fields without an LLM call.
+
+The restored interface is deployed from `fc85c6ba3f4542b4ec2d7d893e82bae061e58b92`, image
+`sha256:5b319e24207c1294840f9344a0da240daea823aaf35b394f93dd69c2360a3535`.
+Root lint/86 tests and isolated lint/29 tests passed. Browser checks verified the original
+layout, published policy answer, configured model choices and the travel-audio hybrid preset.
+The original stylesheet is preserved verbatim; the HTML shell disables caching for updates.

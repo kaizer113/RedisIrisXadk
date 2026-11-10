@@ -6,7 +6,7 @@ Context Gateway, Lens, and Agent Mesh. Its shopping workflow is a bounded Google
 through Vertex AI. The default Value Wholesale, Norling's, and Value Travel demos keep their
 existing runtimes and dependencies.
 
-**Status, November 10, 2026:** live at <http://34.86.132.98:8083>. The issued license validated in all five services, and the published Iris 1.0.0 suite is deployed. Only the port-8083 application container was replaced; other demo health checks and exact container IDs are unchanged. Root lint/86 tests, isolated lint/25 tests, live product checks and actual HTTP application acceptance passed. Native Redis 8.6.2 replay was verified across distinct temporary application containers, followed by public health and browser policy-answer checks. Detailed operator evidence stays private under `/Users/redis/code/Iris/.secrets/iris-suite/`.
+**Status, November 10, 2026:** live at <http://34.86.132.98:8083>. The issued license validated in all five services, and the published Iris 1.0.0 suite is deployed. Only the port-8083 application container was replaced; other demo health checks and exact container IDs are unchanged. Root lint/86 tests, isolated lint/29 tests, live product checks and actual HTTP application acceptance passed. Native Redis 8.6.2 replay was verified across distinct temporary application containers, followed by public health and browser policy-answer checks. Detailed operator evidence stays private under `/Users/redis/code/Iris/.secrets/iris-suite/`.
 See [the presenter walkthrough](demo-valuewholesale-onprem.md).
 
 ## Isolated runtime
@@ -251,6 +251,6 @@ versions, fixture revisions, and acceptance outcomes in the shared Iris migratio
 
 ## Verified deployed image
 
-The application image is `us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:60fa2beaf97186b09eaf54215f0ab6d7a941a48b32bc02f74474ba5a43886efb`, built from source `239d72fca2297d2c7fc47b720fd79c7777057487`. Later commits change helpers/documentation without changing that runtime. The actual nonroot entrypoint starts its installed Uvicorn directly; no dependency resolution runs at startup.
+The application image is `us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:5b319e24207c1294840f9344a0da240daea823aaf35b394f93dd69c2360a3535`, built from source `fc85c6ba3f4542b4ec2d7d893e82bae061e58b92`. Later commits change helpers/documentation without changing that runtime. The actual nonroot entrypoint starts its installed Uvicorn directly; no dependency resolution runs at startup.
 
-Use `scripts/deploy_onprem_ga.sh` for a future scoped deployment. It validates stream settings and CA trust, gates replacement on a local two-worker canary, and retains private rollback metadata. The previous container is stopped as `valuewholesale-onprem-agent-before-20261110T212745Z`; its backup directory is `/var/backups/valuewholesale-onprem-ga/20261110T212745Z` on the VM.
+Use `scripts/deploy_onprem_ga.sh` for a future scoped deployment. It validates stream settings and CA trust, gates replacement on a local two-worker canary, and retains private rollback metadata. The previous container is stopped as `valuewholesale-onprem-agent-before-20261110T215514Z`; its backup directory is `/var/backups/valuewholesale-onprem-ga/20261110T215514Z` on the VM.
