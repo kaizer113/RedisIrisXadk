@@ -2,11 +2,13 @@
 
 import hashlib
 import json
+import math
 import re
 from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Any
 
+from jsonschema import validate
 from redis_agent_memory import AgentMemory as MemoryClient
 from redis_agent_memory import models
 from redis_iris import lens
@@ -366,6 +368,74 @@ class Services:
         if {"search_tools", "run_tool"} <= {tool.name for tool in catalog}:
             catalog = await self.gateway.asearch(query, limit=10)
         return [tool for tool in catalog if read_tool(tool)]
+
+    async def hybrid_products(
+        self,
+        identity: Identity,
+        query: str,
+        category: str | None,
+        max_member_price: float | None,
+        limit: int,
+    ) -> dict:
+        """Run the actual Product hybrid tool with structured predicates, without an LLM."""
+        if self.gateway is None:
+            raise RuntimeError("Context Gateway is not configured")
+        original = "search_product_by_semantic_embedding_hybrid"
+        catalog = await self.gateway.asearch(original, limit=20)
+        matches = [
+            tool for tool in catalog if original_tool_name(tool) == original and read_tool(tool)
+        ]
+        if len(matches) != 1:
+            raise RuntimeError("A single read-only Product hybrid tool must be available")
+        tool = matches[0]
+        arguments: dict[str, Any] = {"query_text": query, "top_k": limit, "match_mode": "any"}
+        if category:
+            arguments["tag_conditions"] = [{"field": "category", "value": category}]
+        if max_member_price is not None:
+            arguments["numeric_conditions"] = [
+                {"field": "member_price", "max_value": max_member_price}
+            ]
+        validate(arguments, tool.input_schema)
+        response = await self.gateway_call(tool, arguments, identity)
+        data = response.get("data")
+        if not response.get("ok") or not isinstance(data, dict):
+            raise RuntimeError("Product hybrid search failed")
+        rows = data.get("results")
+        if not isinstance(rows, list) or data.get("ranking_method") != "rrf":
+            raise RuntimeError("Product hybrid search returned an unsupported result")
+        products = []
+        for rank, row in enumerate(rows[:limit], start=1):
+            if not isinstance(row, dict) or not all(
+                isinstance(row.get(key), str) for key in ("sku", "name", "category")
+            ):
+                raise RuntimeError("Product hybrid search returned a malformed product")
+            price = row.get("member_price")
+            if category and row["category"] != category:
+                raise RuntimeError("Product hybrid search did not honor the category filter")
+            if max_member_price is not None and (
+                isinstance(price, bool)
+                or not isinstance(price, (int, float))
+                or not math.isfinite(price)
+                or price > max_member_price
+            ):
+                raise RuntimeError("Product hybrid search did not honor the price filter")
+            # Return public display fields only, never vector payloads or result handles.
+            item = {
+                key: row.get(key)
+                for key in ("sku", "name", "description", "category", "price", "member_price")
+            }
+            retrieval = row.get("_retrieval", {})
+            item.update(
+                hybrid_rank=rank,
+                hybrid_score=retrieval.get("hybrid_score") if isinstance(retrieval, dict) else None,
+            )
+            products.append(item)
+        return {
+            "products": products,
+            "count": len(products),
+            "ranking_method": "rrf",
+            "model_calls": 0,
+        }
 
     async def cart(self, identity: Identity) -> dict:
         values = await self.redis.hgetall(f"{self.settings.onprem_namespace}:cart:{identity.owner}")

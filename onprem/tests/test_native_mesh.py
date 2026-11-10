@@ -102,7 +102,7 @@ async def test_native_mesh_disconnect_retry_and_cross_replica_replay(tmp_path, m
             pytest.skip("Local Redis predates native producer idempotency (requires 8.6.2+)")
 
         class Producer:
-            def __init__(self, services, identity, run_id, message, enabled, emit):
+            def __init__(self, services, identity, run_id, message, enabled, emit, model=None):
                 self.services, self.emit = services, emit
 
             async def run(self):

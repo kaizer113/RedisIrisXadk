@@ -119,9 +119,13 @@ class Turn:
         message: str,
         gateway_enabled: bool,
         emit: Any,
+        model: str | None = None,
     ):
         self.services, self.identity, self.run_id = services, identity, run_id
         self.message, self.gateway_enabled, self.emit = message, gateway_enabled, emit
+        self.model_name = model or services.settings.google_model
+        if self.model_name not in services.settings.available_google_models:
+            raise ValueError("The requested model is not configured for this demo")
         self.tools: dict[str, Any] = {}
         self.handles: set[str] = set()
         self.account_handles: set[str] = set()
@@ -314,14 +318,14 @@ class Turn:
                 **{
                     "gen_ai.operation.name": "chat",
                     "gen_ai.provider.name": "gcp.vertex_ai",
-                    "gen_ai.request.model": services.settings.google_model,
+                    "gen_ai.request.model": self.model_name,
                 },
             ) as model_span:
 
                 async def invoke():
                     self.model_calls += 1
                     return await services.model.aio.models.generate_content(
-                        model=services.settings.google_model,
+                        model=self.model_name,
                         contents=contents,
                         config=types.GenerateContentConfig(
                             system_instruction=system,

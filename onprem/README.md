@@ -127,3 +127,18 @@ receipts retain the two container identities and trace IDs; exact Uvicorn worker
 not observed. Final deployment to public port 8083 then passed the dedicated readiness gate.
 Public health reports all seven services configured/ready, and browser verification displayed
 the published returns FAQ version 1 and trace. Other demo containers are unchanged.
+
+## Preserve the established interface
+
+Backend upgrades keep the original Value Wholesale navy styling, two-column layout, prompt
+chips, compact service cards, chat-bottom member/model selectors, Hybrid Product Finder and
+trace panel. The pre-GA source was matched byte-for-byte against the retained original
+port-8083 container. Lens and Mesh fit inside the existing trace/footer areas. Product names
+reflect the GA services. Obsolete LangCache/ADK reset actions are omitted; the footer offers
+New session and Member memory.
+
+`GOOGLE_MODELS` is an explicit JSON array of extra model IDs alongside `GOOGLE_MODEL`; requests
+can select only configured IDs. The original `gemini-3.1-flash-lite` and
+`gemini-3.1-pro-preview` choices were verified with actual Vertex inference. The Hybrid Product
+Finder calls the read-only `/api/catalog/hybrid-search` API with structured category/price
+filters through Context Gateway and returns public Product fields without an LLM call.

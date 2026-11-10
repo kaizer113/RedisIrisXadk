@@ -3,64 +3,270 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <meta name="theme-color" content="#12213b">
-  <title>Value Wholesale · Redis Iris</title>
+  <link rel="icon" href="/static/assets/value-wholesale-favicon.svg" type="image/svg+xml">
+  <title>Value Wholesale · Shopping Agent</title>
   <style>
-    :root{color-scheme:light;--ink:#12213b;--muted:#607087;--line:#dde4ec;--paper:#fff;--wash:#f4f6fa;--red:#c92e34;--green:#16674a;--amber:#875b15;--shadow:0 14px 45px #192b4210}
-    *{box-sizing:border-box}body{margin:0;background:var(--wash);color:var(--ink);font:15px/1.55 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button,select{cursor:pointer}button{border:1px solid var(--line);border-radius:10px;background:white;color:var(--ink);padding:9px 13px;font-weight:600}button:hover:not(:disabled){border-color:#8596ad;background:#f8fafc}button:disabled{opacity:.45;cursor:not-allowed}button:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid #8baadd;outline-offset:3px}button.primary{background:var(--red);border-color:var(--red);color:white}button.primary:hover:not(:disabled){background:#ac2028;border-color:#ac2028}.quiet{background:transparent}.small{font-size:12px;padding:5px 9px}a{color:#2355a2}h1,h2,h3,p{margin:0}header{background:var(--ink);color:white;padding:17px 28px;display:flex;align-items:center;justify-content:space-between;gap:20px}.brand{display:flex;align-items:center;gap:12px}.mark{width:40px;height:40px;border-radius:10px;background:var(--red);display:grid;place-items:center;font-weight:800;letter-spacing:-1px}.brand strong{display:block;font-size:17px;line-height:1.2}.brand small{font-size:11px;color:#c3cede;letter-spacing:.08em;text-transform:uppercase}.edition{border:1px solid #ffffff35;padding:5px 10px;border-radius:99px;color:#d7e1ee;font-size:12px}.shell{max-width:1500px;margin:auto;padding:26px;display:grid;grid-template-columns:290px minmax(360px,1fr) 280px;gap:22px;align-items:start}.panel{background:white;border:1px solid var(--line);border-radius:17px;box-shadow:var(--shadow)}.panel-head{padding:19px 20px 15px;border-bottom:1px solid var(--line)}.eyebrow{font-size:10px;letter-spacing:.1em;text-transform:uppercase;font-weight:750;color:var(--muted)}h2{font-size:16px;margin-top:3px}.service-list{padding:8px 12px 13px}.service{padding:11px 8px;border-bottom:1px solid #edf0f4}.service:last-child{border:0}.service-top{display:flex;justify-content:space-between;align-items:center;gap:7px}.service-name{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:750}.dot{width:7px;height:7px;border-radius:50%;background:#a1aaba;flex:none}.service[data-state="configured"] .dot,.service[data-state="completed"] .dot{background:var(--green)}.service[data-state="running"] .dot{background:var(--red);animation:pulse 1s infinite}.service[data-state="failed"] .dot{background:#ad2630}.service-meta{font-size:10px;color:var(--muted);padding-left:15px;margin-top:4px}.service-time{font-size:10px;white-space:nowrap;color:var(--muted);font-variant-numeric:tabular-nums}.beta{font-size:9px;font-weight:600;border:1px solid #d6dfed;color:#536985;border-radius:4px;padding:1px 4px;margin-left:2px}.switch{display:flex;gap:8px;align-items:center;font-size:11px;padding:0 8px 10px;color:var(--muted)}.switch input{accent-color:var(--red)}.side-actions{padding:13px;border-top:1px solid var(--line);display:flex;gap:8px}.side-actions button{flex:1;font-size:11px}.note{font-size:11px;color:var(--muted);padding:14px 4px}.conversation{overflow:hidden;min-height:720px;display:flex;flex-direction:column}.intro{padding:25px 25px 19px;background:linear-gradient(130deg,#fff,#f5f7fc)}.intro .eyebrow{color:var(--red)}h1{font-size:clamp(23px,2.4vw,34px);letter-spacing:-.04em;line-height:1.15;margin:8px 0}.intro p{font-size:12px;color:var(--muted);max-width:410px}.persona{padding:13px 24px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:15px}.persona label{font-size:11px;color:var(--muted);display:block}.persona select{max-width:210px;border:0;background:#f0f3f8;padding:6px 10px;border-radius:7px;font-size:12px;color:var(--ink);margin-top:3px}.session-tag{font-size:10px;color:var(--muted);text-align:right;max-width:160px;overflow-wrap:anywhere}.shortcuts{padding:16px 24px 0;display:flex;flex-wrap:wrap;gap:7px}.shortcuts button{font-size:11px;padding:7px 10px;border-radius:99px;background:#fafbfe;font-weight:500}.messages{flex:1;padding:25px 24px;min-height:265px;max-height:560px;overflow-y:auto;scroll-behavior:smooth}.message{margin:0 0 18px;max-width:94%}.message.user{margin-left:auto}.message-label{font-size:9px;letter-spacing:.09em;text-transform:uppercase;font-weight:750;color:var(--muted);margin-bottom:5px}.message.user .message-label{text-align:right}.message-body{padding:13px 15px;border:1px solid var(--line);border-radius:3px 13px 13px;background:#f9fbff;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}.message.user .message-body{background:var(--ink);color:#fff;border:0;border-radius:13px 3px 13px 13px}.message.failed .message-body{border-color:#edb4b7;color:#8c222a;background:#fff8f8}.provenance{font-size:10px;border:1px solid #bedbce;background:#f1f9f5;color:#205b46;padding:6px 9px;border-radius:7px;margin-top:7px;overflow-wrap:anywhere}.composer{margin-top:auto;padding:16px 23px 19px;border-top:1px solid var(--line)}.input-row{display:flex;gap:9px;align-items:stretch}.input-row textarea{resize:vertical;min-height:48px;max-height:150px;flex:1;width:100%;border:1px solid #cbd5e1;border-radius:10px;padding:12px;font-size:12px;color:var(--ink)}.input-row button{min-width:67px}.composer-note{font-size:10px;color:var(--muted);margin-top:8px}.status{font-size:11px;min-height:18px;color:var(--muted);margin-top:10px}.status.error{color:#a02730}.stream-panel{padding:19px 20px}.stream-status{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;margin:8px 0 11px}.stream-status:before{content:"";width:7px;height:7px;background:#8996a9;border-radius:50%}.stream-status.connected:before{background:var(--green)}.stream-status.disconnected:before{background:var(--amber)}.stream-actions{display:flex;gap:7px}.stream-actions button{font-size:11px;flex:1;padding:7px 9px}.run-meta{font:10px/1.6 ui-monospace,SFMono-Regular,monospace;color:var(--muted);margin-top:13px;overflow-wrap:anywhere}.stream-description{font-size:11px;color:var(--muted);margin-top:12px}.trace-panel{margin-top:18px;overflow:hidden}.trace-empty{padding:20px;font-size:12px;color:var(--muted)}.trace-list{max-height:450px;overflow-y:auto}.trace-step{position:relative;padding:14px 17px 14px 30px;border-bottom:1px solid #edf0f4}.trace-step:before{position:absolute;content:"";left:16px;top:21px;width:5px;height:5px;background:#8d9bb0;border-radius:50%}.trace-step[data-state="completed"]:before{background:var(--green)}.trace-step[data-state="running"]:before{background:var(--red)}.trace-step[data-state="failed"]:before{background:#b02230}.trace-title{font-size:11px;font-weight:700}.trace-detail{font-size:10px;color:var(--muted);margin-top:4px;white-space:pre-wrap;overflow-wrap:anywhere}.trace-duration{font-size:10px;color:var(--muted);margin-top:5px;font-variant-numeric:tabular-nums}.lens-row{padding:14px 17px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}.lens-id{font:10px ui-monospace,SFMono-Regular,monospace;margin:6px 0 9px;overflow-wrap:anywhere}.health-row{padding:12px 20px;border-top:1px solid var(--line);font-size:10px;color:var(--muted);display:flex;align-items:center;justify-content:space-between;gap:10px}dialog{width:min(720px,calc(100% - 30px));max-height:80vh;border:1px solid var(--line);border-radius:17px;box-shadow:0 20px 100px #10223f40;padding:0;color:var(--ink)}dialog::backdrop{background:#0c1b36a0;backdrop-filter:blur(3px)}.dialog-head{padding:19px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}.dialog-head h2{margin:0}.dialog-content{padding:20px 22px}.dialog-status{font-size:12px;color:var(--muted)}.tool,.memory-item{padding:13px 0;border-bottom:1px solid var(--line)}.tool:last-child,.memory-item:last-child{border:0}.tool strong{font:12px ui-monospace,SFMono-Regular,monospace;overflow-wrap:anywhere}.tool p,.memory-item p{font-size:12px;margin-top:7px;color:var(--muted);white-space:pre-wrap;overflow-wrap:anywhere}.tool details{font-size:11px;margin-top:7px}.tool pre{padding:10px;background:var(--wash);border-radius:8px;overflow:auto;font-size:10px}.memory-item code{font-size:10px;color:var(--muted);overflow-wrap:anywhere}footer{max-width:1500px;margin:0 auto;padding:0 28px 24px;font-size:10px;color:var(--muted)}@keyframes pulse{50%{opacity:.25}}@media(max-width:1180px){.shell{grid-template-columns:245px minmax(340px,1fr)}.right-column{grid-column:1/-1;display:grid;grid-template-columns:245px 1fr;gap:22px}.trace-panel{margin:0}.trace-list{max-height:250px}}@media(max-width:720px){header{padding:15px 17px}.edition{font-size:10px}.shell{display:flex;flex-direction:column;padding:16px;gap:16px}.left-column,.center-column,.right-column{width:100%}.left-column{order:2}.center-column{order:1}.right-column{order:3;display:flex;flex-direction:column;gap:16px}.service-list{display:grid;grid-template-columns:1fr 1fr}.service{border-bottom:1px solid #edf0f4!important}.conversation{min-height:680px}.intro,.persona,.shortcuts,.messages{padding-left:19px;padding-right:19px}.composer{padding:15px 18px}.session-tag{max-width:120px}.trace-panel{margin:0}.stream-panel{width:100%}.trace-panel{width:100%}footer{padding:0 20px 20px}}@media(prefers-reduced-motion:reduce){*{animation:none!important;scroll-behavior:auto!important}}
-  </style>
+      :root { color-scheme:light; --ink:#102a43; --muted:#60738b; --red:#d71920; --blue:#174a87; --navy:#071f3d; --panel:#fbfdff; --line:#c8d6e6; --soft-blue:#eaf3ff; --soft-red:#fff0f1; }
+      * { box-sizing:border-box; }
+      body { margin:0; min-height:100vh; font:15px/1.5 Inter,ui-sans-serif,system-ui,sans-serif; color:var(--ink); background:radial-gradient(circle at 8% 4%,#d7192040 0,transparent 26%),radial-gradient(circle at 92% 0%,#2f6db540 0,transparent 30%),var(--navy); }
+      header { display:flex; align-items:center; justify-content:space-between; padding:20px 5vw; color:#fff; border-bottom:1px solid #ffffff2b; background:#071f3dcc; backdrop-filter:blur(12px); }
+      .brand { display:flex; align-items:center; gap:13px; color:#fff; font-weight:800; letter-spacing:.02em; text-decoration:none; border-radius:10px; }
+      .brand small { color:#c9d6e7; }
+      .brand:hover, .brand:focus-visible { outline:2px solid #ffffff80; outline-offset:5px; }
+      .mark { display:grid; place-items:center; width:48px; height:44px; border:2px solid #fff; border-radius:10px; color:#fff; background:linear-gradient(180deg,var(--red) 0 58%,var(--blue) 58%); box-shadow:0 5px 18px #0004; font-size:15px; letter-spacing:-.04em; }
+      .badge { padding:7px 11px; border:1px solid #ffffff4a; border-radius:999px; color:#fff; background:#ffffff12; font-size:12px; text-decoration:none; }
+      .badge:hover, .badge:focus-visible { background:#ffffff24; border-color:#ffffff80; }
+      main { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(320px,.85fr); gap:18px; width:min(1280px,92vw); margin:26px auto; }
+      .panel { background:var(--panel); border:1px solid #ffffff; border-top:4px solid var(--red); border-radius:18px; box-shadow:0 24px 70px #0007; overflow:hidden; }
+      .hero { padding:26px 28px 18px; background:linear-gradient(120deg,#fff 0%,#f2f7fd 72%,var(--soft-red)); }
+      h1 { margin:0; font-size:clamp(28px,4vw,52px); line-height:1.04; max-width:740px; }
+      h1 span { color:var(--red); }
+      .sub { color:var(--muted); max-width:680px; margin:12px 0 18px; }
+      .chips { display:grid; grid-template-columns:repeat(5,max-content); gap:6px; }
+      .hero-actions { display:flex; align-items:start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+      .hybrid-actions { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+      .hybrid-actions[hidden], .hybrid-prompt-list[hidden] { display:none; }
+      #hybrid-finder-toggle { color:#fff; border-color:var(--blue); background:var(--blue); font-weight:800; }
+      #hybrid-finder-toggle:not(:disabled):hover, #hybrid-finder-toggle:not(:disabled):focus-visible { color:#fff; border-color:var(--red); background:var(--red); }
+      .hybrid-prompt-list { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+      .hybrid-prompt { padding:4px 0; color:var(--blue); background:transparent; font-size:12px; font-weight:700; text-align:left; }
+      .hybrid-prompt::before { content:'\2022'; margin-right:5px; color:var(--red); }
+      .hybrid-prompt:not(:disabled):hover, .hybrid-prompt:not(:disabled):focus-visible { color:var(--red); text-decoration:underline; text-underline-offset:3px; }
+      .hybrid-prompt:disabled { cursor:not-allowed; opacity:.65; }
+      .hybrid-finder { display:grid; grid-template-columns:minmax(260px,2fr) minmax(150px,.8fr) minmax(150px,.7fr) auto; gap:9px; padding:14px 28px; border-top:1px solid var(--line); background:#f1f6fc; }
+      .hybrid-finder[hidden] { display:none; }
+      .hybrid-finder label { display:flex; flex-direction:column; gap:4px; color:var(--muted); font-size:10px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+      .hybrid-finder input, .hybrid-finder select { width:100%; max-width:none; padding:9px 10px; border-radius:9px; color:var(--ink); font-size:12px; font-weight:400; letter-spacing:normal; text-transform:none; }
+      .hybrid-finder .send { align-self:end; min-height:38px; padding:0 15px; }
+      button { border:0; cursor:pointer; color:var(--ink); font:inherit; }
+      .chip { padding:6px 10px; border-radius:999px; background:#fff; border:1px solid var(--line); white-space:nowrap; }
+      .chip:not(:disabled):hover, .chip:not(:disabled):focus-visible { color:var(--red); border-color:var(--red); }
+      .chip:disabled { cursor:not-allowed; opacity:.65; }
+      .chat { display:flex; flex-direction:column; height:510px; border-top:1px solid var(--line); }
+      #messages { flex:1; overflow:auto; padding:22px 28px; display:flex; flex-direction:column; gap:12px; }
+      .msg { max-width:82%; padding:12px 15px; border-radius:16px; white-space:pre-wrap; }
+      .assistant { align-self:flex-start; background:var(--soft-blue); border:1px solid #c8dcf4; }
+      .user { align-self:flex-end; color:#fff; background:var(--blue); }
+      .chat-controls { display:flex; align-items:center; gap:12px; padding:10px 16px; border-top:1px solid var(--line); background:#f1f6fc; }
+      .chat-controls label { display:flex; align-items:center; gap:7px; color:var(--muted); font-size:11px; white-space:nowrap; }
+      .chat-controls select { max-width:210px; padding:8px 10px; border-radius:9px; font-size:12px; }
+      .composer { display:flex; gap:10px; padding:12px 16px 16px; }
+      input, textarea, select { width:100%; background:#fff; border:1px solid var(--line); color:var(--ink); border-radius:12px; padding:12px; font:inherit; outline:none; }
+      input:focus, textarea:focus, select:focus { border-color:var(--blue); box-shadow:0 0 0 3px #174a8718; }
+      select { width:auto; max-width:190px; }
+      .send { padding:0 20px; border-radius:12px; background:var(--red); color:#fff; font-weight:800; }
+      .send:hover, .send:focus-visible { background:#b81018; }
+      .send:disabled { cursor:not-allowed; opacity:.65; }
+      aside { display:flex; flex-direction:column; gap:18px; }
+      .side { padding:20px; }
+      h2 { margin:0 0 7px; font-size:18px; }
+      .service-panel-head { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+      .service-panel-head h2 { margin:0; }
+      .service-panel-actions { display:flex; align-items:center; gap:4px; }
+      .panel-icon { display:grid; place-items:center; width:28px; height:28px; padding:0; border:1px solid transparent; border-radius:8px; color:var(--blue); background:transparent; }
+      .panel-icon:hover, .panel-icon:focus-visible, .panel-icon.active { border-color:#b8cbe0; background:var(--soft-blue); }
+      .panel-icon svg { width:16px; height:16px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+      #service-panel-toggle { font-size:20px; line-height:1; }
+      .service-panel.collapsed .service-panel-content { display:none; }
+      .service-panel-content { padding-top:7px; }
+      .trace-panel { display:flex; flex:1; min-height:0; flex-direction:column; }
+      .small { margin:0 0 14px; color:var(--muted); font-size:13px; }
+      .status { display:flex; flex-direction:column; gap:10px; }
+      .service-group { display:grid; grid-template-columns:42px minmax(0,1fr); align-items:center; gap:10px; }
+      .service-logo { width:42px; height:42px; object-fit:contain; }
+      .service-logo.redis, .service-logo.redisvl, .service-logo.gemini { border-radius:9px; }
+      .service-logo.gemini { width:37px; height:37px; justify-self:center; }
+      .service-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+      .service-grid.wide { grid-template-columns:1fr; }
+      .service { position:relative; min-width:0; padding:7px; border:1px solid var(--line); border-radius:11px; background:#fff; font-size:12px; transition:background .2s,border-color .2s,box-shadow .2s,transform .2s; }
+      .service-line { display:grid; grid-template-columns:auto minmax(0,1fr); align-items:center; }
+      .service-toggle { width:14px; height:14px; margin:0 6px 0 0; padding:0; accent-color:var(--blue); cursor:pointer; }
+      .service-name { min-width:0; line-height:1.2; white-space:normal; }
+      .service-time { display:none; margin:4px 0 0; color:var(--muted); text-align:right; font:10px ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
+      .service-time:not(:empty) { display:block; }
+      .service-operation { display:none; align-items:center; justify-content:space-between; gap:8px; margin:4px 0 0 14px; color:var(--blue); font-size:10px; }
+      .service[data-service="redis_database"] .service-operation { margin-top:2px; line-height:1.15; }
+      .service[data-service="redis_database"] .tool-cache-operation { margin-top:0; }
+      .service-operation-time { color:var(--muted); font:10px ui-monospace,SFMono-Regular,Menlo,monospace; white-space:nowrap; }
+      .service-result { position:absolute; top:-6px; right:-5px; display:none; padding:1px 5px; border-radius:999px; color:#fff; background:#16825d; font-size:8px; font-weight:900; letter-spacing:.08em; box-shadow:0 2px 8px #0003; }
+      .service.used { border-color:#6ea0d3; background:#edf6ff; box-shadow:inset 0 0 0 1px #174a8717; }
+      .service[data-service="redis_database"].vector-used .redis-operation, .service[data-service="redis_database"].used .tool-cache-operation, .service[data-service="gemini_adk_orchestration"].used .service-operation { display:flex; }
+      .service.active { border-color:var(--red); background:var(--soft-red); box-shadow:0 0 0 3px #d7192019,0 0 18px #d719203d; }
+      .service.hit { border-color:#10a36f; background:#e8fff5; box-shadow:0 0 0 3px #10a36f24,0 0 20px #10a36f4d; }
+      .service.hit .service-result { display:block; }
+      .service.flash { animation:service-flash .7s ease-out; }
+      .service.capability-disabled { color:#8290a0; border-color:#d6dee7; background:#edf1f5; box-shadow:none; }
+      .service.capability-disabled .service-name, .service.capability-disabled .service-meta-row { opacity:.58; }
+      .service.capability-disabled .service-toggle { opacity:1; }
+      .service-aggregate { display:none; margin:5px 0 0; color:var(--muted); font:9px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:normal; }
+      .service-aggregate-pair { grid-template-columns:max-content max-content minmax(0,1fr); column-gap:4px; }
+      .service-panel.aggregate-mode .service-time, .service-panel.aggregate-mode .service-operation, .service-panel.aggregate-mode .service-channels { display:none !important; }
+      .service-panel.aggregate-mode .service-aggregate { display:block; }
+      .service-panel.aggregate-mode .service-aggregate-pair { display:grid; }
+      @keyframes service-flash { 0%,35% { transform:translateY(-1px) scale(1.025); filter:brightness(1.08); } 100% { transform:none; filter:none; } }
+      .service-channels { display:flex; justify-content:flex-end; gap:3px; margin:4px 0 0; color:var(--muted); font:8px ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .service-channel { min-width:0; padding:1px 3px; border-radius:4px; background:#eef2f7; white-space:nowrap; }
+      .service-channel.used { color:var(--blue); background:#dbeafe; }
+      .service[data-service="redis_agent_memory"] .service-time { display:none; }
+      .service-meta { display:block; margin:3px 0 0 14px; padding:0; color:var(--blue); background:transparent; text-align:left; font-size:10px; line-height:1.25; }
+      .service-meta-row { display:flex; align-items:baseline; justify-content:space-between; gap:8px; margin:3px 3px 0 -3px; }
+      .service-meta-row .service-meta { margin:0; white-space:nowrap; }
+      .service-meta-row .service-time { margin:0; }
+      .service-meta:hover, .service-meta:focus-visible { color:var(--red); text-decoration:underline; }
+      .dot { display:inline-block; width:8px; height:8px; border-radius:99px; margin-right:6px; background:#94a3b8; }
+      .on .dot { background:var(--blue); box-shadow:0 0 10px #174a8766; }
+      .trace-head { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+      .trace-live { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:11px; }
+      .trace-live .pulse { width:7px; height:7px; border-radius:99px; background:#94a3b8; }
+      .trace-live.active .pulse { background:var(--red); box-shadow:0 0 10px #d7192066; animation:pulse 1s infinite; }
+      @keyframes pulse { 50% { opacity:.3; } }
+      #trace { display:flex; flex:1; min-height:0; flex-direction:column; gap:0; overflow:auto; margin-top:8px; }
+      .trace-empty { color:var(--muted); padding:22px 4px; text-align:center; font-size:13px; }
+      .trace-step { position:relative; padding:11px 0 12px 24px; border-bottom:1px solid #dce6f1; }
+      .trace-step::before { content:""; position:absolute; left:4px; top:18px; width:8px; height:8px; border-radius:99px; background:#94a3b8; }
+      .trace-step::after { content:""; position:absolute; left:7.5px; top:28px; bottom:-7px; width:1px; background:var(--line); }
+      .trace-step:last-child::after { display:none; }
+      .trace-step.running::before { background:var(--red); box-shadow:0 0 10px #d7192066; animation:pulse 1s infinite; }
+      .trace-step.done::before { background:var(--blue); }
+      .trace-row { display:flex; align-items:flex-start; justify-content:space-between; gap:10px; }
+      .trace-label { min-width:0; overflow-wrap:anywhere; font-size:13px; font-weight:700; }
+      .trace-time { flex:none; margin-left:auto; color:var(--red); font:11px ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .trace-summary { color:var(--muted); font-size:12px; margin-top:2px; }
+      .trace-cache { margin-top:3px; color:var(--blue); font-size:11px; font-weight:700; }
+      .trace-details { margin-top:7px; }
+      .trace-details summary { cursor:pointer; color:var(--blue); font-size:11px; }
+      .trace-fact { margin-top:5px; padding:7px 9px; border-radius:8px; background:var(--soft-blue); color:#294866; font-size:11px; overflow-wrap:anywhere; }
+      .modal { position:fixed; inset:0; z-index:20; display:grid; place-items:center; padding:24px; background:#04152bd9; backdrop-filter:blur(8px); }
+      .modal[hidden] { display:none; }
+      .modal-card { width:min(860px,94vw); max-height:min(760px,88vh); display:flex; flex-direction:column; border:1px solid var(--line); border-top:4px solid var(--red); border-radius:18px; background:#fff; box-shadow:0 30px 100px #000b; overflow:hidden; }
+      .modal-head { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; padding:20px 22px 14px; border-bottom:1px solid var(--line); }
+      .modal-head .small { margin:0; }
+      .modal-close { width:30px; height:30px; border:1px solid var(--line); border-radius:9px; background:var(--soft-blue); font-size:18px; }
+      .tool-list { overflow:auto; padding:4px 22px 22px; }
+      .tool-group { padding:16px 0; border-bottom:1px solid #dce6f1; }
+      .tool-group:last-child { border-bottom:0; }
+      .tool-group-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:9px; }
+      .tool-group-title { margin:0; color:var(--ink); font-size:14px; }
+      .tool-group-count { color:var(--muted); font-size:10px; }
+      .tool-items { display:grid; grid-template-columns:repeat(auto-fit,minmax(270px,1fr)); gap:6px 20px; }
+      .tool-item { min-width:0; padding:7px 9px; border-radius:8px; background:var(--soft-blue); }
+      .tool-name { color:var(--blue); font:12px ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
+      .memory-modal-card { width:min(1100px,94vw); }
+      .memory-columns { display:grid; grid-template-columns:1fr 1fr; gap:18px; min-height:0; overflow:auto; padding:20px 22px 24px; }
+      .memory-provider { min-width:0; padding:14px; border:1px solid var(--line); border-radius:12px; background:#f8fbff; }
+      .memory-provider-head { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:10px; }
+      .memory-provider-head h3 { margin:0; font-size:15px; }
+      .memory-provider-count { color:var(--muted); font-size:11px; }
+      .memory-list { display:flex; flex-direction:column; gap:8px; }
+      .memory-item { padding:9px 11px; border-radius:9px; background:var(--soft-blue); color:#294866; font-size:12px; overflow-wrap:anywhere; }
+      .memory-pills { display:flex; flex-wrap:wrap; gap:4px; margin-bottom:6px; }
+      .memory-pill { padding:2px 6px; border:1px solid #9bbce0; border-radius:999px; color:#245f96; background:#fff9; font:9px ui-monospace,SFMono-Regular,Menlo,monospace; }
+      .memory-pill-origin { color:#294866; border-color:#b6c8db; font-family:Inter,ui-sans-serif,system-ui,sans-serif; font-weight:700; }
+      .memory-text { line-height:1.4; }
+      .memory-empty { padding:18px 8px; color:var(--muted); text-align:center; font-size:12px; }
+      .demo-reset { width:min(1280px,92vw); margin:0 auto 26px; padding:18px 20px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:18px; color:#d9e5f3; border:1px solid #ffffff2b; border-radius:14px; background:#071f3dcc; }
+      .demo-reset p { margin:0; font-size:12px; }
+      .reset-actions { flex:none; display:flex; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+      .presenter-toggle { display:flex; flex:0 0 100%; align-items:center; gap:7px; padding:12px 0 0; color:#fff; border-top:1px solid #ffffff2b; font-size:12px; white-space:nowrap; }
+      .presenter-toggle input { width:15px; height:15px; margin:0; padding:0; accent-color:var(--red); cursor:pointer; }
+      .reset-button { flex:none; padding:9px 13px; border:1px solid #ffffff4a; border-radius:9px; color:#fff; background:#ffffff12; }
+      .reset-button:hover, .reset-button:focus-visible { background:#ffffff24; border-color:#ffffff80; }
+      .reset-button:disabled { cursor:not-allowed; opacity:.65; }
+      .reset-status { margin-top:3px !important; color:#9fb4cb; }
+      .reset-help { margin-top:3px !important; color:#f6c86f; }
+      .redis-endpoint { margin-top:5px !important; color:#9fb4cb; }
+      .redis-endpoint code { color:#d9e5f3; font-size:11px; }
+      .memory-latencies { margin-top:3px !important; color:#9fb4cb; }
+      .memory-latencies code { color:#d9e5f3; font-size:11px; }
+      .memory-inventory { display:flex; align-items:center; gap:7px; flex-wrap:wrap; margin-top:7px !important; color:#9fb4cb; }
+      .memory-count-button { padding:3px 8px; border:1px solid #ffffff3d; border-radius:999px; color:#fff; background:#ffffff12; font-size:11px; }
+      .memory-count-button:hover, .memory-count-button:focus-visible { border-color:#ffffff80; background:#ffffff24; }
+      .memory-columns.single { grid-template-columns:1fr; }
+      body.modal-open { overflow:hidden; }
+      @media (min-width:901px) { aside { min-height:0; contain:size; } }
+      @media (max-width:900px) { main { grid-template-columns:1fr; } .chat { height:500px; } }
+      body.adk-hidden .adk-only { display:none !important; }
+      @media (max-width:760px) { .hybrid-finder { grid-template-columns:1fr 1fr; } .hybrid-finder label:first-child { grid-column:1 / -1; } }
+      @media (max-width:620px) { .chips { grid-template-columns:repeat(2,max-content); } .hybrid-finder { grid-template-columns:1fr; padding:14px 16px; } .hybrid-finder label:first-child { grid-column:auto; } .chat-controls, .demo-reset { align-items:stretch; flex-direction:column; } .chat-controls label { justify-content:space-between; } .chat-controls select { flex:1; } .reset-actions { justify-content:stretch; } .reset-actions button { flex:1; } .presenter-toggle { flex:none; justify-content:flex-start; } .memory-columns { grid-template-columns:1fr; } }
+
+      .beta { margin-left:4px; padding:1px 4px; border:1px solid #b9c9dc; border-radius:4px; color:var(--muted); font-size:8px; }
+      .service[data-state="configured"], .service[data-state="completed"] { border-color:#a8bfd8; }
+      .service[data-state="configured"] .dot, .service[data-state="completed"] .dot { background:var(--blue); box-shadow:0 0 10px #174a8766; }
+      .service[data-state="running"] { border-color:var(--red); background:var(--soft-red); box-shadow:0 0 0 3px #d7192019; }
+      .service[data-state="running"] .dot { background:var(--red); animation:pulse 1s infinite; }
+      .service[data-state="failed"] .dot { background:#b4232c; }
+      .service-time { display:block; }
+      .service-meta { font-size:10px; margin:4px 0 0; }
+      .service-links { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 0 0; }
+      .service-links button { border:0; padding:0; color:var(--blue); background:transparent; font-size:10px; text-align:left; }
+      .health-row { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-top:12px; color:var(--muted); font-size:11px; }
+      .health-row button { padding:3px 8px; border:1px solid var(--line); border-radius:7px; background:#fff; font-size:11px; }
+      .chat-status { padding:0 16px 9px; margin:0; color:var(--muted); font-size:11px; }
+      .chat-status.error { color:#b4232c; }
+      .session-tag { margin-left:auto; color:var(--muted); font:9px ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; max-width:145px; }
+      .provenance { margin-top:8px; color:var(--blue); font-size:10px; }
+      .msg.failed { border-color:#b4232c; background:var(--soft-red); }
+      .trace-step[data-state="running"]::before { background:var(--red); animation:pulse 1s infinite; }
+      .trace-step[data-state="completed"]::before { background:var(--blue); }
+      .trace-step[data-state="failed"]::before { background:#b4232c; }
+      .trace-detail { margin-top:3px; color:var(--muted); font-size:11px; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .trace-detail:empty { display:none; }
+      .trace-duration { color:var(--red); font:11px ui-monospace,SFMono-Regular,monospace; white-space:nowrap; margin-left:auto; }
+      .lens-row { display:flex; align-items:center; gap:7px; margin-top:12px; padding-top:10px; border-top:1px solid var(--line); color:var(--muted); font-size:10px; }
+      .lens-id { flex:1; min-width:0; overflow-wrap:anywhere; font:9px ui-monospace,SFMono-Regular,monospace; }
+      .lens-row button { padding:3px 7px; border-radius:6px; color:var(--blue); background:var(--soft-blue); font-size:10px; }
+      .stream-presenter { flex:1; min-width:250px; }
+      .stream-presenter summary { cursor:pointer; color:#fff; font-weight:700; font-size:12px; }
+      .stream-presenter summary .stream-status { display:inline; margin-left:10px; color:#b8cae0; font-weight:400; }
+      .stream-description { margin-top:8px!important; max-width:690px; }
+      .stream-actions { display:flex; gap:8px; margin-top:9px; }
+      .run-meta { font:10px/1.6 ui-monospace,SFMono-Regular,monospace; color:#9fb4cb; margin-top:8px; overflow-wrap:anywhere; }
+      dialog { padding:0; border:1px solid var(--line); border-top:4px solid var(--red); border-radius:18px; width:min(860px,94vw); max-height:88vh; color:var(--ink); background:white; box-shadow:0 30px 100px #000b; }
+      dialog::backdrop { background:#04152bd9; backdrop-filter:blur(8px); }
+      .dialog-head { display:flex; justify-content:space-between; align-items:center; gap:18px; padding:20px 22px 14px; border-bottom:1px solid var(--line); }
+      .dialog-head h2 { margin:0; }
+      .dialog-content { padding:4px 22px 22px; overflow:auto; }
+      .dialog-status { color:var(--muted); font-size:12px; }
+      .tool { padding:13px 0; border-bottom:1px solid var(--line); }
+      .tool strong { color:var(--blue); font:12px ui-monospace,SFMono-Regular,monospace; overflow-wrap:anywhere; }
+      .tool p, .memory-item p { color:var(--muted); font-size:12px; white-space:pre-wrap; overflow-wrap:anywhere; }
+      .tool details { font-size:11px; color:var(--blue); }
+      .tool pre { padding:10px; border-radius:8px; background:var(--soft-blue); overflow:auto; font-size:10px; }
+      .memory-item { margin-top:12px; }
+      .memory-item code { font-size:10px; color:var(--muted); }
+      footer { width:min(1280px,92vw); margin:0 auto 25px; color:#9fb4cb; font-size:10px; }
+      @media(max-width:620px) { .session-tag { margin:0; max-width:none; } .stream-presenter { min-width:0; width:100%; } }
+      @media(prefers-reduced-motion:reduce) { * { animation:none!important; scroll-behavior:auto!important; } }
+:root {
+  --experience-accent: #d71920;
+}
+
+body[data-experience="valuewholesale"] #brand-name {
+  text-transform: uppercase;
+}
+</style>
 </head>
-<body>
-  <header>
-    <div class="brand"><span class="mark" aria-hidden="true">VW</span><div><strong>Value Wholesale</strong><small>Member shopping, intelligently</small></div></div>
-    <span class="edition">Redis Iris · Self-managed</span>
-  </header>
-  <main class="shell">
-    <aside class="left-column" aria-label="Redis Iris services">
-      <section class="panel">
-        <div class="panel-head"><span class="eyebrow">The context behind every answer</span><h2>Redis Iris</h2></div>
-        <div id="services" class="service-list"></div>
-        <label class="switch"><input id="gateway-enabled" type="checkbox" checked> Use Context Gateway for this request</label>
-        <div class="side-actions"><button id="tools-button" type="button">Explore tools</button><button id="memory-button" type="button">Member memory</button></div>
-        <div class="health-row"><span id="health-status" role="status">Checking service status…</span><button id="refresh-health" class="small quiet" type="button">Refresh</button></div>
-      </section>
-      <p class="note">Approved answers come from published playbook entries. Shopping tools provide current business data.</p>
-    </aside>
-    <section class="center-column panel conversation" aria-labelledby="welcome-title">
-      <div class="intro"><span class="eyebrow">Meet Vale, your shopping assistant</span><h1 id="welcome-title">Stock the house.<br>Skip the guesswork.</h1><p>Find the right products, check what’s available, and pick up where you left off.</p></div>
-      <div class="persona"><div><label for="member">Shopping as a fictional member</label><select id="member" disabled><option>Loading members…</option></select></div><div id="session-tag" class="session-tag">Starting a session</div></div>
-      <div class="shortcuts" aria-label="Try a question">
-        <button type="button" data-prompt="What is the electronics return policy?">Returns policy</button>
-        <button type="button" data-prompt="Find dark chocolate and check current inventory at my home warehouse.">Check inventory</button>
-        <button type="button" data-prompt="Remember that I prefer dark chocolate and avoid milk chocolate.">Remember a preference</button>
-        <button type="button" data-prompt="Compare dark chocolate options for a family gathering.">Compare products</button>
+<body data-experience="valuewholesale">
+  <header><a class="brand" href="https://github.com/kaizer113/RedisIrisXadk/blob/main/docs/demo-valuewholesale-onprem.md" target="_blank" rel="noopener noreferrer" aria-label="Open the Value Wholesale demo guide"><div class="mark">VW</div><div><span id="brand-name">Value Wholesale</span><br><small style="font-weight:500">Member shopping, intelligently</small></div></a><a class="badge" href="https://github.com/kaizer113/RedisIrisXadk/blob/main/ARCHITECTURE.md" target="_blank" rel="noopener noreferrer">Redis Iris</a></header>
+  <main>
+    <section class="panel">
+      <div class="hero"><h1><span>Stock the house.</span><br><span>Skip the guesswork.</span></h1><p class="sub">Meet Vale, a grounded shopping agent that understands the catalog, sees warehouse context, remembers preferences, and shows its work.</p><div class="hero-actions"><div class="chips"><button type="button" class="chip" data-prompt="Find family-size pantry staples under $30 and check Portland stock.">Pantry run</button><button type="button" class="chip" data-prompt="What laundry option should I add to my order, and is it in stock in Portland?">Laundry</button><button type="button" class="chip" data-prompt="What is in my upcoming order?">Upcoming order</button><button type="button" class="chip" data-prompt="What household products have I bought?">Household products</button><button type="button" class="chip" data-prompt="When did I last buy Tide Laundry Pods?">Tide Pods</button><button type="button" class="chip" data-prompt="What is the electronics return policy?">Ask a policy</button><button type="button" class="chip" data-prompt="How long can i return electronics for?">Return window</button><button type="button" class="chip" data-prompt="What flavor notes does Rain City Medium Roast Coffee have?">Learn a product</button></div><div id="hybrid-finder-actions" class="hybrid-actions"><button id="hybrid-finder-toggle" class="chip hybrid-finder-toggle" type="button" aria-expanded="false" aria-controls="hybrid-finder hybrid-prompts">Hybrid Product Finder</button><div id="hybrid-prompts" class="hybrid-prompt-list" aria-label="Hybrid Product Finder demo prompts" hidden><button class="hybrid-prompt" type="button" data-hybrid-query="wireless audio for private listening while traveling" data-hybrid-category="electronics" data-hybrid-max-price="80">Travel audio under $80</button><button class="hybrid-prompt" type="button" data-hybrid-query="free and clear laundry detergent for sensitive skin" data-hybrid-category="household" data-hybrid-max-price="35">Sensitive-skin laundry</button><button class="hybrid-prompt" type="button" data-hybrid-query="whole bean medium roast coffee with cocoa and caramel notes" data-hybrid-category="beverages" data-hybrid-max-price="30">Coffee with cocoa notes</button></div></div></div></div>
+      <form id="hybrid-finder" class="hybrid-finder" hidden><label>Shopping need<input id="hybrid-query" required minlength="2" maxlength="500" placeholder="Wireless audio for private listening while traveling"></label><label>Category<select id="hybrid-category"><option value="">All categories</option></select></label><label>Maximum member price<input id="hybrid-max-price" type="number" min="0.01" max="100000" step="0.01" placeholder="No maximum"></label><button id="hybrid-search" class="send" type="submit">Hybrid search</button></form>
+      <div class="chat">
+        <div id="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text"><div class="msg assistant"><span class="message-body">Welcome to Value Wholesale. What are you shopping for today?</span></div></div>
+        <div class="chat-controls"><label>Shop as <select id="member" aria-label="Demo member" disabled><option>Loading members…</option></select></label><label>Model <select id="model" aria-label="Gemini model" disabled><option>Loading models…</option></select></label><span id="session-tag" class="session-tag">Starting a session</span></div>
+        <form id="chat-form" class="composer"><input id="message" maxlength="8000" autocomplete="off" placeholder="Ask Vale about products, stock, orders, or preferences…" aria-label="Your message" disabled required><button id="send" class="send" type="submit" disabled>Send</button></form>
+        <p id="status" class="chat-status" role="status" aria-live="polite"></p>
       </div>
-      <div id="messages" class="messages" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions text">
-        <div class="message"><div class="message-label">Vale</div><div class="message-body">Welcome to Value Wholesale. Choose a member and ask me about products, shopping, or membership policies.</div></div>
-      </div>
-      <form id="chat-form" class="composer">
-        <div class="input-row"><textarea id="message" rows="1" maxlength="8000" placeholder="What can I help you find?" aria-label="Your message" disabled required></textarea><button id="send" type="submit" class="primary" disabled>Send</button></div>
-        <p class="composer-note">Shift + Enter for a new line. Responses use fictional demo data.</p>
-        <p id="status" class="status" role="status" aria-live="polite"></p>
-      </form>
     </section>
-    <aside class="right-column" aria-label="Turn details">
-      <section class="panel stream-panel">
-        <span class="eyebrow">Agent Mesh <span class="beta">Beta</span></span><h2>A conversation that reconnects</h2>
-        <p id="stream-status" class="stream-status">No active stream</p>
-        <div class="stream-actions"><button id="disconnect" type="button" disabled>Disconnect</button><button id="reconnect" type="button" disabled>Reconnect</button></div>
-        <p class="stream-description">Disconnect while Vale works, then reconnect to the same response. The client resumes after its last event.</p>
-        <div id="run-meta" class="run-meta">Run —<br>Cursor —</div>
-      </section>
-      <section class="panel trace-panel">
-        <div class="panel-head"><span class="eyebrow">Turn by turn</span><h2>Live context trace</h2></div>
-        <div id="trace" class="trace-list" aria-live="polite"><p class="trace-empty">Send a message to see which services contribute.</p></div>
-        <div class="lens-row">Lens <span class="beta">Beta</span><div id="lens-id" class="lens-id">No trace yet</div><button id="copy-trace" class="small" type="button" disabled>Copy trace ID</button></div>
-      </section>
+    <aside>
+      <section class="panel side service-panel" id="service-panel"><div class="service-panel-head"><h2>Redis Iris services</h2><div class="service-panel-actions"><button id="service-panel-toggle" class="panel-icon" type="button" aria-label="Collapse Redis Iris services" aria-expanded="true">−</button></div></div><div class="service-panel-content"><p class="small">Live integration status for this environment</p><div id="services" class="status" aria-live="polite"></div><div class="health-row"><span id="health-status">Checking services…</span><button id="refresh-health" type="button">Refresh</button></div></div></section>
+      <section class="panel side trace-panel"><div class="trace-head"><div><h2>Live agent trace</h2><p class="small">Every retrieval, tool call, and generation step.</p></div><div id="trace-live" class="trace-live"><span class="pulse"></span><span>idle</span></div></div><div id="trace" aria-live="polite"><div class="trace-empty">Send a message to watch Vale work.</div></div><div class="lens-row"><span>Lens <span class="beta">Beta</span></span><span id="lens-id" class="lens-id">No trace yet</span><button id="copy-trace" type="button" disabled>Copy trace ID</button></div></section>
     </aside>
   </main>
-  <footer>Value Wholesale is a fictional retailer. This self-managed demo uses synthetic members and supports no real purchases. Lens and Agent Mesh are beta features.</footer>
-  <dialog id="details-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><h2 id="dialog-title">Details</h2><button id="close-dialog" class="small" type="button" aria-label="Close details">Close</button></div><div id="dialog-content" class="dialog-content"></div></dialog>
+  <section class="demo-reset" aria-label="Presenter controls"><details class="stream-presenter"><summary>Presenter controls <span id="stream-status" class="stream-status">No active stream</span></summary><p class="stream-description">Agent Mesh <span class="beta">Beta</span> · Disconnect while Vale works, then reconnect to the same response.</p><div class="stream-actions"><button id="disconnect" class="reset-button" type="button" disabled>Disconnect</button><button id="reconnect" class="reset-button" type="button" disabled>Reconnect</button></div><div id="run-meta" class="run-meta">Run —<br>Cursor —</div></details><div class="reset-actions"><button id="new-session" class="reset-button" type="button">New session</button><button id="memory-button" class="reset-button" type="button">Member memory</button></div></section>
+  <footer>Value Wholesale is a fictional retailer. Responses use synthetic demo data. Lens and Agent Mesh are beta features.</footer>
+  <dialog id="details-dialog" aria-labelledby="dialog-title"><div class="dialog-head"><h2 id="dialog-title">Details</h2><button id="close-dialog" class="modal-close" type="button" aria-label="Close details">×</button></div><div id="dialog-content" class="dialog-content"></div></dialog>
   <script>
     'use strict';
     const $ = selector => document.querySelector(selector);
@@ -73,6 +279,7 @@
       agent_mesh: ['Agent Mesh', 'Resumable event delivery', true],
       gemini: ['Gemini', 'Shopping reasoning and tool calls'],
     };
+    let modelsReady = false;
     let session = null;
     let activeRun = null;
     let source = null;
@@ -93,17 +300,52 @@
       return element;
     }
 
-    for (const [id, [label, description, beta]] of Object.entries(serviceLabels)) {
-      const card = node('div', null, 'service');
-      card.id = `service-${id}`;
-      card.dataset.state = 'unknown';
-      const top = node('div', null, 'service-top');
-      const title = node('span', null, 'service-name');
-      title.append(node('span', null, 'dot'), node('span', label));
-      if (beta) title.append(node('span', 'Beta', 'beta'));
-      top.append(title, node('span', 'Unchecked', 'service-time'));
-      card.append(top, node('p', description, 'service-meta'));
-      $('#services').append(card);
+    const serviceGroups = [
+      {name: 'Redis', icon: '/static/assets/redis-r.png', className: 'redis', ids: ['agent_memory', 'agent_playbooks', 'context_gateway', 'intent_router', 'lens', 'agent_mesh']},
+      {name: 'Gemini', icon: '/static/assets/gemini-icon.png', className: 'gemini', ids: ['gemini']},
+    ];
+    for (const group of serviceGroups) {
+      const row = node('div', null, 'service-group');
+      const logo = node('img', null, `service-logo ${group.className}`);
+      logo.src = group.icon;
+      logo.alt = group.name;
+      const grid = node('div', null, `service-grid${group.ids.length === 1 ? ' wide' : ''}`);
+      for (const id of group.ids) {
+        const [label, description, beta] = serviceLabels[id];
+        const card = node('div', null, 'service');
+        card.id = `service-${id}`;
+        card.dataset.service = id;
+        card.dataset.state = 'unknown';
+        card.title = description;
+        const top = node('div', null, 'service-line');
+        if (id === 'context_gateway') {
+          const toggle = node('input', null, 'service-toggle');
+          toggle.id = 'gateway-enabled';
+          toggle.type = 'checkbox';
+          toggle.checked = true;
+          toggle.setAttribute('aria-label', 'Enable Context Gateway');
+          top.append(toggle);
+        } else top.append(node('span', null, 'dot'));
+        const title = node('span', label, 'service-name');
+        if (beta) title.append(node('span', 'Beta', 'beta'));
+        top.append(title);
+        const timing = node('span', 'Unchecked', 'service-time');
+        card.append(top, node('span', '', 'service-result'), timing);
+        const meta = node('span', '', 'service-meta');
+        meta.hidden = true;
+        card.append(meta);
+        if (id === 'context_gateway') {
+          const links = node('div', null, 'service-links');
+          const tools = node('button', 'Explore tools');
+          tools.id = 'tools-button';
+          tools.type = 'button';
+          links.append(tools);
+          card.append(links);
+        }
+        grid.append(card);
+      }
+      row.append(logo, grid);
+      $('#services').append(row);
     }
 
     function setStatus(message, error = false) {
@@ -151,6 +393,11 @@
 
     function setBusy(value) {
       pending = value;
+      $('#model').disabled = value || !session || !modelsReady;
+      $('#hybrid-finder-toggle').disabled = value || !session;
+      $('#hybrid-search').disabled = value || !session;
+      document.querySelectorAll('[data-hybrid-query]').forEach(button => { button.disabled = value || !session; });
+      $('#new-session').disabled = value || !session;
       $('#send').disabled = value || !session;
       $('#message').disabled = !session;
       $('#member').disabled = value || !session;
@@ -160,8 +407,8 @@
     }
 
     function addMessage(text, role = 'assistant') {
-      const wrapper = node('div', null, `message ${role}`);
-      wrapper.append(node('div', role === 'user' ? 'You' : 'Vale', 'message-label'), node('div', text, 'message-body'));
+      const wrapper = node('div', null, `msg ${role}`);
+      wrapper.append(node('span', text, 'message-body'));
       $('#messages').append(wrapper);
       $('#messages').scrollTop = $('#messages').scrollHeight;
       return wrapper;
@@ -176,6 +423,8 @@
         const version = published.version !== undefined ? ` · version ${published.version}` : '';
         const score = Number.isFinite(published.score) ? ` · score ${published.score.toFixed(3)}` : '';
         assistantMessage.append(node('div', `Published playbook · ${key}${version}${score}`, 'provenance'));
+        $('#service-agent_playbooks').classList.add('hit');
+        $('#service-agent_playbooks .service-result').textContent = 'FAQ';
       }
       $('#messages').scrollTop = $('#messages').scrollHeight;
     }
@@ -184,6 +433,8 @@
       const label = $('#stream-status');
       label.textContent = text;
       label.className = `stream-status ${kind}`;
+      $('#trace-live').classList.toggle('active', Boolean(source));
+      $('#trace-live span:last-child').textContent = source ? 'running' : (activeRun?.status === 'completed' ? 'complete' : 'idle');
       $('#disconnect').disabled = !source;
       $('#reconnect').disabled = !activeRun || Boolean(source) || activeRun.status === 'completed' || activeRun.status === 'failed';
       $('#run-meta').replaceChildren(node('div', `Run ${activeRun?.run_id || '—'}`), node('div', `Cursor ${activeRun?.cursor || '—'}`));
@@ -204,18 +455,29 @@
       if (!item) {
         $('#trace .trace-empty')?.remove();
         item = node('div', null, 'trace-step');
-        item.append(node('div', title, 'trace-title'), node('div', '', 'trace-detail'), node('div', '', 'trace-duration'));
+        const row = node('div', null, 'trace-row');
+        row.append(node('div', title, 'trace-label'), node('div', '', 'trace-duration'));
+        const disclosure = node('details', null, 'trace-details');
+        disclosure.append(node('summary', 'Details'), node('div', '', 'trace-detail'));
+        disclosure.hidden = true;
+        item.append(row, node('div', '', 'trace-summary'), disclosure);
         $('#trace').append(item);
         traceSteps.set(id, item);
       }
       const state = step.status === 'error' ? 'failed' : (step.status || 'completed');
       item.dataset.state = state;
-      item.querySelector('.trace-detail').textContent = typeof step.detail === 'object' ? JSON.stringify(step.detail, null, 2) : (step.detail || state);
+      const detailed = step.detail && typeof step.detail === 'object';
+      item.querySelector('.trace-summary').textContent = detailed
+        ? (step.detail.intent ? `${step.detail.intent}${Number.isFinite(step.detail.score) ? ` · score ${step.detail.score.toFixed(3)}` : ''}` : state)
+        : (step.detail || state);
+      item.querySelector('.trace-details').hidden = !detailed;
+      item.querySelector('.trace-detail').textContent = detailed ? JSON.stringify(step.detail, null, 2) : '';
       const duration = Number.isFinite(step.duration_ms) ? `${step.duration_ms.toFixed(1)} ms` : '';
       item.querySelector('.trace-duration').textContent = duration;
       const card = document.getElementById(`service-${service}`);
       if (card) {
         card.dataset.state = state;
+        card.classList.toggle('used', state === 'completed');
         card.querySelector('.service-time').textContent = duration || state;
       }
       $('#trace').scrollTop = $('#trace').scrollHeight;
@@ -358,7 +620,8 @@
           const description = serviceLabels[id][1];
           const detail = check?.detail || (id === 'gemini' ? 'Model configured; inference is verified by a shopping turn.' : id === 'lens' ? 'SDK initialization only; trace export is verified separately.' : 'No probe detail returned.');
           card.title = `${description}. ${detail}`;
-          card.querySelector('.service-meta').textContent = check && !check.ok ? detail : description;
+          card.querySelector('.service-meta').textContent = check && !check.ok ? detail : '';
+          card.querySelector('.service-meta').hidden = !(check && !check.ok);
         }
         $('#health-status').textContent = data.ready === true ? 'Core service probes passed' : 'Some services need attention';
       } catch (error) {
@@ -417,12 +680,13 @@
       setTraceId('');
       addMessage(message, 'user');
       assistantMessage = addMessage('Vale is checking…');
+      document.querySelectorAll('.service').forEach(card => { card.classList.remove('used', 'hit'); });
       $('#message').value = '';
       setBusy(true);
       setStatus('Starting a run…');
       const runId = uuid();
       try {
-        const result = await api('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message, run_id: runId, context_gateway_enabled: $('#gateway-enabled').checked})});
+        const result = await api('/api/chat', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({message, run_id: runId, context_gateway_enabled: $('#gateway-enabled').checked, ...(modelsReady ? {model: $('#model').value} : {})})});
         activeRun = {run_id: result.run_id, events_url: result.events_url, cursor: '', status: 'running', question: message};
         saveRun();
         connectStream();
@@ -476,6 +740,93 @@
       } catch (error) { if (generation === sessionGeneration) $('#dialog-content').replaceChildren(node('p', `Memory unavailable: ${error.message}`, 'dialog-status')); }
     }
 
+    async function loadModels() {
+      try {
+        const data = await api('/api/models');
+        const labels = {'gemini-3.6-flash': 'Gemini 3.6 Flash', 'gemini-3.1-flash-lite': 'Gemini 3.1 Flash-Lite', 'gemini-3.1-pro-preview': 'Gemini 3.1 Pro'};
+        const models = (data.models || []).filter(model => typeof model === 'string');
+        if (!models.length) throw new Error('No models are configured.');
+        $('#model').replaceChildren(...models.map(model => new Option(labels[model] || model, model)));
+        $('#model').value = models.includes(data.default) ? data.default : models[0];
+        modelsReady = true;
+        $('#model').disabled = pending || !session;
+        $('#hybrid-category').replaceChildren(new Option('All categories', ''), ...(data.categories || []).map(category => new Option(category.replaceAll('-', ' '), category)));
+      } catch (error) { setStatus(`Model options unavailable: ${error.message}`, true); }
+    }
+
+    function hybridResultText(products) {
+      if (!products.length) return 'Context Gateway found no products matching those hybrid-search criteria.';
+      const lines = products.map((product, index) => {
+        const regular = Number(product.price), member = Number(product.member_price);
+        const prices = Number.isFinite(member) ? `Member $${member.toFixed(2)}${Number.isFinite(regular) ? ` · Regular $${regular.toFixed(2)}` : ''}` : '';
+        return `${index + 1}. ${product.name} (${product.sku})\n${prices}${product.description ? `\n${product.description}` : ''}`;
+      });
+      return `Context Gateway hybrid search found:\n\n${lines.join('\n\n')}`;
+    }
+
+    $('#hybrid-finder-toggle').addEventListener('click', () => {
+      const open = $('#hybrid-finder').hidden;
+      $('#hybrid-finder').hidden = !open;
+      $('#hybrid-prompts').hidden = !open;
+      $('#hybrid-finder-toggle').setAttribute('aria-expanded', String(open));
+      if (open) $('#hybrid-query').focus();
+    });
+    document.querySelectorAll('[data-hybrid-query]').forEach(button => {
+      button.addEventListener('click', () => {
+        if (pending || !session) return;
+        $('#hybrid-query').value = button.dataset.hybridQuery;
+        $('#hybrid-category').value = button.dataset.hybridCategory || '';
+        $('#hybrid-max-price').value = button.dataset.hybridMaxPrice || '';
+        $('#hybrid-finder').requestSubmit();
+      });
+    });
+    $('#hybrid-finder').addEventListener('submit', async event => {
+      event.preventDefault();
+      if (pending || !session) return;
+      if (!$('#gateway-enabled').checked) { addMessage('Enable Context Gateway in the Redis Iris services panel before using Hybrid Product Finder.'); return; }
+      const query = $('#hybrid-query').value.trim();
+      if (!query) return;
+      stopSource();
+      activeRun = null;
+      seenEvents = new Set();
+      traceSteps.clear();
+      $('#trace').replaceChildren();
+      setTraceId('');
+      addMessage(`Hybrid Product Finder: ${query}`, 'user');
+      assistantMessage = addMessage('Context Gateway is running hybrid product search…');
+      setBusy(true);
+      $('#trace-live').classList.add('active');
+      $('#trace-live span:last-child').textContent = 'running';
+      trace({service: 'context_gateway', title: 'Hybrid product search', status: 'running'});
+      try {
+        const body = {query, category: $('#hybrid-category').value || null};
+        if ($('#hybrid-max-price').value.trim()) body.max_member_price = Number($('#hybrid-max-price').value);
+        const data = await api('/api/catalog/hybrid-search', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+        (data.trace || []).forEach(trace);
+        showAnswer(hybridResultText(data.products || []));
+        setTraceId(data.trace_id);
+        setStatus(`Hybrid search complete · ${data.count ?? data.products?.length ?? 0} products · no model call`);
+      } catch (error) {
+        trace({service: 'context_gateway', title: 'Hybrid product search', status: 'failed', detail: error.message});
+        showAnswer(`Hybrid Product Finder could not complete: ${error.message}`);
+        setStatus('Hybrid search failed.', true);
+      } finally {
+        setBusy(false);
+        $('#trace-live').classList.remove('active');
+        $('#trace-live span:last-child').textContent = 'complete';
+        streamState('No active stream');
+        $('#hybrid-query').focus();
+      }
+    });
+
+    $('#service-panel-toggle').addEventListener('click', event => {
+      const collapsed = $('#service-panel').classList.toggle('collapsed');
+      event.currentTarget.textContent = collapsed ? '+' : '−';
+      event.currentTarget.setAttribute('aria-expanded', String(!collapsed));
+      event.currentTarget.setAttribute('aria-label', collapsed ? 'Expand Redis Iris services' : 'Collapse Redis Iris services');
+    });
+    $('#new-session').addEventListener('click', () => { if (session && !pending) void changeMember(session.member_id); });
+
     $('#chat-form').addEventListener('submit', event => { event.preventDefault(); void submitMessage($('#message').value); });
     $('#message').addEventListener('keydown', event => {
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); $('#chat-form').requestSubmit(); }
@@ -505,6 +856,7 @@
 
     async function initialize() {
       void refreshHealth();
+      void loadModels();
       try {
         const data = await api('/api/members');
         if (!data.members?.length) throw new Error('No synthetic members are configured.');
@@ -541,6 +893,6 @@
       }
     }
     void initialize();
-  </script>
+    </script>
 </body>
 </html>

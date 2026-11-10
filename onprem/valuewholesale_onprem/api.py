@@ -4,16 +4,19 @@ import asyncio
 import hashlib
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from redis.asyncio import Redis
 from redis.exceptions import WatchError
+from redis_iris import lens
 from redis_iris.agent_mesh.fastapi_sse import FastAPIRedis, get_stream_backend
 
 from .config import Settings
@@ -33,6 +36,17 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=8000)
     run_id: UUID
     context_gateway_enabled: bool = True
+    model: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+CATEGORIES = ("pantry", "household", "beverages", "electronics", "fresh-food")
+
+
+class HybridSearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=500)
+    category: Literal["pantry", "household", "beverages", "electronics", "fresh-food"] | None = None
+    max_member_price: float | None = Field(default=None, gt=0, le=100000, allow_inf_nan=False)
+    limit: int = Field(default=8, ge=1, le=20)
 
 
 def run_key(settings: Settings, identity: Identity, run_id: str, kind: str) -> str:
@@ -72,7 +86,13 @@ async def produce(
 
     try:
         await Turn(
-            services, identity, run_id, request.message, request.context_gateway_enabled, emit
+            services,
+            identity,
+            run_id,
+            request.message,
+            request.context_gateway_enabled,
+            emit,
+            model=request.model,
         ).run()
         snapshot["status"] = "completed"
         await redis.set(key, json.dumps(snapshot), ex=settings.onprem_run_ttl)
@@ -132,6 +152,7 @@ def create_app(
                 await redis.aclose()
 
     application = FastAPI(title="Value Wholesale · Iris GA", lifespan=lifespan)
+    application.mount("/static", StaticFiles(directory=STATIC), name="static")
     # The upstream builder reads REDIS_* from the runtime environment and composes lifespans.
     if settings.redis_url.get_secret_value() and stream_backend is None:
         FastAPIRedis(application).lifespan().streams()
@@ -171,6 +192,14 @@ def create_app(
     @application.get("/api/members")
     async def list_members():
         return {"members": members}
+
+    @application.get("/api/models")
+    async def configured_models():
+        return {
+            "models": settings.available_google_models,
+            "default": settings.google_model,
+            "categories": CATEGORIES,
+        }
 
     @application.post("/api/session")
     async def new_session(body: SessionRequest, response: Response):
@@ -273,11 +302,50 @@ def create_app(
         except Exception as exc:
             raise HTTPException(503, "Member memory is unavailable") from exc
 
+    @application.post("/api/catalog/hybrid-search")
+    async def hybrid_search(body: HybridSearchRequest, request: Request, current: identity_dep):
+        query = body.query.strip()
+        if len(query) < 2:
+            raise HTTPException(422, "Enter a shopping need with at least two characters")
+        services = request.app.state.services
+        if not settings.configured["context_gateway"]:
+            raise HTTPException(503, "Configure Context Gateway")
+        started = time.perf_counter()
+        with lens.turn(current.session_id, user_id=current.owner) as turn:
+            try:
+                with lens.span("context_gateway.hybrid_product_search"):
+                    result = await services.hybrid_products(
+                        current, query, body.category, body.max_member_price, body.limit
+                    )
+            except Exception as exc:
+                turn.set_outcome("failed")
+                raise HTTPException(503, "Context Gateway hybrid search is unavailable") from exc
+            turn.set_outcome("completed")
+            result["trace_id"] = turn.trace_id
+        result["trace"] = [
+            {
+                "service": "context_gateway",
+                "title": "Context Gateway · hybrid product search",
+                "status": "completed",
+                "duration_ms": round((time.perf_counter() - started) * 1000, 2),
+                "detail": {
+                    "ranking_method": result["ranking_method"],
+                    "count": result["count"],
+                    "category": body.category,
+                    "max_member_price": body.max_member_price,
+                    "model_calls": 0,
+                },
+            }
+        ]
+        return result
+
     @application.post("/api/chat")
     async def start_chat(
         body: ChatRequest, request: Request, current: identity_dep, streams: backend_dep
     ):
         services = request.app.state.services
+        if body.model is not None and body.model not in settings.available_google_models:
+            raise HTTPException(422, "Choose a configured Gemini model")
         missing = [
             name
             for name in ("agent_memory", "agent_playbooks", "intent_router", "gemini")

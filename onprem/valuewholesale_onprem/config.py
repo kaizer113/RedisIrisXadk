@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     google_cloud_project: str = ""
     google_cloud_location: str = "global"
     google_model: str = "gemini-3.6-flash"
+    google_models: list[str] = Field(default_factory=list)
+
+    @property
+    def available_google_models(self) -> list[str]:
+        """Only operator-configured choices are offered; the verified default is always present."""
+        return list(dict.fromkeys([self.google_model, *self.google_models]))
 
     @property
     def configured(self) -> dict[str, bool]:

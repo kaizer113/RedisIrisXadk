@@ -175,3 +175,10 @@ Product references: [Agent Playbooks](https://redis.io/docs/latest/develop/ai/co
 [Context Gateway](https://redis.io/docs/latest/develop/ai/context-engine/context-gateway/),
 [Lens](https://redis.io/docs/latest/develop/ai/context-engine/lens/), and
 [Agent Mesh](https://redis.io/docs/latest/develop/ai/context-engine/agent-mesh/).
+
+## Interface layout
+
+The demo retains the original navy two-column interface. Chat, prompt chips and Hybrid Product
+Finder sit on the left; compact Redis service cards and the agent trace sit on the right.
+Member and model selectors remain below the conversation. Expand **Presenter controls** in
+the footer for Mesh disconnect/reconnect; the Lens trace ID sits below the trace.

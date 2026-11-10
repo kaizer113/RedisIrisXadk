@@ -679,3 +679,163 @@ async def test_unconfigured_app_reports_degraded_instead_of_mock_success():
             assert not any(response["services"].values())
             assert response["checks"]["gemini"]["detail"] == "Vertex client is not configured"
             assert response["checks"]["lens"]["detail"] == "Lens SDK is not initialized"
+
+
+async def test_restored_controls_expose_configured_models_and_protect_model_binding(settings):
+    settings.google_models = ["gemini-3.1-flash-lite", "gemini-3.1-pro-preview"]
+    redis = FakeRedis(decode_responses=True)
+    streams = FakeStreams()
+    services = fake_services(settings, redis)
+    application = create_app(
+        settings, redis_client=redis, services_factory=lambda *_: services, stream_backend=streams
+    )
+    async with application.router.lifespan_context(application):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application), base_url="http://demo"
+        ) as browser:
+            choices = (await browser.get("/api/models")).json()
+            assert choices["models"] == [
+                "gemini-3.6-flash",
+                "gemini-3.1-flash-lite",
+                "gemini-3.1-pro-preview",
+            ]
+            assert choices["default"] == "gemini-3.6-flash"
+            assert (await browser.get("/static/index.html")).status_code == 200
+            await browser.post("/api/session", json={"member_id": "member-1001"})
+            body = {"message": "Find chocolate", "run_id": str(uuid4()), "model": "unconfigured"}
+            assert (await browser.post("/api/chat", json=body)).status_code == 422
+            assert not streams.producers and await redis.dbsize() == 0
+            allowed = {**body, "model": "gemini-3.1-flash-lite"}
+            assert (await browser.post("/api/chat", json=allowed)).status_code == 200
+            changed = {**allowed, "model": "gemini-3.1-pro-preview"}
+            assert (await browser.post("/api/chat", json=changed)).status_code == 409
+            assert len(streams.producers) == 1
+    await redis.aclose()
+
+
+async def test_model_selection_is_per_turn_and_does_not_mutate_shared_default(settings):
+    settings.google_models = ["gemini-3.1-flash-lite"]
+    services = fake_services(settings, target="shopping")
+    generate = AsyncMock(
+        return_value=types.GenerateContentResponse(
+            candidates=[
+                types.Candidate(
+                    content=types.Content(
+                        role="model",
+                        parts=[types.Part.from_text(text="Which products should I compare?")],
+                    )
+                )
+            ]
+        )
+    )
+    services.model = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    turn = Turn(
+        services,
+        Identity("member-1001", "session-a"),
+        str(uuid4()),
+        "Compare chocolates",
+        False,
+        AsyncMock(),
+        model="gemini-3.1-flash-lite",
+    )
+    await turn.run()
+    assert generate.call_args.kwargs["model"] == "gemini-3.1-flash-lite"
+    assert settings.google_model == "gemini-3.6-flash"
+
+
+async def test_hybrid_finder_requires_session_and_enforces_valid_filters(settings):
+    redis = FakeRedis(decode_responses=True)
+    services = fake_services(settings, redis)
+    services.hybrid_products = AsyncMock(
+        return_value={"products": [], "count": 0, "ranking_method": "rrf", "model_calls": 0}
+    )
+    application = create_app(
+        settings,
+        redis_client=redis,
+        services_factory=lambda *_: services,
+        stream_backend=FakeStreams(),
+    )
+    body = {"query": " dark chocolate ", "category": "pantry", "max_member_price": 25}
+    async with application.router.lifespan_context(application):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=application), base_url="http://demo"
+        ) as browser:
+            assert (await browser.post("/api/catalog/hybrid-search", json=body)).status_code == 401
+            services.hybrid_products.assert_not_awaited()
+            selected = (
+                await browser.post("/api/session", json={"member_id": "member-1001"})
+            ).json()
+            assert (
+                await browser.post(
+                    "/api/catalog/hybrid-search", json={**body, "category": "unconfigured"}
+                )
+            ).status_code == 422
+            services.hybrid_products.assert_not_awaited()
+            response = await browser.post("/api/catalog/hybrid-search", json=body)
+            assert response.status_code == 200
+            result = response.json()
+            assert result["model_calls"] == 0 and result["trace"][0]["service"] == "context_gateway"
+            args = services.hybrid_products.call_args.args
+            assert args[0] == Identity("member-1001", selected["session_id"])
+            assert args[1:] == ("dark chocolate", "pantry", 25, 8)
+    await redis.aclose()
+
+
+async def test_hybrid_product_search_uses_structured_predicates_and_rejects_bad_gateway_rows(
+    settings,
+):
+    tool = GatewayTool(
+        "shopping__search_product_by_semantic_embedding_hybrid",
+        "Hybrid Product search",
+        {
+            "type": "object",
+            "properties": {
+                "query_text": {"type": "string"},
+                "top_k": {"type": "number"},
+                "match_mode": {"enum": ["any", "all", "phrase"]},
+                "tag_conditions": {"type": "array"},
+                "numeric_conditions": {"type": "array"},
+            },
+            "required": ["query_text"],
+        },
+        original_name="search_product_by_semantic_embedding_hybrid",
+        annotations={"readOnlyHint": True},
+    )
+    row = {
+        "sku": "VH-1011",
+        "name": "Dark chocolate",
+        "category": "pantry",
+        "member_price": 18.99,
+        "price": 21.99,
+        "semantic_embedding": [0.1] * 768,
+        "_retrieval": {"hybrid_score": 0.032},
+        "unexpected": "not a display field",
+    }
+    service = Services.__new__(Services)
+    service.gateway = SimpleNamespace(
+        asearch=AsyncMock(return_value=[tool]),
+        acall=AsyncMock(
+            side_effect=[
+                ToolResult("", {"results": [row], "ranking_method": "rrf"}),
+                ToolResult(
+                    "", {"results": [{**row, "category": "electronics"}], "ranking_method": "rrf"}
+                ),
+                ToolResult(
+                    "", {"results": [{**row, "member_price": 100}], "ranking_method": "rrf"}
+                ),
+            ]
+        ),
+    )
+    identity = Identity("member-1001", "session-a")
+    result = await service.hybrid_products(identity, "dark chocolate", "pantry", 25, 5)
+    assert result["products"][0]["hybrid_score"] == 0.032 and result["model_calls"] == 0
+    assert "semantic_embedding" not in result["products"][0]
+    assert "unexpected" not in result["products"][0]
+    sent = service.gateway.acall.call_args.args[1]
+    assert sent["tag_conditions"] == [{"field": "category", "value": "pantry"}]
+    assert sent["numeric_conditions"] == [{"field": "member_price", "max_value": 25}]
+    for _ in range(2):
+        with pytest.raises(RuntimeError, match="did not honor"):
+            await service.hybrid_products(identity, "dark chocolate", "pantry", 25, 5)
