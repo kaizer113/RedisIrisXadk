@@ -152,8 +152,9 @@ The original stylesheet is preserved verbatim; the HTML shell disables caching f
 ## Bounded retrieval and final answers
 
 `ONPREM_MAX_TOOL_ROUNDS` limits tool-using model rounds. After the last allowed tool result,
-the agent reserves one text-only synthesis call with function calling set to `NONE`; it uses
-collected facts and identifies anything still unverified. Ordinary answers and published FAQs
+the agent reserves a separate text-only synthesis call with no tool declarations or native
+function-call history. Its bounded evidence includes successful current-turn results, excludes
+tool catalog schemas, and counts any omitted records. It identifies anything still unverified. Ordinary answers and published FAQs
 do not incur that extra call. The overall turn deadline still applies. Failed runs carry a safe
 error code and correlated run/trace IDs; the browser distinguishes a saved failure from a
 current service outage and restores its question for a new submission.

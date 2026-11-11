@@ -17,7 +17,7 @@ from redis_iris.intent_router.values import Match, Matches, Target
 
 from valuewholesale_onprem.api import create_app, produce, run_key
 from valuewholesale_onprem.config import Settings
-from valuewholesale_onprem.engine import Turn
+from valuewholesale_onprem.engine import FINAL_CONTEXT_MAX_BYTES, Turn, synthesis_context
 from valuewholesale_onprem.identity import Identity, issue, verify
 from valuewholesale_onprem.services import (
     Memory,
@@ -565,20 +565,93 @@ async def test_last_tool_round_is_followed_by_grounded_text_only_synthesis(setti
     turn.call.assert_awaited_once_with("view_cart", {})
     assert generate.call_args_list[0].kwargs["config"].tool_config is None
     final_call = generate.call_args_list[1].kwargs
+    assert final_call["config"].tools is None and final_call["config"].tool_config is None
     assert (
-        final_call["config"].tool_config.function_calling_config.mode
-        == types.FunctionCallingConfigMode.NONE
+        "Never invent product facts, prices, inventory" in final_call["config"].system_instruction
     )
-    assert "Never invent a tool name, SKU, price" in final_call["config"].system_instruction
     assert "could not be verified" in final_call["config"].system_instruction
-    assert any(
-        part.function_response and part.function_response.response == result
-        for content in final_call["contents"]
-        for part in content.parts
+    assert "never a quote, purchase or payment" in final_call["config"].system_instruction
+    assert len(final_call["contents"]) == 1 and final_call["contents"][0].role == "user"
+    assert all(
+        part.function_response is None and part.function_call is None
+        for part in final_call["contents"][0].parts
     )
+    evidence = json.loads(final_call["contents"][0].parts[0].text)
+    assert evidence["question"] == "Show my shortlist"
+    assert evidence["observations"][0]["result"] == result
     answer = next(event for event in events if event["type"] == "answer")
     assert answer["answer"] == "Your shortlist has two units of VH-1001."
     assert answer["model_calls"] == 2
+
+
+async def test_final_answer_does_not_treat_discovered_tool_schemas_as_retrieved_facts(settings):
+    settings.onprem_max_tool_rounds = 1
+    services = fake_services(settings, target="shopping")
+    generate = AsyncMock(
+        side_effect=[
+            types.GenerateContentResponse(
+                candidates=[
+                    types.Candidate(
+                        content=types.Content(
+                            role="model",
+                            parts=[
+                                types.Part.from_function_call(
+                                    name="discover_business_tools",
+                                    args={"query": "product inventory"},
+                                )
+                            ],
+                        )
+                    )
+                ]
+            ),
+            types.GenerateContentResponse(
+                candidates=[
+                    types.Candidate(
+                        content=types.Content(
+                            role="model",
+                            parts=[
+                                types.Part.from_text(
+                                    text="Current products and stock could not be verified."
+                                )
+                            ],
+                        )
+                    )
+                ]
+            ),
+        ]
+    )
+    services.model = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    turn = Turn(
+        services,
+        Identity("member-1001", "session-a"),
+        str(uuid4()),
+        "Find chocolate and current stock",
+        True,
+        AsyncMock(),
+    )
+    turn.call = AsyncMock(return_value={"tools": [{"schema": "SCHEMA_IS_NOT_A_FACT"}]})
+    await turn.run()
+    final_call = generate.call_args.kwargs
+    evidence_text = final_call["contents"][0].parts[0].text
+    evidence = json.loads(evidence_text)
+    assert evidence["observations"] == [] and evidence["tool_catalog_discoveries"] == 1
+    assert "SCHEMA_IS_NOT_A_FACT" not in evidence_text
+    assert final_call["config"].tools is None
+    turn.call.assert_awaited_once_with("discover_business_tools", {"query": "product inventory"})
+
+
+def test_final_evidence_is_bounded_without_silently_truncating_records():
+    observations = [
+        {"id": "large", "result": "x" * FINAL_CONTEXT_MAX_BYTES},
+        {"id": "small", "result": {"sku": "VH-1001", "quantity": 34}},
+    ]
+    text, used = synthesis_context("member-1001", "What is available?", observations, [], 0)
+    payload = json.loads(text)
+    assert len(text.encode()) <= FINAL_CONTEXT_MAX_BYTES
+    assert payload["observations"] == [observations[1]]
+    assert payload["omitted_observations"] == 1 and used == {"small"}
 
 
 async def test_final_synthesis_never_executes_an_extra_tool_even_if_model_requests_it(settings):
