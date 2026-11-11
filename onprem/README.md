@@ -148,3 +148,12 @@ The restored interface is deployed from `fc85c6ba3f4542b4ec2d7d893e82bae061e58b9
 Root lint/86 tests and isolated lint/29 tests passed. Browser checks verified the original
 layout, published policy answer, configured model choices and the travel-audio hybrid preset.
 The original stylesheet is preserved verbatim; the HTML shell disables caching for updates.
+
+## Bounded retrieval and final answers
+
+`ONPREM_MAX_TOOL_ROUNDS` limits tool-using model rounds. After the last allowed tool result,
+the agent reserves one text-only synthesis call with function calling set to `NONE`; it uses
+collected facts and identifies anything still unverified. Ordinary answers and published FAQs
+do not incur that extra call. The overall turn deadline still applies. Failed runs carry a safe
+error code and correlated run/trace IDs; the browser distinguishes a saved failure from a
+current service outage and restores its question for a new submission.

@@ -98,13 +98,44 @@ async def produce(
         await redis.set(key, json.dumps(snapshot), ex=settings.onprem_run_ttl)
         await writer.finish("completed", {"type": "completed"})
     except Exception as exc:
-        log.error("GA turn failed (%s)", type(exc).__name__)
-        snapshot["status"] = "failed"
-        snapshot["error"] = (
-            "A required service failed. Inspect the last service step and retry a new turn."
+        last_step = next(
+            (event["step"] for event in reversed(snapshot["events"]) if event["type"] == "trace"),
+            {},
         )
+        if isinstance(exc, TimeoutError):
+            error_code = "request_timed_out"
+            message = (
+                "This request reached its time limit before finishing. Try a narrower request."
+            )
+        elif last_step.get("status") == "error":
+            error_code = "service_call_failed"
+            name = {
+                "agent_memory": "Agent Memory",
+                "agent_playbooks": "Agent Playbooks",
+                "context_gateway": "Context Gateway",
+                "intent_router": "Intent Router",
+                "gemini": "Gemini",
+            }.get(last_step.get("service"), "required service")
+            message = f"The {name} call could not complete this request. Please try again."
+        else:
+            error_code = "request_failed"
+            message = "This request stopped before producing an answer. Please send it again."
+        # Correlate failures without logging provider exception bodies or credentials.
+        log.error(
+            "GA turn failed run_id=%s trace_id=%s code=%s exception=%s step=%s",
+            run_id,
+            snapshot.get("trace_id", "unassigned"),
+            error_code,
+            type(exc).__name__,
+            last_step.get("title", "unassigned"),
+        )
+        snapshot["status"] = "failed"
+        snapshot["error"] = message
+        snapshot["error_code"] = error_code
         await redis.set(key, json.dumps(snapshot), ex=settings.onprem_run_ttl)
-        await writer.finish("failed", {"type": "failed", "message": snapshot["error"]})
+        await writer.finish(
+            "failed", {"type": "failed", "message": message, "error_code": error_code}
+        )
     finally:
         await release_lock(redis, lock_key, run_id)
 

@@ -517,8 +517,11 @@ body[data-experience="valuewholesale"] #brand-name {
         stopSource();
         setBusy(false);
         if (assistantMessage) assistantMessage.classList.add('failed');
-        showAnswer(data.message || data.error || 'The run failed. Check the service configuration and try a new request.');
-        setStatus('The run failed. The trace may identify the service that needs attention.', true);
+        activeRun.error = data.error_code ? data.message : 'This request did not finish. Please send it again.';
+        activeRun.error_code = data.error_code;
+        showAnswer(activeRun.error);
+        if (!$('#message').value.trim() && activeRun.question) $('#message').value = activeRun.question;
+        setStatus(activeRun.error, true);
         streamState('Run failed', 'disconnected');
       } else if (namedType === 'stream.end') {
         stopSource();
@@ -556,7 +559,14 @@ body[data-experience="valuewholesale"] #brand-name {
           stopSource();
           setBusy(false);
           streamState(snapshot.status === 'completed' ? 'Saved response recovered' : 'Run failed', snapshot.status === 'completed' ? 'connected' : 'disconnected');
-          setStatus(snapshot.status === 'completed' ? 'Recovered the saved result.' : 'The run failed. Start a new request when the service is available.', snapshot.status === 'failed');
+          if (snapshot.status === 'failed') {
+            activeRun.error = snapshot.error_code ? snapshot.error : 'This previous request did not finish. Send it again to start a new run.';
+            activeRun.error_code = snapshot.error_code;
+            if (assistantMessage) assistantMessage.classList.add('failed');
+            showAnswer(activeRun.error);
+            if (!$('#message').value.trim() && activeRun.question) $('#message').value = activeRun.question;
+            setStatus(activeRun.error, true);
+          } else setStatus('Recovered the saved result.');
         }
         saveRun();
       } catch (error) {

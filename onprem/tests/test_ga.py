@@ -523,6 +523,96 @@ async def test_gemini_loop_uses_discovered_gateway_schema_and_real_response_type
     )
 
 
+async def test_last_tool_round_is_followed_by_grounded_text_only_synthesis(settings):
+    settings.onprem_max_tool_rounds = 1
+    services = fake_services(settings, target="shopping")
+    result = {"items": [{"sku": "VH-1001", "quantity": 2}], "note": "Demo shortlist only"}
+
+    def response(part):
+        return types.GenerateContentResponse(
+            candidates=[types.Candidate(content=types.Content(role="model", parts=[part]))],
+            usage_metadata=types.GenerateContentResponseUsageMetadata(
+                prompt_token_count=12, candidates_token_count=7
+            ),
+        )
+
+    generate = AsyncMock(
+        side_effect=[
+            response(types.Part.from_function_call(name="view_cart", args={})),
+            response(types.Part.from_text(text="Your shortlist has two units of VH-1001.")),
+        ]
+    )
+    services.model = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    events = []
+
+    async def emit(event):
+        events.append(event)
+
+    turn = Turn(
+        services,
+        Identity("member-1001", "session-a"),
+        str(uuid4()),
+        "Show my shortlist",
+        True,
+        emit,
+    )
+    turn.call = AsyncMock(return_value=result)
+    await turn.run()
+
+    assert turn.model_calls == generate.await_count == 2
+    turn.call.assert_awaited_once_with("view_cart", {})
+    assert generate.call_args_list[0].kwargs["config"].tool_config is None
+    final_call = generate.call_args_list[1].kwargs
+    assert (
+        final_call["config"].tool_config.function_calling_config.mode
+        == types.FunctionCallingConfigMode.NONE
+    )
+    assert "Never invent a tool name, SKU, price" in final_call["config"].system_instruction
+    assert "could not be verified" in final_call["config"].system_instruction
+    assert any(
+        part.function_response and part.function_response.response == result
+        for content in final_call["contents"]
+        for part in content.parts
+    )
+    answer = next(event for event in events if event["type"] == "answer")
+    assert answer["answer"] == "Your shortlist has two units of VH-1001."
+    assert answer["model_calls"] == 2
+
+
+async def test_final_synthesis_never_executes_an_extra_tool_even_if_model_requests_it(settings):
+    settings.onprem_max_tool_rounds = 1
+    services = fake_services(settings, target="shopping")
+    tool_request = types.GenerateContentResponse(
+        candidates=[
+            types.Candidate(
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part.from_function_call(name="view_cart", args={})],
+                )
+            )
+        ]
+    )
+    generate = AsyncMock(side_effect=[tool_request, tool_request])
+    services.model = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate))
+    )
+    turn = Turn(
+        services,
+        Identity("member-1001", "session-a"),
+        str(uuid4()),
+        "Show my shortlist",
+        True,
+        AsyncMock(),
+    )
+    turn.call = AsyncMock(return_value={"items": []})
+    with pytest.raises(RuntimeError, match="final answer within the tool budget"):
+        await turn.run()
+    assert generate.await_count == 2
+    turn.call.assert_awaited_once_with("view_cart", {})
+
+
 async def test_gateway_handle_is_bound_to_this_turn_and_uses_discovered_schema(settings):
     services = fake_services(settings)
     schema = {
@@ -741,6 +831,7 @@ async def test_model_selection_is_per_turn_and_does_not_mutate_shared_default(se
         model="gemini-3.1-flash-lite",
     )
     await turn.run()
+    assert generate.await_count == 1
     assert generate.call_args.kwargs["model"] == "gemini-3.1-flash-lite"
     assert settings.google_model == "gemini-3.6-flash"
 

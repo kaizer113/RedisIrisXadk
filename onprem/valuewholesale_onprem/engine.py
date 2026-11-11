@@ -309,7 +309,18 @@ class Turn:
         contents.append(types.Content(role="user", parts=[types.Part.from_text(text=self.message)]))
         declarations = [*LOCAL_TOOLS, *(GATEWAY_TOOLS if self.gateway_enabled else [])]
         by_name = {tool.name: tool for tool in declarations}
-        for _ in range(services.settings.onprem_max_tool_rounds):
+        for round_index in range(services.settings.onprem_max_tool_rounds + 1):
+            # The tool budget bounds retrieval, not the opportunity to answer
+            # from the final tool result. Reserve one text-only synthesis pass.
+            final_pass = round_index == services.settings.onprem_max_tool_rounds
+            instruction = system
+            if final_pass:
+                instruction += (
+                    "\nThe retrieval budget is complete. Answer using only facts supported by "
+                    "the tool results already collected in this turn. Do not call another tool. "
+                    "If some requested facts are still unavailable, say which ones could not "
+                    "be verified and give the supported portion of the answer."
+                )
             with lens.prompt_assembly() as assembly:
                 assembly.fetched(fetched)
                 assembly.used(fetched)
@@ -322,14 +333,19 @@ class Turn:
                 },
             ) as model_span:
 
-                async def invoke():
+                async def invoke(instruction=instruction, final_pass=final_pass):
                     self.model_calls += 1
                     return await services.model.aio.models.generate_content(
                         model=self.model_name,
                         contents=contents,
                         config=types.GenerateContentConfig(
-                            system_instruction=system,
+                            system_instruction=instruction,
                             tools=[types.Tool(function_declarations=declarations)],
+                            tool_config=types.ToolConfig(
+                                function_calling_config=types.FunctionCallingConfig(mode="NONE")
+                            )
+                            if final_pass
+                            else None,
                             automatic_function_calling=types.AutomaticFunctionCallingConfig(
                                 disable=True
                             ),
@@ -337,7 +353,11 @@ class Turn:
                         ),
                     )
 
-                response = await self.measured("gemini", "Gemini shopping reasoning", invoke)
+                response = await self.measured(
+                    "gemini",
+                    "Gemini final answer" if final_pass else "Gemini shopping reasoning",
+                    invoke,
+                )
                 usage = response.usage_metadata
                 if usage:
                     if usage.prompt_token_count is not None:
@@ -353,7 +373,7 @@ class Turn:
                         "gen_ai.input.messages",
                         json.dumps(
                             [
-                                {"role": "system", "content": system},
+                                {"role": "system", "content": instruction},
                                 *[
                                     item.model_dump(mode="json", exclude_none=True)
                                     for item in contents
@@ -371,6 +391,9 @@ class Turn:
                 if not response.text:
                     raise RuntimeError("Gemini returned an empty answer")
                 return response.text
+            if final_pass:
+                # Fail closed even if a provider ignores function-calling NONE.
+                raise RuntimeError("Gemini did not provide a final answer within the tool budget")
             results = []
             for call in calls:
                 definition = by_name.get(call.name)
