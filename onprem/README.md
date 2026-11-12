@@ -158,3 +158,13 @@ tool catalog schemas, and counts any omitted records. It identifies anything sti
 do not incur that extra call. The overall turn deadline still applies. Failed runs carry a safe
 error code and correlated run/trace IDs; the browser distinguishes a saved failure from a
 current service outage and restores its question for a new submission.
+
+The completion fix is deployed from `b9508e3dbf0948472a12a49fcdfab6e2eb822487`, image
+`sha256:c4804318965daae99174e8c00279f2b686adfa4565e76d049069dca1a5c635e6` (November 12, 2026).
+The packaged original dark-chocolate question completed seven model calls, including its final
+answer. Staged live regression also passed with a forced one-round limit. Root lint/86 tests and
+isolated lint/36 tests passed. All seven public readiness checks passed after the scoped cutover.
+The interface-restoration image above is historical; this release keeps its layout.
+
+A new request for the same question also completed through the public URL with five model
+calls. Other demo ports 80/8080/8081 stayed healthy with unchanged container IDs.

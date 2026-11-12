@@ -6,7 +6,7 @@ Context Gateway, Lens, and Agent Mesh. Its shopping workflow is a bounded Google
 through Vertex AI. The default Value Wholesale, Norling's, and Value Travel demos keep their
 existing runtimes and dependencies.
 
-**Status, November 10, 2026:** live at <http://34.86.132.98:8083>. The issued license validated in all five services, and the published Iris 1.0.0 suite is deployed. Only the port-8083 application container was replaced; other demo health checks and exact container IDs are unchanged. Root lint/86 tests, isolated lint/29 tests, live product checks and actual HTTP application acceptance passed. Native Redis 8.6.2 replay was verified across distinct temporary application containers, followed by public health and browser policy-answer checks. Detailed operator evidence stays private under `/Users/redis/code/Iris/.secrets/iris-suite/`.
+**Status, November 12, 2026:** live at <http://34.86.132.98:8083>. The issued license validated in all five services, and the published Iris 1.0.0 suite is deployed. Only the port-8083 application container was replaced; other demo health checks and exact container IDs are unchanged. Root lint/86 tests, isolated lint/36 tests, live product checks and actual HTTP application acceptance passed. Native Redis 8.6.2 replay was verified across distinct temporary application containers, followed by public health and browser policy-answer checks. Detailed operator evidence stays private under `/Users/redis/code/Iris/.secrets/iris-suite/`.
 See [the presenter walkthrough](demo-valuewholesale-onprem.md).
 
 ## Isolated runtime
@@ -251,6 +251,23 @@ versions, fixture revisions, and acceptance outcomes in the shared Iris migratio
 
 ## Verified deployed image
 
-The application image is `us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:5b319e24207c1294840f9344a0da240daea823aaf35b394f93dd69c2360a3535`, built from source `fc85c6ba3f4542b4ec2d7d893e82bae061e58b92`. Later commits change helpers/documentation without changing that runtime. The actual nonroot entrypoint starts its installed Uvicorn directly; no dependency resolution runs at startup.
+The application image is `us-east4-docker.pkg.dev/central-beach-194106/valuewholesale/valuewholesale-onprem-ga@sha256:c4804318965daae99174e8c00279f2b686adfa4565e76d049069dca1a5c635e6`, built from source `b9508e3dbf0948472a12a49fcdfab6e2eb822487`. Later commits change helpers/documentation without changing that runtime. The actual nonroot entrypoint starts its installed Uvicorn directly; no dependency resolution runs at startup.
 
-Use `scripts/deploy_onprem_ga.sh` for a future scoped deployment. It validates stream settings and CA trust, gates replacement on a local two-worker canary, and retains private rollback metadata. The previous container is stopped as `valuewholesale-onprem-agent-before-20261110T215514Z`; its backup directory is `/var/backups/valuewholesale-onprem-ga/20261110T215514Z` on the VM.
+Use `scripts/deploy_onprem_ga.sh` for a future scoped deployment. It validates stream settings and CA trust, gates replacement on a local two-worker canary, and retains private rollback metadata. The previous container is stopped as `valuewholesale-onprem-agent-before-20261112T170151Z`; its backup directory is `/var/backups/valuewholesale-onprem-ga/20261112T170151Z` on the VM.
+
+## Retrieval-budget completion verification — November 12, 2026
+
+The original question, “Find dark chocolate and check current inventory at my home warehouse,”
+completed through the built image against live services with six tool-using rounds followed by
+one text-only final answer. A separate one-round regression completed without claiming stock
+facts it had not retrieved. The final request has no tool declarations or native function-call
+history; it uses bounded current-turn evidence and marks omissions. Root lint/86 tests and
+isolated lint/36 tests pass. The public deployment reports all seven readiness checks true.
+
+Stored failed requests remain failed. Refresh the page and submit the restored question again.
+The UI distinguishes historical failure from a current service error and retains the original
+layout. The migration reference in `/Users/redis/code/Iris/IRIS_GA_MIGRATION.md` records the
+observations and the rejected tool-mode-only approach.
+
+A new request for the same question also completed through the public URL with five model
+calls. Other demo ports 80/8080/8081 stayed healthy with unchanged container IDs.
